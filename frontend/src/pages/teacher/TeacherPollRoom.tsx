@@ -137,7 +137,7 @@ export default function TeacherPollRoom() {
       correctOptionIndex: newCorrectIndex
     };
   }, []);
-
+  
   // UI State
   const [showPollModal, setShowPollModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
@@ -409,8 +409,8 @@ export default function TeacherPollRoom() {
 
       if (audioContextRef.current) {
         audioContextRef.current.close();
-      }
-
+    }
+    
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -430,7 +430,7 @@ export default function TeacherPollRoom() {
           const remainderText = words.slice(processedWordsRef.current, processedWordsRef.current + remaining).join(" ");
           processedWordsRef.current += remaining;
           enqueueTextChunk(remainderText);
-        }
+    }
 
         // Wait for queue to finish processing
         while (processingQueueRef.current || pendingTextChunksRef.current.length > 0) {
@@ -487,7 +487,7 @@ export default function TeacherPollRoom() {
           setIsListening(true);
           setInterimTranscript("");
         }
-      } catch (error) {
+    } catch (error) {
         console.error("Error accessing microphone:", error);
       }
     }
@@ -621,7 +621,7 @@ export default function TeacherPollRoom() {
         toast.error(apiError.response?.data?.message || "Failed to end room");
       } else {
         toast.error("Failed to end room");
-      }
+    }
     } finally {
       setIsEndingRoom(false);
       setShowEndRoomConfirm(false);
@@ -788,8 +788,8 @@ export default function TeacherPollRoom() {
     ];
 
     const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
-
-    return (
+      
+      return (
       <div className={`relative ${className}`}>
         <button
           type="button"
@@ -830,11 +830,11 @@ export default function TeacherPollRoom() {
                   )}
                 </button>
               ))}
-            </div>
+          </div>
           </>
         )}
-      </div>
-    );
+        </div>
+      );
   };
 
 
@@ -1034,14 +1034,34 @@ export default function TeacherPollRoom() {
                 {roomCode}
               </span>
             </h2>
-            <Button variant="outline" onClick={handleCreateManualPoll} className="mr-2">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Manual Poll
-            </Button>
-            <Button variant="outline" onClick={handlePollResultsbutton}>
-              <BarChart2 className="w-4 h-4 mr-2" />
-              Poll Results
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant={showPreview ? "default" : "outline"} 
+                onClick={() => setShowPreview(!showPreview)}
+                className="mr-2"
+              >
+                <Wand2 className="w-4 h-4 mr-2" />
+                {showPreview ? 'Hide Questions' : 'Generated Questions'}
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setQuestion("");
+                  setOptions(["", "", "", ""]);
+                  setCorrectOptionIndex(0);
+                  setTimer(30);
+                  setShowPollModal(true);
+                }} 
+                className="mr-2"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create Live Poll
+              </Button>
+              <Button variant="outline" onClick={handlePollResultsbutton}>
+                <BarChart2 className="w-4 h-4 mr-2" />
+                Poll Results
+              </Button>
+            </div>
             <div className="flex items-center gap-2 sm:gap-4 mt-2 sm:mt-0">
               <ThemeToggle />
               <Button
@@ -1140,7 +1160,7 @@ export default function TeacherPollRoom() {
         {/* GenAI Tab */}
         <div className="flex-1 mt-14 py-6 px-1 md:p-6 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
           <ScrollArea className="h-full pe-3">
-            {!isRecording && queuedGeneratedQuestions.length > 0 && (
+            {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
               <Card className="mb-6 border border-purple-200 dark:border-purple-900/50 bg-gradient-to-br from-purple-50/50 to-white dark:from-gray-900/50 dark:to-gray-900">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
@@ -1233,7 +1253,7 @@ export default function TeacherPollRoom() {
                   </div>
                 </CardContent>
               </Card>
-            )}
+            )} */}
             {!showPollModal && !showResultsModal && (
               <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-4 sm:space-y-6">
@@ -1482,13 +1502,13 @@ export default function TeacherPollRoom() {
                       </CardContent>
                     </Card>
 
-                  ) : (generatedQuestions.length > 0 && (
-                    <Card className="flex items-center bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow-lg">
-                      <CardHeader className="w-full flex items-center ml-80">
-                        <div className="flex items-center gap-150">
-                          <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                            <ClipboardList className="w-5 h-5 text-purple-500" />
-                            <span className="text-lg font-semibold">Generated Questions</span>
+                  ) : (showPreview && generatedQuestions.length > 0 && (
+                    <Card className="w-full max-w-7xl mx-auto bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow-lg">
+                      <CardHeader className="w-full px-4 sm:px-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <CardTitle className="text-base sm:text-lg font-semibold flex items-center flex-wrap gap-2">
+                            <ClipboardList className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                            <span>Generated Questions</span>
                             <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
                               ({generatedQuestions.length} total)
                             </span>
@@ -1497,20 +1517,19 @@ export default function TeacherPollRoom() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-
-                              handlePollResultsbutton();
+                              setShowPreview(false);
                             }}
-                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                            className="self-end sm:self-auto text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                           >
-                            <X className="w-6 h-6" />
+                            <X className="w-5 h-5 sm:w-6 sm:h-6" />
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="px-3 sm:px-6">
                         {generatedQuestions.length > 0 && (
                           <div className="space-y-4">
                             {/* Question Navigation */}
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2 sm:gap-4">
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1519,20 +1538,20 @@ export default function TeacherPollRoom() {
                                   setCurrentQuestionIndex(newIndex);
                                 }}
                                 disabled={generatedQuestions.length <= 1}
-                                className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                                className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70 flex-shrink-0"
                               >
-                                <ChevronLeft size={20} />
+                                <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                               </Button>
-                              <div className="flex-1 mx-4">
+                              <div className="flex-1">
                                 {/* Card UI Content */}
-                                <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 w-[900px] h-[500px] mx-auto flex flex-col">
+                                <div className="p-3 sm:p-4 md:p-6 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 w-full max-h-[600px] sm:max-h-[550px] lg:max-h-[500px] flex flex-col">
                                   {/* Question */}
-                                  <div className="mb-2 flex-shrink-0">
-                                    <div className="flex items-center justify-between mb-2">
+                                  <div className="mb-3 sm:mb-4 flex-shrink-0">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                                       <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                                         Question
                                       </label>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
 
                                         {editingQuestion !== null ? (
                                           <div className="flex gap-2">
@@ -1540,7 +1559,7 @@ export default function TeacherPollRoom() {
                                               variant="outline"
                                               size="sm"
                                               onClick={() => setEditingQuestion(null)}
-                                              className="text-xs h-8 px-3"
+                                              className="text-xs h-7 sm:h-8 px-2 sm:px-3"
                                             >
                                               Cancel
                                             </Button>
@@ -1548,7 +1567,7 @@ export default function TeacherPollRoom() {
                                               variant="secondary"
                                               size="sm"
                                               onClick={() => handleSaveQuestionEdit()}
-                                              className="text-xs h-8 px-3 bg-blue-600 hover:bg-blue-700"
+                                              className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-blue-600 hover:bg-blue-700 text-white"
                                             >
                                               Save
                                             </Button>
@@ -1558,9 +1577,9 @@ export default function TeacherPollRoom() {
                                             variant="outline"
                                             size="sm"
                                             onClick={() => setEditingQuestion(currentQuestionIndex)}
-                                            className="text-xs h-8 px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                                            className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
                                           >
-                                            <Edit3 className="w-3.5 h-3.5 mr-1" />
+                                            <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" />
                                             Edit
                                           </Button>
                                         )}
@@ -1578,10 +1597,10 @@ export default function TeacherPollRoom() {
                                               }
                                             }
                                           }}
-                                          className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                                          className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                                         >
-                                          <Trash2 className="w-4 h-4 mr-1" />
-                                          Delete
+                                          <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                                          <span className="hidden sm:inline">Delete</span>
                                         </Button>
                                       </div>
                                     </div>
@@ -1590,19 +1609,19 @@ export default function TeacherPollRoom() {
                                       <Input
                                         value={generatedQuestions[currentQuestionIndex].question}
                                         onChange={(e) => handleQuestionChange(e.target.value)}
-                                        className="w-full mb-2"
+                                        className="w-full mb-2 text-sm sm:text-base"
                                         placeholder="Enter your question"
                                       />
                                     ) : (
-                                      <div className="p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
+                                      <div className="p-2 sm:p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 text-sm sm:text-base">
                                         {generatedQuestions[currentQuestionIndex].question || "Untitled Question"}
                                       </div>
                                     )}
                                   </div>
 
                                   {/* Options */}
-                                  <div className="flex-1 overflow-y-auto space-y-3 py-2 -mx-2 px-2">
-                                    <div className="flex items-center justify-between">
+                                  <div className="flex-1 overflow-y-auto space-y-2 sm:space-y-3 py-2 -mx-2 px-2">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                                       <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                                         Options
                                       </label>
@@ -1616,12 +1635,12 @@ export default function TeacherPollRoom() {
                                         <div
                                           key={optionIndex}
                                           onClick={() => handleOptionClick(optionIndex)}
-                                          className={`p-3 rounded-md cursor-pointer transition-colors ${generatedQuestions[currentQuestionIndex].correctOptionIndex === optionIndex
+                                          className={`p-2 sm:p-3 rounded-md cursor-pointer transition-colors ${generatedQuestions[currentQuestionIndex].correctOptionIndex === optionIndex
                                             ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 font-medium'
                                             : 'bg-gray-100/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70'
                                             }`}
                                         >
-                                          <div className="flex items-center gap-3">
+                                          <div className="flex items-center gap-2 sm:gap-3">
                                             <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${generatedQuestions[currentQuestionIndex].correctOptionIndex === optionIndex
                                               ? 'bg-green-500'
                                               : 'bg-gray-300 dark:bg-gray-600'
@@ -1635,12 +1654,12 @@ export default function TeacherPollRoom() {
                                               <Input
                                                 value={option}
                                                 onChange={(e) => handleOptionChange(optionIndex, e.target.value)}
-                                                className="flex-1 bg-white dark:bg-gray-800 border-0 border-b border-transparent focus-visible:ring-0 focus-visible:border-b-gray-300 dark:focus-visible:border-b-gray-600"
+                                                className="flex-1 bg-white dark:bg-gray-800 border-0 border-b border-transparent focus-visible:ring-0 focus-visible:border-b-gray-300 dark:focus-visible:border-b-gray-600 text-sm sm:text-base"
                                                 placeholder={`Option ${optionIndex + 1}`}
                                                 onClick={(e) => e.stopPropagation()}
                                               />
                                             ) : (
-                                              <span className="flex-1">
+                                              <span className="flex-1 text-sm sm:text-base break-words">
                                                 {option || `Option ${optionIndex + 1} (empty)`}
                                               </span>
                                             )}
@@ -1651,10 +1670,10 @@ export default function TeacherPollRoom() {
                                   </div>
 
                                   {/* Action Buttons */}
-                                  <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-between flex-shrink-0">
-                                    
+                                  <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
+
                                     {/* Timer */}
-                                    <div>
+                                    <div className="flex-1 lg:flex-initial">
                                       <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
                                         <Clock className="w-4 h-4" />
                                         Timer (seconds)
@@ -1666,7 +1685,7 @@ export default function TeacherPollRoom() {
                                           value={timer}
                                           min={5}
                                           onChange={(e) => setTimer(Number(e.target.value))}
-                                          className="dark:bg-gray-800/50 text-sm w-36"
+                                          className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
                                           aria-label="Timer in seconds"
                                         />
                                       </div>
@@ -1678,7 +1697,7 @@ export default function TeacherPollRoom() {
                                     <Button
                                       onClick={handleLaunchPoll}
                                       disabled={launchedQuestions.has(currentQuestionIndex)}
-                                      className="mt-5 bg-purple-600 hover:bg-purple-700"
+                                      className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
                                     >
                                       <BarChart2 className="w-4 h-4 mr-2" />
                                       Launch Poll
@@ -1694,9 +1713,9 @@ export default function TeacherPollRoom() {
                                   setCurrentQuestionIndex(newIndex);
                                 }}
                                 disabled={generatedQuestions.length <= 1}
-                                className="w-10 h-10 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                                className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70 flex-shrink-0"
                               >
-                                <ChevronRight size={20} />
+                                <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                               </Button>
                             </div>
                           </div>
