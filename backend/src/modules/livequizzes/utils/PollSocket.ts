@@ -33,7 +33,7 @@ class PollSocket {
           const isActive = await this.roomService.isRoomValid(roomCode);
           if (email) {
             const user = await this.userRepo.findByEmail(email)
-            const userId = user._id;
+            const userId = user?._id;
             await this.roomService.enrollStudent(userId as string, roomCode)
           }
           if (isActive) {

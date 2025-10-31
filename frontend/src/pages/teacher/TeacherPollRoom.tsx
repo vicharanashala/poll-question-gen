@@ -47,6 +47,7 @@ interface APIResponse {
   questions: APIQuestion[];
 }
 
+
 export type SupportedLanguage =
   | "en-IN"
   | "en-US"
@@ -168,7 +169,7 @@ export default function TeacherPollRoom() {
     timeLeft?: number;
     timer?: number;
   };
-  
+
   const [livePollResults, setLivePollResults] = useState<Record<string, LivePollResult>>({});
   const [showMemberNames, setShowMemberNames] = useState<Record<string, boolean>>({});
   const [isEndingRoom, setIsEndingRoom] = useState(false);
@@ -211,6 +212,8 @@ export default function TeacherPollRoom() {
   const [useWhisper, setUseWhisper] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
+
+
   // UI state for queued question viewer shown after mic stops
   const [showQueuedViewer, setShowQueuedViewer] = useState(false);
   const [queuedViewerIndex, setQueuedViewerIndex] = useState(0);
@@ -261,19 +264,12 @@ export default function TeacherPollRoom() {
   useEffect(() => {
     if (!roomCode) return;
 
-    console.log('[Room] Initializing room connection for:', roomCode);
-
     // Join room function
     const joinRoom = () => {
       console.log('Joining room:', roomCode);
-      
-      // Test connection
-      socket.emit('ping', { test: 'test' }, (response: any) => {
-        console.log('Ping response:', response);
-      });
 
       socket.emit('join-room', roomCode, (response: any) => {
-        console.log('Join room response:', response);
+        // console.log('Join room response:', response);
         if (response?.status === 'error') {
           console.error('Error joining room:', response.message);
         } else {
@@ -284,8 +280,8 @@ export default function TeacherPollRoom() {
 
     // Handle poll updates
     const handlePollUpdate = (data: any) => {
-      console.log('[DEBUG] Received in-memory-poll-update event:', data);
-      
+      // console.log('[DEBUG] Received in-memory-poll-update event:', data);
+
       setLivePollResults(prev => {
         const updated = { ...prev };
         const pollId = data.pollId || roomCode; // Fallback to roomCode if pollId is not provided
@@ -302,17 +298,17 @@ export default function TeacherPollRoom() {
           timer: data.timer
         };
 
-        console.log('Updated poll results:', updated[pollId]);
+        // console.log('Updated poll results:', updated[pollId]);
         return { ...updated };
       });
     };
 
     // Set up all socket event listeners
     const setupEventListeners = () => {
-      console.log('Setting up socket listeners...');
-      
+      // console.log('Setting up socket listeners...');
+
       // Clear any existing listeners
-      socket.off('in-memory-poll-update');
+      socket.off('live-poll-results');
       socket.off('room-updated');
       socket.off('connect');
       socket.off('disconnect');
@@ -320,20 +316,20 @@ export default function TeacherPollRoom() {
       socket.off('error');
 
       // Set up new listeners
-      socket.on('in-memory-poll-update', handlePollUpdate);
-      
+      socket.on('live-poll-results', handlePollUpdate);
+
       socket.on('room-updated', (updatedRoom) => {
-        console.log('Room updated:', updatedRoom);
+        // console.log('Room updated:', updatedRoom);
         setStudents(updatedRoom.students || []);
       });
 
       socket.on('connect', () => {
-        console.log('Socket connected with ID:', socket.id);
+        // console.log('Socket connected with ID:', socket.id);
         joinRoom(); // Re-join room on reconnect
       });
 
       socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason);
+        // console.log('Socket disconnected:', reason);
         setJoinedRoom(false);
       });
 
@@ -354,16 +350,50 @@ export default function TeacherPollRoom() {
     if (socket.connected) {
       joinRoom();
     }
+
+    return () => {
+      socket.off('live-poll-results');
+      socket.off('room-updated');
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('connect_error');
+      socket.off('error');
+      socket.emit('leave-room', roomCode,null);
+    };
   }, [roomCode]);
 
-// Debug effect to log livePollResults changes
-useEffect(() => {
-  console.log('livePollResults updated:', livePollResults);
-}, [livePollResults]);
+  // Update current poll responses when livePollResults changes
+  useEffect(() => {
+    const currentQuestion = generatedQuestions[currentQuestionIndex];
+    if (!currentQuestion) return;
+
+    // Find matching poll data by comparing questions and options
+    const pollEntry = Object.entries(livePollResults).find(([_, poll]) => {
+      // Check if questions match (case insensitive and trimmed)
+      const questionsMatch = poll.question &&
+        currentQuestion.question &&
+        poll.question.trim().toLowerCase() === currentQuestion.question.trim().toLowerCase();
+
+      // Check if options match (length and content)
+      const optionsMatch = poll.options &&
+        poll.options.length === currentQuestion.options.length &&
+        poll.options.every((opt, i) =>
+          opt.trim().toLowerCase() === currentQuestion.options[i]?.trim().toLowerCase()
+        );
+
+      return questionsMatch || optionsMatch;
+    });
+
+    if (pollEntry) {
+      setCurrentPollResponses(pollEntry[1].totalResponses || 0);
+    } else {
+      setCurrentPollResponses(0);
+    }
+  }, [livePollResults, currentQuestionIndex, generatedQuestions]);
 
 
-const displayTranscript =
-  liveTranscript + (interimTranscript ? " " + interimTranscript : "");
+  const displayTranscript =
+    liveTranscript + (interimTranscript ? " " + interimTranscript : "");
 
   // Process pending text chunks sequentially and store results in queuedGeneratedQuestionsRef
   const processPendingQueue = useCallback(async () => {
@@ -529,6 +559,7 @@ const displayTranscript =
       }
       // When recording stops, flush any remaining text (<100 words) into queue and
       // wait for queued processing to finish, then reveal the generated questions.
+      setIsProcessing(true);
       try {
         // Determine current buffer based on mode
         const textBuffer = useWhisper
@@ -571,6 +602,8 @@ const displayTranscript =
         }
       } catch (err) {
         console.error("Error finalizing queued question generation:", err);
+      } finally {
+        setIsProcessing(false);
       }
     } else {
       try {
@@ -635,7 +668,7 @@ const displayTranscript =
         setIsListening(true);
       };
 
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
+      recognition.onresult = (event: any) => {
         let interim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
@@ -654,7 +687,7 @@ const displayTranscript =
         const IS_FROM_ONEND = true;
         handleRecordingToggle(IS_FROM_ONEND);
       };
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => console.error(event.error);
+      recognition.onerror = (event: any) => console.error(event.error);
 
       recognitionRef.current = recognition;
     } else {
@@ -1097,13 +1130,13 @@ const displayTranscript =
   }
 
   const handleCreateManualPoll = () => {
-    setShowPollModal(true);
+    setShowPollModal(!showPollModal);
     setShowPreview(false)
     setShowResultsModal(false);
   };
 
   const handlePollResultsbutton = () => {
-    setShowResultsModal(true);
+    setShowResultsModal(!showResultsModal);
     setShowPreview(false)
     setShowPollModal(false);
   };
@@ -1111,7 +1144,15 @@ const displayTranscript =
   const [launchedQuestions, setLaunchedQuestions] = useState<Set<number>>(new Set());
   const [readyToCreatePoll, setReadyToCreatePoll] = useState(false);
   const [isPollActive, setIsPollActive] = useState(false);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
+  // Track timers per question
+  const [questionTimers, setQuestionTimers] = useState<Record<number, {
+    timeLeft: number;
+    isActive: boolean;
+    initialTime: number; // Store initial time for each question
+    isLaunched: boolean; // Mark as launched to disable edit
+  }>>({});
+  const [currentPollResponses, setCurrentPollResponses] = useState(0);
+  const timerRefs = useRef<Record<number, NodeJS.Timeout>>({});
 
   useEffect(() => {
     if (readyToCreatePoll) {
@@ -1121,36 +1162,86 @@ const displayTranscript =
     }
   }, [readyToCreatePoll, question, options, correctOptionIndex]);
 
+  // Clean up timers on unmount and when all questions are completed
+  useEffect(() => {
+    return () => {
+      // Clear all timers when component unmounts
+      Object.values(timerRefs.current).forEach(clearInterval);
+    };
+  }, []);
+
+  // No need to clear timers when switching questions
+  // Timers will continue running in the background
+
+  const startTimer = (questionIndex: number, duration: number) => {
+    // Don't restart timer if it's already running
+    if (questionTimers[questionIndex]?.isActive) return;
+
+    // Clear any existing timer for this question
+    if (timerRefs.current[questionIndex]) {
+      clearInterval(timerRefs.current[questionIndex]);
+    }
+
+    // Initialize timer state for this question if it doesn't exist
+    setQuestionTimers(prev => ({
+      ...prev,
+      [questionIndex]: {
+        timeLeft: duration,
+        isActive: true,
+        initialTime: duration, // Store the initial time
+        isLaunched: true       // Mark as launched to disable edit
+      }
+    }));
+
+    // Start the countdown
+    timerRefs.current[questionIndex] = setInterval(() => {
+      setQuestionTimers(prev => {
+        const currentTime = prev[questionIndex]?.timeLeft || 0;
+
+        if (currentTime <= 1) {
+          // Timer finished
+          clearInterval(timerRefs.current[questionIndex]);
+          return {
+            ...prev,
+            [questionIndex]: {
+              timeLeft: 0,
+              isActive: false,
+              initialTime: 0, // Set to 0 when timer completes
+              isLaunched: true
+            }
+          };
+        }
+
+        // Decrement timer
+        return {
+          ...prev,
+          [questionIndex]: {
+            ...prev[questionIndex],
+            timeLeft: currentTime - 1
+          }
+        };
+      });
+    }, 1000);
+  };
+
   const handleLaunchPoll = async () => {
     const confirmed = window.confirm('Are you sure you want to launch this poll?');
 
     if (confirmed) {
       const currentQ = generatedQuestions[currentQuestionIndex];
-      
+      const timerDuration = questionTimers[currentQuestionIndex]?.initialTime || 30;
+
       // Close any open edit mode when launching poll
       setEditingQuestionIndex(null);
-      
-      // Set poll as active and start the timer
-      setIsPollActive(true);
-      setTimeLeft(timer);
 
-      // Update state and set the flag to true once updates are complete
+      // Update state
       setQuestion(currentQ.question);
       setOptions([...currentQ.options]);
       setCorrectOptionIndex(currentQ.correctOptionIndex);
 
-      // Start the countdown timer
-      const countdown = setInterval(() => {
-        setTimeLeft(prevTime => {
-          if (prevTime <= 1) {
-            clearInterval(countdown);
-            setIsPollActive(false);
-            setTimeLeft(0); // Ensure timer is exactly 0 when it ends
-            return 0;
-          }
-          return prevTime - 1;
-        });
-      }, 1000);
+      // Mark as active and start the timer for this question
+      setIsPollActive(true);
+      startTimer(currentQuestionIndex, timerDuration);
 
       // Use a timeout to ensure state updates are applied
       setTimeout(() => {
@@ -1691,6 +1782,10 @@ const displayTranscript =
                                         Question
                                       </label>
                                       <div className="flex items-center gap-2 flex-wrap">
+                                        <div className="text-l mr-2 text-gray-500 dark:text-gray-400 flex items-center gap-1 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-md">
+                                          <Users2 className="w-3 h-3" />
+                                          <span>{currentPollResponses} {currentPollResponses === 1 ? 'response' : 'responses'}</span>
+                                        </div>
                                         {editingQuestion !== null ? (
                                           <div className="flex gap-2">
                                             <Button
@@ -1711,15 +1806,18 @@ const displayTranscript =
                                             </Button>
                                           </div>
                                         ) : (
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setEditingQuestion(currentQuestionIndex)}
-                                            className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
-                                          >
-                                            <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" />
-                                            Edit
-                                          </Button>
+                                          <div className="flex items-center gap-2">
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => setEditingQuestion(currentQuestionIndex)}
+                                              disabled={launchedQuestions.has(currentQuestionIndex)}
+                                              className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
+                                            >
+                                              <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" />
+                                              Edit
+                                            </Button>
+                                          </div>
                                         )}
 
                                         <Button
@@ -1735,10 +1833,11 @@ const displayTranscript =
                                               }
                                             }
                                           }}
+                                          disabled={launchedQuestions.has(currentQuestionIndex)}
                                           className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                                         >
                                           <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                                          <span className="hidden sm:inline">Delete</span>
+                                          <span className="hidden sm:inline">Reject</span>
                                         </Button>
                                       </div>
                                     </div>
@@ -1753,7 +1852,7 @@ const displayTranscript =
                                     ) : (
                                       <div className="p-2 sm:p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 text-sm sm:text-base">
                                         {generatedQuestions[currentQuestionIndex].question || "Untitled Question"}
-                                  </div>
+                                      </div>
                                     )}
                                   </div>
 
@@ -1774,43 +1873,42 @@ const displayTranscript =
                                         const currentQuestion = generatedQuestions[currentQuestionIndex];
                                         const pollEntry = Object.entries(livePollResults).find(([_, poll]) => {
                                           // Check if questions match (case insensitive and trimmed)
-                                          const questionsMatch = poll.question && 
+                                          const questionsMatch = poll.question &&
                                             currentQuestion.question &&
                                             poll.question.trim().toLowerCase() === currentQuestion.question.trim().toLowerCase();
-                                          
+
                                           // Check if options match (length and content)
-                                          const optionsMatch = poll.options && 
+                                          const optionsMatch = poll.options &&
                                             poll.options.length === currentQuestion.options.length &&
-                                            poll.options.every((opt, i) => 
+                                            poll.options.every((opt, i) =>
                                               opt.trim().toLowerCase() === currentQuestion.options[i]?.trim().toLowerCase()
                                             );
-                                          
+
                                           return questionsMatch || optionsMatch;
                                         });
-                                        
+
                                         const pollData = pollEntry ? pollEntry[1] : null;
                                         const showResults = !!pollData;
-                                        
+
                                         // Get response data with proper fallbacks
                                         const responseCount = showResults ? (pollData.responses?.[optionIndex.toString()] || 0) : 0;
                                         const totalResponses = showResults ? (pollData.totalResponses || 0) : 0;
                                         const percentage = showResults && totalResponses > 0 ? (responseCount / totalResponses) * 100 : 0;
                                         const char = String.fromCharCode(65 + optionIndex);
                                         const isCorrect = currentQuestion.correctOptionIndex === optionIndex;
-                                    
+
                                         return (
                                           <div
                                             key={optionIndex}
                                             onClick={() => !isPollActive && handleOptionClick(optionIndex)}
-                                            className={`relative p-2 sm:p-3 rounded-md transition-colors ${
-                                              isCorrect
+                                            className={`relative p-2 sm:p-3 rounded-md transition-colors ${isCorrect
                                                 ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
                                                 : 'bg-gray-100/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70'
-                                            } ${!isPollActive ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
+                                              } ${!isPollActive ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
                                           >
                                             {/* Progress bar background - only show if we have matching poll data */}
                                             {showResults && (
-                                              <div 
+                                              <div
                                                 className="absolute inset-0 bg-green-100 dark:bg-green-900/30 rounded transition-all duration-500 ease-out"
                                                 style={{
                                                   width: `${percentage}%`,
@@ -1819,15 +1917,14 @@ const displayTranscript =
                                                 }}
                                               />
                                             )}
-                                            
+
                                             <div className="relative z-10">
                                               <div className="flex items-center gap-2 sm:gap-3">
-                                                <div 
-                                                  className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
-                                                    isCorrect
+                                                <div
+                                                  className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${isCorrect
                                                       ? 'bg-green-500 text-white'
                                                       : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
-                                                  }`}
+                                                    }`}
                                                 >
                                                   <span className="text-xs font-medium">
                                                     {isCorrect ? '✓' : char}
@@ -1852,11 +1949,11 @@ const displayTranscript =
                                                 {/* Response count and percentage - only show if we have matching poll data */}
                                                 {showResults && totalResponses > 0 && (
                                                   <div className="flex items-center gap-2 ml-2">
-                                                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                                                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300 mr-2">
                                                       {responseCount}
                                                     </span>
                                                     <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                                                      <div 
+                                                      <div
                                                         className="h-full bg-green-500 transition-all duration-500 ease-out"
                                                         style={{ width: `${percentage}%` }}
                                                       />
@@ -1867,7 +1964,7 @@ const displayTranscript =
                                                   </div>
                                                 )}
                                               </div>
-                            
+
                                             </div>
                                           </div>
                                         );
@@ -1877,46 +1974,60 @@ const displayTranscript =
 
                                   {/* Action Buttons */}
                                   <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
-                                    
+
 
                                     {/* Timer */}
                                     <div className="flex-1 lg:flex-initial">
-                                    <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
-                                      <Clock className="w-4 h-4" />
-                                      {isPollActive ? 'Time Remaining' : 'Timer (seconds)'}
-                                    </label>
-                                    <div className="flex items-center gap-2">
-                                      {isPollActive ? (
-                                        <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
-                                          {timeLeft}s
-                                        </div>
-                                      ) : (
-                                        <Input
-                                          type="number"
-                                          placeholder="e.g. 30"
-                                          value={timer}
-                                          min={5}
-                                          onChange={(e) => setTimer(Number(e.target.value))}
-                                          className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
-                                          aria-label="Timer in seconds"
-                                          disabled={isPollActive}
-                                        />
-                                      )}
+                                      <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
+                                        <Clock className="w-4 h-4" />
+                                        {isPollActive ? 'Time Remaining' : 'Timer (seconds)'}
+                                      </label>
+                                      <div className="flex items-center gap-2">
+                                        {questionTimers[currentQuestionIndex]?.isActive ? (
+                                          <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
+                                            {questionTimers[currentQuestionIndex]?.timeLeft || 0}s
+                                          </div>
+                                        ) : (
+                                          <Input
+                                            type="number"
+                                            placeholder="e.g. 30"
+                                            value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
+                                            min={5}
+                                            onChange={(e) => {
+                                              const newTime = Number(e.target.value);
+                                              setQuestionTimers(prev => ({
+                                                ...prev,
+                                                [currentQuestionIndex]: {
+                                                  ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
+                                                  initialTime: newTime,
+                                                  timeLeft: prev[currentQuestionIndex]?.isActive
+                                                    ? newTime
+                                                    : (prev[currentQuestionIndex]?.timeLeft || 0)
+                                                }
+                                              }));
+                                            }}
+                                            className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
+                                            aria-label="Timer in seconds"
+                                            disabled={questionTimers[currentQuestionIndex]?.isActive ||
+                                              (launchedQuestions.has(currentQuestionIndex) &&
+                                                questionTimers[currentQuestionIndex]?.timeLeft === 0)}
+                                          />
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        {questionTimers[currentQuestionIndex]?.isActive
+                                          ? 'Poll is active. Students can now submit their responses.'
+                                          : 'The timer controls how long the poll remains open for students to vote.'}
+                                      </p>
                                     </div>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      {isPollActive 
-                                        ? 'Poll is active. Students can now submit their responses.'
-                                        : 'The timer controls how long the poll remains open for students to vote.'}
-                                    </p>
-                                  </div>
 
                                     <Button
                                       onClick={handleLaunchPoll}
-                                      disabled={launchedQuestions.has(currentQuestionIndex) || isPollActive}
+                                      disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
                                       className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
                                     >
                                       <BarChart2 className="w-4 h-4 mr-2" />
-                                      {isPollActive ? 'Poll Active' : 'Launch Poll'}
+                                      {questionTimers[currentQuestionIndex]?.isActive ? 'Poll Active' : 'Launch Poll'}
                                     </Button>
                                   </div>
                                 </div>
@@ -1949,8 +2060,23 @@ const displayTranscript =
 
 
 
-        {/* Create Poll  */}
-        {showPollModal && (
+        {/* Loading Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
+                Please wait while we process your questions. This may take a moment...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Poll  */}
+      {showPollModal && (
           <Card className=" m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow">
             <CardHeader>
               <div className="flex items-center justify-between w-full gap-2">
@@ -2114,11 +2240,25 @@ const displayTranscript =
                   <Input
                     type="number"
                     placeholder="e.g. 30"
-                    value={timer}
+                    value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
                     min={5}
-                    onChange={(e) => setTimer(Number(e.target.value))}
+                    onChange={(e) => {
+                      const newTime = Number(e.target.value);
+                      setQuestionTimers(prev => ({
+                        ...prev,
+                        [currentQuestionIndex]: {
+                          ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30 }),
+                          initialTime: newTime,
+                          timeLeft: prev[currentQuestionIndex]?.isActive ? newTime : (prev[currentQuestionIndex]?.timeLeft || newTime)
+                        }
+                      }));
+                    }}
                     className="dark:bg-gray-800/50 text-sm w-36"
                     aria-label="Timer in seconds"
+                    disabled={questionTimers[currentQuestionIndex]?.isActive ||
+                      (launchedQuestions.has(currentQuestionIndex) &&
+                        (questionTimers[currentQuestionIndex]?.timeLeft === 0 ||
+                          questionTimers[currentQuestionIndex]?.isLaunched))}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">

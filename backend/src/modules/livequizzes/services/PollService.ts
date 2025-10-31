@@ -60,12 +60,6 @@ export class PollService {
     );
 
     this.activePolls.set(pollId, livepoll);
-    // localStorage.setItem('activePolls', JSON.stringify(this.activePolls));
-
-    // Start timer if specified
-    if (poll.timer > 0) {
-      this.startPollTimer(pollId);
-    }
 
     pollSocket.emitToRoom(roomCode, 'new-poll', poll);
     return poll;
@@ -147,112 +141,15 @@ export class PollService {
   }
 
 
-  async submitInMemoryAnswer(roomCode: string, pollId: string, userId: string, answerIndex: number) {
-    const poll = this.activePolls.get(pollId);
-    if (!poll || poll.roomCode !== roomCode) {
-      throw new Error('Poll not found or invalid room');
-    }
-
-    // Remove previous response if user already voted
-    if (poll.userResponses.has(userId)) {
-      const prevAnswerIndex = poll.userResponses.get(userId)!;
-      poll.responses[prevAnswerIndex]--;
-      poll.totalResponses--;
-    }
-
-    // Add new response
-    poll.userResponses.set(userId, answerIndex);
-    poll.responses[answerIndex] = (poll.responses[answerIndex] || 0) + 1;
-    poll.totalResponses++;
-
-    // Emit update to all clients
-    this.emitPollUpdate(roomCode, pollId);
-
-    return this.getPollData(poll);
-  }
-
-
-  async endInMemoryPoll(roomCode: string, pollId: string) {
-    const poll = this.activePolls.get(pollId);
-    if (!poll || poll.roomCode !== roomCode) return;
-
-    // Clear timer if exists
-    const timer = this.pollTimers.get(pollId);
-    if (timer) {
-      clearInterval(timer);
-      this.pollTimers.delete(pollId);
-    }
-
-    // Emit final results
-    this.pollSocket.emitToRoom(roomCode, 'in-memory-poll-ended', {
-      pollId: poll.pollId,
-      responses: { ...poll.responses },
-      totalResponses: poll.totalResponses
-    });
-  }
-
-  async deleteInMemoryPoll(roomCode: string, pollId: string) {
-    const poll = this.activePolls.get(pollId);
-    if (!poll || poll.roomCode !== roomCode) return false;
-
-    // Clear timer if exists
-    const timer = this.pollTimers.get(pollId);
-    if (timer) {
-      clearInterval(timer);
-      this.pollTimers.delete(pollId);
-    }
-
-    // Remove from active polls
-    this.activePolls.delete(pollId);
-    return true;
-  }
-
-  getActiveInMemoryPolls(roomCode: string) {
-    return Array.from(this.activePolls.values())
-      .filter(poll => poll.roomCode === roomCode)
-      .map(poll => this.getPollData(poll));
-  }
-
-  // Helper methods
-  private startPollTimer(pollId: string) {
-    const poll = this.activePolls.get(pollId);
-    if (!poll || poll.timer <= 0) return;
-
-    poll.startTime = Date.now();
-
-    const updateInterval = setInterval(() => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - (poll.startTime || now)) / 1000);
-      poll.timeLeft = Math.max(0, poll.timer - elapsed);
-
-      // Emit time update
-      this.pollSocket.emitToRoom(poll.roomCode, 'in-memory-poll-time-update', {
-        pollId: poll.pollId,
-        timeLeft: poll.timeLeft
-      });
-
-      // End poll if time's up
-      if (poll.timeLeft <= 0) {
-        clearInterval(updateInterval);
-        this.pollTimers.delete(pollId);
-        this.endInMemoryPoll(poll.roomCode, poll.pollId);
-      }
-    }, 1000);
-
-    // Store the interval
-    this.pollTimers.set(pollId, updateInterval);
-  }
-
   private emitPollUpdate(roomCode: string, pollId: string) {
     const poll = this.activePolls.get(pollId);
     if (!poll) return;
 
     const pollData = this.getPollData(poll);
 
-    // Also update the room data
     // Emit to all clients in the room
-    console.log(`[POLL Service]Emitting in-memory-poll-update for room ${roomCode}:`, pollData);
-    this.pollSocket.emitToAll(roomCode, 'in-memory-poll-update', pollData);
+    // console.log(`[POLL Service]Emitting in-memory-poll-update for room ${roomCode}:`, pollData);
+    this.pollSocket.emitToAll(roomCode, 'live-poll-results', pollData);
   }
 
   private getPollData(poll: InMemoryPoll) {
