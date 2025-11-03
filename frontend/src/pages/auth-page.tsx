@@ -215,18 +215,15 @@ export default function AuthPage() {
         <polyline points="100,400 300,0 500,400 700,0 900,400" stroke="#a084e8" strokeWidth="1.5" fill="none" />
       </svg>
       {/* Hero Section */}
-      <section className="w-full flex flex-col lg:flex-row items-center justify-between px-4 sm:px-6 lg:px-16 pt-6 sm:pt-12 pb-6 sm:pb-8 bg-white/80 rounded-b-2xl sm:rounded-b-3xl shadow-md relative overflow-hidden z-10">
+      <section className="w-full flex flex-col lg:flex-row items-center justify-between px-4 sm:px-6 lg:px-16 pt-4 sm:pt-8 pb-4 sm:pb-6 bg-white/80 rounded-b-2xl sm:rounded-b-3xl shadow-md relative overflow-hidden z-10">
         {/* Left: Heading, subheading, features */}
-        <div className="flex-1 flex flex-col items-start gap-4 sm:gap-6 z-10 w-full lg:w-auto">
-          <div className="flex flex-col gap-1">
-            <div className="h-10 sm:h-14 lg:h-18 xl:h-22">
-              <img
-                src="/VLED 3.png"
-                alt="Spandanam"
-                className="h-45 w-auto object-cover"
-              />
-            </div>
-            <p className="text-sm font-medium text-blue-500/90">Empowering Education</p>
+        <div className="flex-1 flex flex-col items-start w-full lg:w-auto">
+          <div className="relative top-10">
+            <img
+              src="/VLED 3.png"
+              alt="Spandanam"
+              className="h-50 w-80 object-cover"
+            />
           </div>
           <p className="text-gray-600 text-sm sm:text-base lg:text-lg max-w-md">
             Transform classroom engagement with real-time polling and instant feedback
@@ -292,7 +289,7 @@ export default function AuthPage() {
           <div className="mx-auto w-full max-w-sm sm:max-w-md space-y-6 sm:space-y-8">
             {/* Header */}
             <div className="text-center space-y-2">
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              <h2 className="text-2xl sm:text-3xl font-bold text-blue-500 tracking-tight">
                 {isSignUp ? "Create Account" : "Welcome Back"}
               </h2>
               <p className="text-sm sm:text-base text-muted-foreground">

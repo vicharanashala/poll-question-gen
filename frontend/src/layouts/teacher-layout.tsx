@@ -4,9 +4,11 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { Outlet, Link, useNavigate, useLocation } from "@tanstack/react-router";
 import { logout } from "@/lib/api/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Home, Users, PlusCircle, 
+import {
+  LogOut, Home, Users, PlusCircle,
   //Settings,
-   User, ChevronDown } from "lucide-react";
+  User, ChevronDown
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,26 +62,14 @@ export default function TeacherLayout() {
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm dark:bg-gray-900/95 dark:border-gray-800">
         <div className="flex h-16 sm:h-20 items-center justify-between px-3 sm:px-6 lg:px-8 gap-2 sm:gap-0">
           {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="relative group">
-              {/* <div className="absolute -inset-1 sm:-inset-2 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl blur opacity-10 group-hover:opacity-15 transition-opacity duration-300 dark:from-blue-500 dark:to-blue-700 dark:opacity-15 dark:group-hover:opacity-20"></div> */}
-              <div className="relative h-10 w-10 sm:h-14 sm:w-14 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl flex items-center justify-center overflow-hidden shadow-md dark:from-blue-500 dark:to-blue-700">
+          <div className="flex items-center">
+              <div className="relative top-5 h-70 sm:h-50 w-20 sm:w-50">
                 <img
-                  // src="https://continuousactivelearning.github.io/vibe/img/logo.png"
                   src="/VLED 4.png"
                   alt="EduPoll Logo"
-                  className="h-7 w-7 sm:h-10 sm:w-10 object-contain"
+                  className="h-full object-contain"
                 />
               </div>
-            </div>
-            <div className="hidden sm:block">
-              <h1 className="text-lg sm:text-2xl font-bold text-blue-900 dark:text-blue-100">
-                <span className="font-normal">Spandanam</span>
-              </h1>
-              <p className="text-[10px] sm:text-xs text-slate-600 -mt-1 dark:text-gray-400">
-                Education Polling System
-              </p>
-            </div>
           </div>
 
           {/* Navigation Menu - icon only */}
@@ -88,8 +78,8 @@ export default function TeacherLayout() {
               variant="ghost"
               size="sm"
               className={`relative h-9 sm:h-10 w-9 sm:w-10 flex items-center justify-center transition-all duration-300 flex-shrink-0 rounded-lg ${isActiveRoute('/teacher/home')
-                  ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
-                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
+                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
               aria-label="Dashboard"
@@ -103,8 +93,8 @@ export default function TeacherLayout() {
               variant="ghost"
               size="sm"
               className={`relative h-9 sm:h-10 w-9 sm:w-10 flex items-center justify-center transition-all duration-300 flex-shrink-0 rounded-lg ${isActiveRoute('/teacher/pollroom')
-                  ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
-                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
+                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
               aria-label="Create Room"
@@ -118,8 +108,8 @@ export default function TeacherLayout() {
               variant="ghost"
               size="sm"
               className={`relative h-9 sm:h-10 w-9 sm:w-10 flex items-center justify-center transition-all duration-300 flex-shrink-0 rounded-lg ${isActiveRoute('/teacher/manage-rooms')
-                  ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
-                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
+                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
               aria-label="Manage Rooms"

@@ -255,9 +255,10 @@ export default function TeacherPollRoom() {
   const [transcript, setTranscript] = useState<string | null>(null);
   const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
   const [showStudentsModal, setShowStudentsModal] = useState(false)
-  const [students, setStudents] = useState([]);
+  const [students, setStudents] = useState<Array<{id?: string; name?: string}>>([]);
 
   const [joinedRoom, setJoinedRoom] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
 
   // Socket connection and event management
@@ -391,7 +392,6 @@ export default function TeacherPollRoom() {
     }
   }, [livePollResults, currentQuestionIndex, generatedQuestions]);
 
-
   const displayTranscript =
     liveTranscript + (interimTranscript ? " " + interimTranscript : "");
 
@@ -479,8 +479,6 @@ export default function TeacherPollRoom() {
     // sync ref with state
     queuedGeneratedQuestionsRef.current = queuedGeneratedQuestions;
   }, [queuedGeneratedQuestions]);
-
-
 
   // Reset queue buffers when starting/stopping recording
   useEffect(() => {
@@ -699,9 +697,6 @@ export default function TeacherPollRoom() {
       }
     };
   }, [language, handleRecordingToggle]);
-
-
-
 
   const handleAudioFromRecording = async (data: Blob) => {
     if (!data) return;
@@ -985,9 +980,6 @@ export default function TeacherPollRoom() {
     );
   };
 
-
-
-
   const handleGenerateClick = () => {
     setIsGenerateClicked(true);
 
@@ -1016,7 +1008,6 @@ export default function TeacherPollRoom() {
   };
 
   // Implementation is handled by the useCallback version above
-
 
   const selectGeneratedQuestion = useCallback((questionData: GeneratedQuestion) => {
     // Filter the question to ensure it has exactly 4 options
@@ -1121,7 +1112,6 @@ export default function TeacherPollRoom() {
       enqueueTextChunk(chunkWords);
     }
   }, [displayTranscript, useWhisper, enqueueTextChunk]);
-
 
   const handleGeneratedQuestionClick = () => {
     setShowPreview(!showPreview)
@@ -1257,11 +1247,83 @@ export default function TeacherPollRoom() {
 
   if (!roomCode) return <div>Loading...</div>;
 
+  const getFilteredOptions = (opts: string[]) => {
+    return opts.filter(opt => opt.trim() !== '');
+  };
+
   return (
-    <main className="relative bg-gradient-to-br md-px-12 px-2 md:pb-4 pb-2 from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="min-h-[80vh] bg-gradient-to-br from-indigo-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 md:mb-2 mb-1">
+    <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
+      {/* Navbar */}
+      <div className="w-full bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm p-4 flex items-center justify-between z-50">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+          Room Code: <span className="font-mono bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400">
+            {roomCode}
+          </span>
+        </h2>
+        {/* Other navbar content */}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar with student list */}
+        { !showResultsModal && !showPollModal && !showPreview && (
+          
+        <div className={`${isSidebarCollapsed ? 'w-12' : 'w-54'} bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 ease-in-out`}>
+          {/* Sidebar header with title and toggle button */}
+          <div className={`h-16 border-b border-gray-200 dark:border-gray-700 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-4'} flex-shrink-0`}>
+            {!isSidebarCollapsed && (
+              <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex-1">
+                Students
+              </h2>
+            )}
+            <Button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className={`transition-all ${isSidebarCollapsed ? 'p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md' : 'p-2 hover:bg-purple-100 dark:hover:bg-purple-900/50'}`}
+              aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              variant="ghost"
+              size="icon"
+            >
+              {isSidebarCollapsed ? (
+                <ChevronRight className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              ) : (
+                <ChevronLeft className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              )}
+            </Button>
+          </div>
+          
+          {/* Student list content */}
+          {!isSidebarCollapsed && (
+              <ScrollArea className="flex-1">
+                <div className="p-2 space-y-2">
+                  {students.length > 0 ? (
+                    students.map((student: any, index: number) => {
+                      const studentName = student?.firstName;          
+                      return (
+                        <div 
+                          key={index}
+                          className="flex items-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            {studentName}
+                          </span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 p-2">
+                      No students connected yet
+                    </p>
+                  )}
+                </div>
+              </ScrollArea>
+          )}
+        </div>
+        )}
+
+      {/* Main content */}
+      <div className="flex-1 overflow-auto">
         {/* Header */}
-        <div className="mb-6">
+
           <div className="fixed top-0 left-0 w-full bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm p-4 flex items-center justify-between z-50">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
               Room Code: <span className="font-mono bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400">
@@ -1334,7 +1396,6 @@ export default function TeacherPollRoom() {
               </Button>
             </div>
           </div>
-        </div>
 
         {/* End Room Confirmation Modal */}
         {showEndRoomConfirm && (
@@ -1388,7 +1449,7 @@ export default function TeacherPollRoom() {
         )}
 
         {/* GenAI Tab */}
-        <div className="flex-1 mt-14 py-6 px-1 md:p-6 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
+        <div className="flex-1 px-1 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
           <ScrollArea className="h-full pe-3">
             {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
               <Card className="mb-6 border border-purple-200 dark:border-purple-900/50 bg-gradient-to-br from-purple-50/50 to-white dark:from-gray-900/50 dark:to-gray-900">
@@ -1422,7 +1483,7 @@ export default function TeacherPollRoom() {
                                   key={optIdx}
                                   className={`p-2 rounded text-sm ${optIdx === q.correctOptionIndex
                                     ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
-                                    : 'bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                                    : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
                                     }`}
                                 >
                                   {opt || `Option ${optIdx + 1}`}
@@ -1485,7 +1546,7 @@ export default function TeacherPollRoom() {
               </Card>
             )} */}
             {!showPollModal && !showResultsModal && (
-              <div className="space-y-4 sm:space-y-6">
+
                 <div className="space-y-4 sm:space-y-6">
                   {!showPreview ? (
                     <Card className="w-full bg-transparent border-none shadow-none">
@@ -1497,14 +1558,14 @@ export default function TeacherPollRoom() {
                           </CardTitle>
 
                           <div className="flex items-center gap-2">
-                            <Button
+                            {/* <Button
                               onClick={() => setShowStudentsModal(true)}
                               variant="outline"
                               className="h-9 flex items-center gap-2 border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800 rounded-md text-sm"
                             >
                               <Users2 className="h-4 w-4 text-purple-500" />
                               <span className="hidden sm:inline dark:text-white">Students</span>
-                            </Button>
+                            </Button> */}
                             <Select
                               value={language}
                               onValueChange={(value) => setLanguage(value as SupportedLanguage)}
@@ -1555,7 +1616,6 @@ export default function TeacherPollRoom() {
                           </div>
                         </div>
                       </CardHeader>
-
 
                       <CardContent className="space-y-6">
 
@@ -1654,7 +1714,6 @@ export default function TeacherPollRoom() {
                             )}
                           </Button>
 
-
                           {showAdvanced && (
                             <div className="border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-md px-4 py-4 bg-gray-50/50 dark:bg-gray-800/50 space-y-6 hover:border-purple-500 dark:hover:border-purple-500 transition-colors">
                               <div className="space-y-2">
@@ -1737,7 +1796,7 @@ export default function TeacherPollRoom() {
                       <CardHeader className="w-full px-4 sm:px-6">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                           <CardTitle className="text-base sm:text-lg font-semibold flex items-center flex-wrap gap-2">
-                            <ClipboardList className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                            <ClipboardList className="w-5 h-5 text-purple-500" />
                             <span>Generated Questions</span>
                             <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
                               ({generatedQuestions.length} total)
@@ -1868,7 +1927,7 @@ export default function TeacherPollRoom() {
                                     </div>
 
                                     <div className="space-y-2 overflow-y-auto pr-1">
-                                      {generatedQuestions[currentQuestionIndex].options.map((option, optionIndex) => {
+                                      {getFilteredOptions(generatedQuestions[currentQuestionIndex].options).map((option, optionIndex) => {
                                         // Find matching poll data by comparing questions and options
                                         const currentQuestion = generatedQuestions[currentQuestionIndex];
                                         const pollEntry = Object.entries(livePollResults).find(([_, poll]) => {
@@ -1920,13 +1979,11 @@ export default function TeacherPollRoom() {
 
                                             <div className="relative z-10">
                                               <div className="flex items-center gap-2 sm:gap-3">
-                                                <div
-                                                  className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${isCorrect
-                                                      ? 'bg-green-500 text-white'
-                                                      : 'bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200'
-                                                    }`}
-                                                >
-                                                  <span className="text-xs font-medium">
+                                                <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${isCorrect
+                                                    ? 'bg-green-500'
+                                                    : 'bg-gray-200 dark:bg-gray-600'
+                                                  }`}>
+                                                  <span className="text-white text-xs">
                                                     {isCorrect ? '✓' : char}
                                                   </span>
                                                 </div>
@@ -2052,31 +2109,28 @@ export default function TeacherPollRoom() {
                   )
                   )}
                 </div>
-              </div>
+
             )}
           </ScrollArea>
         </div>
 
-
-
-
         {/* Loading Overlay */}
-      {isProcessing && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
-              <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
-                Please wait while we process your questions. This may take a moment...
-              </p>
+        {isProcessing && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
+                  Please wait while we process your questions. This may take a moment...
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Create Poll  */}
-      {showPollModal && (
+        {/* Create Poll  */}
+        {showPollModal && (
           <Card className=" m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow">
             <CardHeader>
               <div className="flex items-center justify-between w-full gap-2">
@@ -2203,7 +2257,7 @@ export default function TeacherPollRoom() {
                   Poll options (choose correct/right option)
                 </legend>
 
-                {options.map((opt, i) => (
+                {getFilteredOptions(options).map((opt, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <input
                       type="radio"
@@ -2452,11 +2506,11 @@ export default function TeacherPollRoom() {
       </div>
 
 
-      <ShowStudentsModal
+      {/* <ShowStudentsModal
         isOpen={showStudentsModal}
         onClose={() => setShowStudentsModal(false)}
         students={students}
-      />
+      /> */}
 
 
       <Modal
@@ -2494,6 +2548,7 @@ export default function TeacherPollRoom() {
           setAudioBlob(undefined);
         }}
       />
-    </main>
+      </div>
+    </div>
   );
 }

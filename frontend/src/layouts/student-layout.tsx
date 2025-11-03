@@ -4,9 +4,10 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { Outlet, Link, useNavigate, useLocation } from "@tanstack/react-router";
 import { logout } from "@/lib/api/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, Home, Users, User, ChevronDown, 
+import {
+  LogOut, Home, Users, User, ChevronDown,
   // Settings 
-  } from "lucide-react";
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,26 +61,14 @@ export default function StudentLayout() {
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm dark:bg-gray-900/95 dark:border-gray-800">
         <div className="flex h-16 sm:h-20 items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Logo */}
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="relative group">
-              <div className="absolute -inset-1 sm:-inset-2 bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg sm:rounded-xl blur opacity-10 group-hover:opacity-15 transition-opacity duration-300 dark:from-blue-500 dark:to-blue-700 dark:opacity-15 dark:group-hover:opacity-20"></div>
-              <div className="relative h-10 w-10 sm:h-14 sm:w-14 bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg sm:rounded-xl flex items-center justify-center overflow-hidden shadow-md dark:from-blue-500 dark:to-blue-700">
-                <img
-                  // src="https://continuousactivelearning.github.io/vibe/img/logo.png"
-                  src="/VLED 4.png"
-                  alt="EduPoll Logo"
-                  className="h-6 w-6 sm:h-10 sm:w-10 object-contain"
-                />
-              </div>
-            </div>
-            <div className="hidden sm:block">
-              <h1 className="text-xl sm:text-2xl font-bold text-blue-900 dark:text-blue-100">
-                
-                <span className="font-normal">Spandanam</span>
-              </h1>
-              <p className="text-xs text-slate-600 -mt-1 dark:text-gray-400">
-                Education Polling System
-              </p>
+          <div className="flex items-center">
+            <div className="relative group  top-5 h-20 sm:h-50 w-20 sm:w-50">
+              <img
+                // src="https://continuousactivelearning.github.io/vibe/img/logo.png"
+                src="/VLED 4.png"
+                alt="EduPoll Logo"
+                className="h-full object-contain"
+              />
             </div>
           </div>
 
@@ -89,8 +78,8 @@ export default function StudentLayout() {
               variant="ghost"
               size="sm"
               className={`relative h-8 sm:h-10 px-2 sm:px-4 text-xs sm:text-sm font-medium transition-all duration-300 ${isActiveRoute('/student/home')
-                  ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
-                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
+                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
             >
@@ -104,8 +93,8 @@ export default function StudentLayout() {
               variant="ghost"
               size="sm"
               className={`relative h-8 sm:h-10 px-2 sm:px-4 text-xs sm:text-sm font-medium transition-all duration-300 ${isActiveRoute('/student/pollroom')
-                  ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
-                  : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
+                ? 'bg-blue-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800'
+                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
             >
