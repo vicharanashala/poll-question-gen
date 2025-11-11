@@ -183,6 +183,7 @@ export default function TeacherPollRoom() {
   const [questionSpec, setQuestionSpec] = useState("");
   const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
   const [questionCount, setQuestionCount] = useState<number>(3);
+
   // Queue for auto-generated questions while live recording is ongoing.
   // These are hidden from the UI until the teacher stops the mic.
   const [queuedGeneratedQuestions, setQueuedGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
@@ -224,6 +225,23 @@ export default function TeacherPollRoom() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [editingQuestion, setEditingQuestion] = useState<number | null>(null);
 
+  // Whisper transcription state and Whisper service for speech-to-text
+  const transcriber = useTranscriber();
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
+  // const [showStudentsModal, setShowStudentsModal] = useState(false)
+  const [students, setStudents] = useState<Array<{ id?: string; name?: string }>>([]);
+
+  const [joinedRoom, setJoinedRoom] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // State for upload options
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [showUploadTextFileModal, setShowUploadTextFileModal] = useState(false);
+  const [pastedContent, setPastedContent] = useState('');
+  const [textFileContent, setTextFileContent] = useState('');
+  const [fileName, setFileName] = useState('');
+
   // Handler for saving question edits
   const handleSaveQuestionEdit = () => {
     setEditingQuestion(null);
@@ -250,15 +268,6 @@ export default function TeacherPollRoom() {
     setGeneratedQuestions(updatedQuestions);
   };
 
-  // Whisper transcription state and Whisper service for speech-to-text
-  const transcriber = useTranscriber();
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
-  const [showStudentsModal, setShowStudentsModal] = useState(false)
-  const [students, setStudents] = useState<Array<{id?: string; name?: string}>>([]);
-
-  const [joinedRoom, setJoinedRoom] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
 
   // Socket connection and event management
@@ -359,7 +368,7 @@ export default function TeacherPollRoom() {
       socket.off('disconnect');
       socket.off('connect_error');
       socket.off('error');
-      socket.emit('leave-room', roomCode,null);
+      socket.emit('leave-room', roomCode, null);
     };
   }, [roomCode]);
 
@@ -811,7 +820,10 @@ export default function TeacherPollRoom() {
       return;
     }
 
-    if (!transcript && !transcriber.output?.text && !displayTranscript.trim()) {
+    // Get the current transcript value from the state
+    const currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim();
+
+    if (!currentTranscript) {
       toast.error("Please provide YouTube URL, upload file, or record audio");
       return;
     }
@@ -887,6 +899,124 @@ export default function TeacherPollRoom() {
     selectedModel
   ]);
 
+
+  // Common function to process content (text from file or paste)
+  // Add this new state to track when we want to generate questions
+  const [shouldGenerate, setShouldGenerate] = useState(false);
+
+  const processContent = useCallback((content: string) => {
+    if (!content.trim()) {
+      toast.error('No content provided to generate questions');
+      return;
+    }
+
+    // Set the transcript and flag to generate questions
+    setTranscript(content);
+    setShouldGenerate(true);
+  }, []);
+
+  // Add this useEffect to handle the generation after state updates
+  useEffect(() => {
+    const generate = async () => {
+      if (shouldGenerate && transcript) {
+        setShouldGenerate(false); // Reset the flag first
+        try {
+          await generateQuestions();
+        } catch (error) {
+          console.error('Error generating questions:', error);
+          toast.error('Failed to generate questions');
+        }
+      }
+    };
+
+    generate();
+  }, [shouldGenerate, transcript, generateQuestions]);
+
+  // Handle text file selection
+  const handleTextFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check if file is a text file
+    if (!file.name.endsWith('.txt')) {
+      toast.error('Please upload a .txt file');
+      return;
+    }
+
+    setFileName(file.name);
+    setIsGenerateClicked(false); // Reset generate clicked state when new file is selected
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        if (!content || !content.trim()) {
+          throw new Error('File is empty');
+        }
+        setTextFileContent(content);
+      } catch (error) {
+        console.error('Error reading file:', error);
+        toast.error('Failed to read the file');
+        setFileName('');
+        setTextFileContent('');
+      }
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read the file');
+      setFileName('');
+      setTextFileContent('');
+    };
+
+    try {
+      reader.readAsText(file);
+    } catch (error) {
+      console.error('Error reading file:', error);
+      toast.error('Failed to process the file');
+      setFileName('');
+      setTextFileContent('');
+    }
+
+    // Reset the file input
+    event.target.value = '';
+  };
+
+  // Handle text file content submission
+  const handleTextFileSubmit = async () => {
+    try {
+      setIsGenerateClicked(true);
+
+      // Ensure we have content to process
+      if (!textFileContent || !textFileContent.trim()) {
+        toast.error('The file is empty or not loaded yet');
+        return;
+      }
+
+      // Process the content
+      await processContent(textFileContent);
+
+      // Reset states after successful processing
+      setTextFileContent('');
+      setFileName('');
+    } catch (error) {
+      console.error('Error processing file content:', error);
+      toast.error('Failed to process file content');
+    } finally {
+      setIsGenerateClicked(false);
+    }
+  };
+
+  // Handle paste content submission
+  const handlePasteSubmit = async () => {
+    setIsGenerateClicked(true);
+    if (!pastedContent.trim()) return;
+    await processContent(pastedContent);
+    setShowPasteModal(false);
+    setPastedContent('');
+    setIsGenerateClicked(false);
+  };
+
+
+
   useEffect(() => {
     const text = transcriber.output?.text;
     const isComplete = !transcriber.output?.isBusy;
@@ -931,7 +1061,6 @@ export default function TeacherPollRoom() {
     ];
 
     const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
-
     return (
       <div className={`relative ${className}`}>
         <button
@@ -1265,40 +1394,40 @@ export default function TeacherPollRoom() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar with student list */}
-        { !showResultsModal && !showPollModal && !showPreview && (
-          
-        <div className={`${isSidebarCollapsed ? 'w-12' : 'w-54'} bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 ease-in-out`}>
-          {/* Sidebar header with title and toggle button */}
-          <div className={`h-16 border-b border-gray-200 dark:border-gray-700 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-4'} flex-shrink-0`}>
-            {!isSidebarCollapsed && (
-              <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex-1">
-                Students
-              </h2>
-            )}
-            <Button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className={`transition-all ${isSidebarCollapsed ? 'p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md' : 'p-2 hover:bg-purple-100 dark:hover:bg-purple-900/50'}`}
-              aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              variant="ghost"
-              size="icon"
-            >
-              {isSidebarCollapsed ? (
-                <ChevronRight className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              ) : (
-                <ChevronLeft className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+        {!showResultsModal && !showPollModal && !showPreview && (
+
+          <div className={`${isSidebarCollapsed ? 'w-12' : 'w-54'} bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 ease-in-out`}>
+            {/* Sidebar header with title and toggle button */}
+            <div className={`h-16 border-b border-gray-200 dark:border-gray-700 flex items-center ${isSidebarCollapsed ? 'justify-center' : 'px-4'} flex-shrink-0`}>
+              {!isSidebarCollapsed && (
+                <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex-1">
+                  Students
+                </h2>
               )}
-            </Button>
-          </div>
-          
-          {/* Student list content */}
-          {!isSidebarCollapsed && (
+              <Button
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className={`transition-all ${isSidebarCollapsed ? 'p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md' : 'p-2 hover:bg-purple-100 dark:hover:bg-purple-900/50'}`}
+                aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                variant="ghost"
+                size="icon"
+              >
+                {isSidebarCollapsed ? (
+                  <ChevronRight className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                ) : (
+                  <ChevronLeft className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                )}
+              </Button>
+            </div>
+
+            {/* Student list content */}
+            {!isSidebarCollapsed && (
               <ScrollArea className="flex-1">
                 <div className="p-2 space-y-2">
                   {students.length > 0 ? (
                     students.map((student: any, index: number) => {
-                      const studentName = student?.firstName;          
+                      const studentName = student?.firstName;
                       return (
-                        <div 
+                        <div
                           key={index}
                           className="flex items-center p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                         >
@@ -1316,13 +1445,13 @@ export default function TeacherPollRoom() {
                   )}
                 </div>
               </ScrollArea>
-          )}
-        </div>
+            )}
+          </div>
         )}
 
-      {/* Main content */}
-      <div className="flex-1 overflow-auto">
-        {/* Header */}
+        {/* Main content */}
+        <div className="flex-1 overflow-auto">
+          {/* Header */}
 
           <div className="fixed top-0 left-0 w-full bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm p-4 flex items-center justify-between z-50">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
@@ -1397,61 +1526,61 @@ export default function TeacherPollRoom() {
             </div>
           </div>
 
-        {/* End Room Confirmation Modal */}
-        {showEndRoomConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <Card className="w-full max-w-md mx-4 bg-white dark:bg-gray-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                  <AlertTriangle size={20} />
-                  End Room Confirmation
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-gray-700 dark:text-gray-300">
-                  Are you sure you want to end this room? This action cannot be undone.
-                </p>
-                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
-                  <li>• All students will be disconnected</li>
-                  <li>• Active polls will be stopped</li>
-                  <li>• Room will be permanently closed</li>
-                </ul>
-                <div className="flex gap-3 justify-end">
-                  <Button
-                    onClick={() => setShowEndRoomConfirm(false)}
-                    variant="outline"
-                    disabled={isEndingRoom}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={endRoom}
-                    variant="destructive"
-                    disabled={isEndingRoom}
-                    className="flex items-center gap-2"
-                  >
-                    {isEndingRoom ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" />
-                        Ending Room...
-                      </>
-                    ) : (
-                      <>
-                        <LogOut size={16} />
-                        End Room
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+          {/* End Room Confirmation Modal */}
+          {showEndRoomConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <Card className="w-full max-w-md mx-4 bg-white dark:bg-gray-800">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                    <AlertTriangle size={20} />
+                    End Room Confirmation
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-gray-700 dark:text-gray-300">
+                    Are you sure you want to end this room? This action cannot be undone.
+                  </p>
+                  <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                    <li>• All students will be disconnected</li>
+                    <li>• Active polls will be stopped</li>
+                    <li>• Room will be permanently closed</li>
+                  </ul>
+                  <div className="flex gap-3 justify-end">
+                    <Button
+                      onClick={() => setShowEndRoomConfirm(false)}
+                      variant="outline"
+                      disabled={isEndingRoom}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={endRoom}
+                      variant="destructive"
+                      disabled={isEndingRoom}
+                      className="flex items-center gap-2"
+                    >
+                      {isEndingRoom ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Ending Room...
+                        </>
+                      ) : (
+                        <>
+                          <LogOut size={16} />
+                          End Room
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-        {/* GenAI Tab */}
-        <div className="flex-1 px-1 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
-          <ScrollArea className="h-full pe-3">
-            {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
+          {/* GenAI Tab */}
+          <div className="flex-1 px-1 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
+            <ScrollArea className="h-full pe-3">
+              {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
               <Card className="mb-6 border border-purple-200 dark:border-purple-900/50 bg-gradient-to-br from-purple-50/50 to-white dark:from-gray-900/50 dark:to-gray-900">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
@@ -1545,7 +1674,7 @@ export default function TeacherPollRoom() {
                 </CardContent>
               </Card>
             )} */}
-            {!showPollModal && !showResultsModal && (
+              {!showPollModal && !showResultsModal && (
 
                 <div className="space-y-4 sm:space-y-6">
                   {!showPreview ? (
@@ -1589,7 +1718,64 @@ export default function TeacherPollRoom() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <Select onValueChange={(value) => {
+                              // Toggle the selected panel if it's already open
+                              if ((value === 'uploadAudio' && showAudioOptions) ||
+                                (value === 'uploadTxt' && showUploadTextFileModal) ||
+                                (value === 'pasteContent' && showPasteModal)) {
+                                // Close all panels if clicking the same option again
+                                setShowAudioOptions(false);
+                                setShowUploadTextFileModal(false);
+                                setShowPasteModal(false);
+                                return;
+                              }
 
+                              // Open the selected panel and close others
+                              if (value === 'uploadAudio') {
+                                setShowAudioOptions(true);
+                                setShowUploadTextFileModal(false);
+                                setShowPasteModal(false);
+                              } else if (value === 'uploadTxt') {
+                                setShowUploadTextFileModal(true);
+                                setShowAudioOptions(false);
+                                setShowPasteModal(false);
+                                // Only trigger file input if we're opening the panel
+                                document.getElementById('textFileInput')?.click();
+                              } else if (value === 'pasteContent') {
+                                setShowPasteModal(true);
+                                setShowUploadTextFileModal(false);
+                                setShowAudioOptions(false);
+                              }
+                            }}>
+                              <SelectTrigger className="w-[160px] sm:w-[180px] md-[200px] h-9 border border-gray-300 dark:border-gray-700 rounded-md hover:border-purple-500 focus:border-purple-500 transition-colors flex items-center gap-2">
+                                <div className="flex items-center justify-between w-full">
+                                  <SelectValue placeholder="Upload Options" />
+                                </div>
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="uploadAudio">
+                                  <div className="flex items-center gap-2">
+                                    <Volume2 className="h-4 w-4" />
+                                    <span>Upload Audio</span>
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="uploadTxt">
+                                  <div className="flex items-center gap-2">
+                                    <Upload className="h-4 w-4" />
+                                    <span>Upload Text File</span>
+                                  </div>
+                                </SelectItem>
+                                <SelectItem value="pasteContent">
+                                  <div className="flex items-center gap-2">
+                                    <ClipboardList className="h-4 w-4" />
+                                    <span>Paste Content</span>
+                                  </div>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+
+
+                            {/* 
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1603,7 +1789,7 @@ export default function TeacherPollRoom() {
                               ) : (
                                 <ChevronDown className="h-4 w-4" />
                               )}
-                            </Button>
+                            </Button> */}
 
                             <Button
                               onClick={clearGenAIData}
@@ -1687,6 +1873,104 @@ export default function TeacherPollRoom() {
                               onLiveRecordingStart={() => setIsLiveRecordingActive(true)}
                               onLiveRecordingStop={() => setIsLiveRecordingActive(false)}
                             />
+                          </div>
+                        )}
+                        {/* Text File Upload UI */}
+                        {showUploadTextFileModal && (
+                          <div className="border border-border rounded-lg p-4 space-y-2 transition-transform duration-200 hover:scale-102">
+                            <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 transition-colors">
+                              <Upload className="h-10 w-10 text-purple-500 mb-3" />
+                              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                                {fileName ? fileName : 'Upload a text file to generate questions'}
+                              </p>
+                              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
+                                <label
+                                  htmlFor="textFileInput"
+                                  className="flex-1"
+                                >
+                                  <div className="h-10 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 dark:focus:ring-offset-gray-800 cursor-pointer text-center">
+                                    {fileName ? 'Change File' : 'Select Text File (.txt)'}
+                                  </div>
+                                  <input
+                                    type="file"
+                                    id="textFileInput"
+                                    accept=".txt"
+                                    className="hidden"
+                                    onChange={handleTextFileSelect}
+                                  />
+                                </label>
+                                <Button
+                                  onClick={handleTextFileSubmit}
+                                  disabled={!textFileContent.trim()}
+                                  className="h-10 bg-purple-600 hover:bg-purple-700 text-white flex-1"
+                                >
+                                  Generate Questions
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* File Preview */}
+                            {textFileContent && (
+                              <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                                  <div className="flex justify-between items-center">
+                                    <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                      Preview
+                                    </h4>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                      {textFileContent.length} characters
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="p-4 bg-white dark:bg-gray-800 max-h-60 overflow-y-auto">
+                                  <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
+                                    {textFileContent.length > 1000
+                                      ? `${textFileContent.substring(0, 1000)}... [${textFileContent.length - 1000} more characters]`
+                                      : textFileContent}
+                                  </pre>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Paste Content */}
+                        {showPasteModal && (
+                          <div className="space-y-4">
+                            <div className="border border-border rounded-lg p-4 space-y-4">
+                              <div className="flex justify-between items-center">
+                                <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                  Paste Your Content
+                                </h4>
+                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                  {pastedContent.length} characters
+                                </span>
+                              </div>
+                              <textarea
+                                className="w-full h-40 p-3 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                placeholder="Paste your transcript or content here..."
+                                value={pastedContent}
+                                onChange={(e) => setPastedContent(e.target.value)}
+                              />
+                              <div className="flex justify-end space-x-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => {
+                                    setPastedContent('');
+                                    setShowPasteModal(false);
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  onClick={handlePasteSubmit}
+                                  disabled={!pastedContent.trim() || isGenerating || isGenerateClicked}
+                                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                                >
+                                  Generate Questions
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         )}
 
@@ -1961,8 +2245,8 @@ export default function TeacherPollRoom() {
                                             key={optionIndex}
                                             onClick={() => !isPollActive && handleOptionClick(optionIndex)}
                                             className={`relative p-2 sm:p-3 rounded-md transition-colors ${isCorrect
-                                                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-                                                : 'bg-gray-100/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70'
+                                              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                                              : 'bg-gray-100/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70'
                                               } ${!isPollActive ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
                                           >
                                             {/* Progress bar background - only show if we have matching poll data */}
@@ -1980,8 +2264,8 @@ export default function TeacherPollRoom() {
                                             <div className="relative z-10">
                                               <div className="flex items-center gap-2 sm:gap-3">
                                                 <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${isCorrect
-                                                    ? 'bg-green-500'
-                                                    : 'bg-gray-200 dark:bg-gray-600'
+                                                  ? 'bg-green-500'
+                                                  : 'bg-gray-200 dark:bg-gray-600'
                                                   }`}>
                                                   <span className="text-white text-xs">
                                                     {isCorrect ? '✓' : char}
@@ -2110,444 +2394,444 @@ export default function TeacherPollRoom() {
                   )}
                 </div>
 
-            )}
-          </ScrollArea>
-        </div>
+              )}
+            </ScrollArea>
+          </div>
 
-        {/* Loading Overlay */}
-        {isProcessing && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-              <div className="flex flex-col items-center space-y-4">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
-                  Please wait while we process your questions. This may take a moment...
-                </p>
+          {/* Loading Overlay */}
+          {isProcessing && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+                <div className="flex flex-col items-center space-y-4">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
+                    Please wait while we process your questions. This may take a moment...
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Create Poll  */}
-        {showPollModal && (
-          <Card className=" m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow">
-            <CardHeader>
-              <div className="flex items-center justify-between w-full gap-2">
-                <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-                  <ClipboardList className="w-5 h-5 text-purple-500" />
-                  Create Poll
-                </CardTitle>
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-5 overflow-y-auto">
-              {generatedQuestions.length > 0 && (
-                <section>
-                  <h4 className="text-xs sm:text-sm font-semibold text-purple-600 dark:text-purple-400 mb-4">
-                    Generated Questions (from AI)
-                  </h4>
-
-                  <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md">
-                    <div className="overflow-y-auto pr-2 flex-1">
-                      <div className="space-y-4">
-                        {generatedQuestions.map((q, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-card/90 border rounded-lg p-4 transition-all duration-300 ease-in-out transform relative hover:shadow-md border-gray-200 dark:border-gray-600"
-                          >
-                            {/* Question Metadata */}
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-2">
-                                <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full text-xs font-medium">
-                                  AI Generated
-                                </span>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                                onClick={() => selectGeneratedQuestion(q)}
-                              >
-                                <Check className="w-3 h-3 mr-1" />
-                                Use This
-                              </Button>
-                            </div>
-
-                            {/* Question Text */}
-                            <div className="mb-4">
-                              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-relaxed">
-                                {q.question}
-                              </h4>
-                            </div>
-
-                            {/* Answer Options */}
-                            <div className="space-y-2">
-                              <div className="grid grid-cols-1 gap-2">
-                                {q.options.map((opt, i) => (
-                                  <div
-                                    key={i}
-                                    className={`flex items-center gap-2 p-2 rounded text-sm ${i === q.correctOptionIndex
-                                      ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 font-medium'
-                                      : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
-                                      }`}
-                                  >
-                                    <div className={`w-4 h-4 rounded-full flex items-center justify-center ${i === q.correctOptionIndex
-                                      ? 'bg-green-500'
-                                      : 'bg-gray-300 dark:bg-gray-600'
-                                      }`}>
-                                      <span className="text-white text-xs">
-                                        {i === q.correctOptionIndex ? '✓' : String.fromCharCode(97 + i).toUpperCase()}
-                                      </span>
-                                    </div>
-                                    <span>{opt}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30"
-                                onClick={() => selectGeneratedQuestion(q)}
-                              >
-                                <Check className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30"
-                                onClick={() => {
-                                  const newQuestions = [...generatedQuestions];
-                                  newQuestions.splice(idx, 1);
-                                  setGeneratedQuestions(newQuestions);
-                                }}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </ScrollArea>
-                </section>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Poll question
-                </label>
-                <Input
-                  placeholder="Enter your poll question"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  className="dark:bg-gray-800/50 text-sm"
-                  aria-label="Poll question"
-                />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Enter the question students will answer.
-                </p>
-              </div>
-
-              <fieldset className="space-y-3">
-                <legend className="text-sm font-medium text-gray-600 mb-2 dark:text-gray-400">
-                  Poll options (choose correct/right option)
-                </legend>
-
-                {getFilteredOptions(options).map((opt, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <input
-                      type="radio"
-                      name="correctOption"
-                      checked={correctOptionIndex === i}
-                      onChange={() => setCorrectOptionIndex(i)}
-                      className="h-4 w-4 sm:h-5 sm:w-5 accent-purple-600 dark:accent-purple-400"
-                      aria-label={`Select option ${i + 1} as correct`}
-                    />
-                    <Input
-                      placeholder={`Option ${i + 1}`}
-                      value={opt}
-                      onChange={(e) => {
-                        const copy = [...options];
-                        copy[i] = e.target.value;
-                        setOptions(copy);
-                      }}
-                      className="dark:bg-gray-800/50 text-sm"
-                    />
-                  </div>
-                ))}
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Tip: Provide at least 2 meaningful options for a valid poll.
-                </p>
-              </fieldset>
-
-              {/* Timer */}
-              <div>
-                <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
-                  <Clock className="w-4 h-4" />
-                  Timer (seconds)
-                </label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    placeholder="e.g. 30"
-                    value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
-                    min={5}
-                    onChange={(e) => {
-                      const newTime = Number(e.target.value);
-                      setQuestionTimers(prev => ({
-                        ...prev,
-                        [currentQuestionIndex]: {
-                          ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30 }),
-                          initialTime: newTime,
-                          timeLeft: prev[currentQuestionIndex]?.isActive ? newTime : (prev[currentQuestionIndex]?.timeLeft || newTime)
-                        }
-                      }));
-                    }}
-                    className="dark:bg-gray-800/50 text-sm w-36"
-                    aria-label="Timer in seconds"
-                    disabled={questionTimers[currentQuestionIndex]?.isActive ||
-                      (launchedQuestions.has(currentQuestionIndex) &&
-                        (questionTimers[currentQuestionIndex]?.timeLeft === 0 ||
-                          questionTimers[currentQuestionIndex]?.isLaunched))}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  The timer controls how long the poll remains open for students to vote.
-                </p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-col xs:flex-row gap-2 sm:gap-4">
-                <Button
-                  onClick={createPoll}
-                  disabled={!question || options.filter((opt) => opt.trim()).length < 2}
-                  className="bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:from-purple-600 hover:to-blue-600 flex-1 text-sm"
-                  aria-disabled={!question || options.filter((opt) => opt.trim()).length < 2}
-                >
-                  Create Poll
-                </Button>
-
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    fetchResults();
-                    handlePollResultsbutton()
-                  }}
-                  className="flex-1 border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30 text-sm"
-                >
-                  Fetch Results
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/*  Poll Results  */}
-        {
-          showResultsModal && (
-            <Card className="m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow h-[900px]">
-              <CardHeader className="flex-shrink-0 pb-3">
-                <div className="flex items-center justify-between">
+          {/* Create Poll  */}
+          {showPollModal && (
+            <Card className=" m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow">
+              <CardHeader>
+                <div className="flex items-center justify-between w-full gap-2">
                   <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
-                    <BarChart2 className="w-5 h-5 text-purple-500" />
-                    Poll Results
+                    <ClipboardList className="w-5 h-5 text-purple-500" />
+                    Create Poll
                   </CardTitle>
-                  <div className="flex items-center gap-2">
-                    {Object.keys(pollResults).length > 0 && (
-                      <Button
-                        onClick={fetchResults}
-                        variant="outline"
-                        size="sm"
-                        className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30 text-xs sm:text-sm"
-                      >
-                        Refresh Results
-                      </Button>
-                    )}
-                  </div>
                 </div>
               </CardHeader>
 
-              <CardContent className="flex-1 overflow-hidden flex flex-col">
-                {Object.keys(pollResults).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center h-full">
-                    <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                      <Users className="w-8 h-8 text-gray-400 dark:text-gray-500" />
-                    </div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-                      No poll results yet
-                    </h3>
-                    <p className="text-gray-500 dark:text-gray-400 mb-4">
-                      Poll results will appear here once students submit their responses.
-                    </p>
-                    <Button
-                      onClick={fetchResults}
-                      variant="outline"
-                      className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30"
-                    >
-                      Check for Results
-                    </Button>
-                  </div>
-                ) : (
-                  <ScrollArea className="h-full w-full">
-                    <div className="overflow-y-auto pr-2 flex-1">
-                      <div className="space-y-4">
-                        {Object.entries(pollResults ?? {})
-                          .reverse()
-                          .map(([pollQuestion, options]) => {
-                            const totalVotes = Object.values(options ?? {}).reduce((sum, data) => sum + data.count, 0);
-                            const isShowingNames = showMemberNames[pollQuestion] !== false;
+              <CardContent className="space-y-5 overflow-y-auto">
+                {generatedQuestions.length > 0 && (
+                  <section>
+                    <h4 className="text-xs sm:text-sm font-semibold text-purple-600 dark:text-purple-400 mb-4">
+                      Generated Questions (from AI)
+                    </h4>
 
-                            const sortedOptions = Object.entries(options ?? {}).sort((a, b) => b[1].count - a[1].count);
-                            const topCount = sortedOptions?.[0]?.[1]?.count ?? 0;
+                    <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md">
+                      <div className="overflow-y-auto pr-2 flex-1">
+                        <div className="space-y-4">
+                          {generatedQuestions.map((q, idx) => (
+                            <div
+                              key={idx}
+                              className="bg-card/90 border rounded-lg p-4 transition-all duration-300 ease-in-out transform relative hover:shadow-md border-gray-200 dark:border-gray-600"
+                            >
+                              {/* Question Metadata */}
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full text-xs font-medium">
+                                    AI Generated
+                                  </span>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                  onClick={() => selectGeneratedQuestion(q)}
+                                >
+                                  <Check className="w-3 h-3 mr-1" />
+                                  Use This
+                                </Button>
+                              </div>
 
-                            return (
-                              <Card
-                                key={pollQuestion}
-                                className="bg-white/80 dark:bg-gray-800/80 border border-slate-200/70 dark:border-gray-700/70 flex-shrink-0"
-                              >
-                                <CardHeader className="pb-3">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <CardTitle className="text-sm sm:text-base text-gray-800 dark:text-gray-200 line-clamp-2">
-                                      {pollQuestion}
-                                    </CardTitle>
+                              {/* Question Text */}
+                              <div className="mb-4">
+                                <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-relaxed">
+                                  {q.question}
+                                </h4>
+                              </div>
 
-                                    <div className="flex items-center gap-2 flex-shrink-0">
-                                      <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                                        {totalVotes} vote{totalVotes !== 1 ? "s" : ""}
-                                      </span>
-
-                                      <Button
-                                        onClick={() => toggleMemberNames(pollQuestion)}
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1"
-                                        title={isShowingNames ? "Hide member names" : "Show member names"}
-                                      >
-                                        {isShowingNames ? <Eye size={16} /> : <EyeOff size={16} />}
-                                      </Button>
+                              {/* Answer Options */}
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-1 gap-2">
+                                  {q.options.map((opt, i) => (
+                                    <div
+                                      key={i}
+                                      className={`flex items-center gap-2 p-2 rounded text-sm ${i === q.correctOptionIndex
+                                        ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 font-medium'
+                                        : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                                        }`}
+                                    >
+                                      <div className={`w-4 h-4 rounded-full flex items-center justify-center ${i === q.correctOptionIndex
+                                        ? 'bg-green-500'
+                                        : 'bg-gray-300 dark:bg-gray-600'
+                                        }`}>
+                                        <span className="text-white text-xs">
+                                          {i === q.correctOptionIndex ? '✓' : String.fromCharCode(97 + i).toUpperCase()}
+                                        </span>
+                                      </div>
+                                      <span>{opt}</span>
                                     </div>
-                                  </div>
-                                </CardHeader>
+                                  ))}
+                                </div>
+                              </div>
 
-                                <CardContent className="pt-0">
-                                  <div className="space-y-3">
-                                    {Object.entries(options ?? {}).map(([opt, data]) => {
-                                      const percentage = totalVotes > 0 ? ((data.count / totalVotes) * 100).toFixed(1) : "0";
-                                      const isTop = data.count === topCount && topCount > 0;
-
-                                      return (
-                                        <div key={opt} className="space-y-2">
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <span className="font-medium text-purple-600 dark:text-purple-400 text-xs sm:text-sm flex-shrink-0">
-                                                {opt}
-                                                {isTop && (
-                                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
-                                                    Top
-                                                  </span>
-                                                )}
-                                              </span>
-
-                                              <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2 min-w-0">
-                                                <div
-                                                  className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
-                                                  style={{ width: `${percentage}%` }}
-                                                />
-                                              </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                                              <span className="text-gray-700 dark:text-gray-300 font-medium text-xs sm:text-sm">
-                                                {data.count}
-                                              </span>
-                                              <span className="text-gray-500 dark:text-gray-400 text-xs">({percentage}%)</span>
-                                            </div>
-                                          </div>
-
-                                          {isShowingNames && data.users.length > 0 ? (
-                                            <div className="ml-4 pl-2 border-l-2 border-purple-200 dark:border-purple-700">
-                                              <div className="flex flex-wrap gap-1 mt-1">
-                                                {data.users.map((user, userIndex) => (
-                                                  <span
-                                                    key={userIndex}
-                                                    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700"
-                                                  >
-                                                    <Users size={10} className="mr-1" />
-                                                    {user.name}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          ) : data.users.length > 0 ? (
-                                            <div className="ml-4 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                                              <Users size={12} />
-                                              <span>{data.users.length} member{data.users.length !== 1 ? "s" : ""}</span>
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            );
-                          })}
+                              <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30"
+                                  onClick={() => selectGeneratedQuestion(q)}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30"
+                                  onClick={() => {
+                                    const newQuestions = [...generatedQuestions];
+                                    newQuestions.splice(idx, 1);
+                                    setGeneratedQuestions(newQuestions);
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  </ScrollArea>
+                    </ScrollArea>
+                  </section>
                 )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Poll question
+                  </label>
+                  <Input
+                    placeholder="Enter your poll question"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    className="dark:bg-gray-800/50 text-sm"
+                    aria-label="Poll question"
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Enter the question students will answer.
+                  </p>
+                </div>
+
+                <fieldset className="space-y-3">
+                  <legend className="text-sm font-medium text-gray-600 mb-2 dark:text-gray-400">
+                    Poll options (choose correct/right option)
+                  </legend>
+
+                  {getFilteredOptions(options).map((opt, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="correctOption"
+                        checked={correctOptionIndex === i}
+                        onChange={() => setCorrectOptionIndex(i)}
+                        className="h-4 w-4 sm:h-5 sm:w-5 accent-purple-600 dark:accent-purple-400"
+                        aria-label={`Select option ${i + 1} as correct`}
+                      />
+                      <Input
+                        placeholder={`Option ${i + 1}`}
+                        value={opt}
+                        onChange={(e) => {
+                          const copy = [...options];
+                          copy[i] = e.target.value;
+                          setOptions(copy);
+                        }}
+                        className="dark:bg-gray-800/50 text-sm"
+                      />
+                    </div>
+                  ))}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Tip: Provide at least 2 meaningful options for a valid poll.
+                  </p>
+                </fieldset>
+
+                {/* Timer */}
+                <div>
+                  <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
+                    <Clock className="w-4 h-4" />
+                    Timer (seconds)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      placeholder="e.g. 30"
+                      value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
+                      min={5}
+                      onChange={(e) => {
+                        const newTime = Number(e.target.value);
+                        setQuestionTimers(prev => ({
+                          ...prev,
+                          [currentQuestionIndex]: {
+                            ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30 }),
+                            initialTime: newTime,
+                            timeLeft: prev[currentQuestionIndex]?.isActive ? newTime : (prev[currentQuestionIndex]?.timeLeft || newTime)
+                          }
+                        }));
+                      }}
+                      className="dark:bg-gray-800/50 text-sm w-36"
+                      aria-label="Timer in seconds"
+                      disabled={questionTimers[currentQuestionIndex]?.isActive ||
+                        (launchedQuestions.has(currentQuestionIndex) &&
+                          (questionTimers[currentQuestionIndex]?.timeLeft === 0 ||
+                            questionTimers[currentQuestionIndex]?.isLaunched))}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    The timer controls how long the poll remains open for students to vote.
+                  </p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col xs:flex-row gap-2 sm:gap-4">
+                  <Button
+                    onClick={createPoll}
+                    disabled={!question || options.filter((opt) => opt.trim()).length < 2}
+                    className="bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:from-purple-600 hover:to-blue-600 flex-1 text-sm"
+                    aria-disabled={!question || options.filter((opt) => opt.trim()).length < 2}
+                  >
+                    Create Poll
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      fetchResults();
+                      handlePollResultsbutton()
+                    }}
+                    className="flex-1 border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30 text-sm"
+                  >
+                    Fetch Results
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
-      </div>
+
+          {/*  Poll Results  */}
+          {
+            showResultsModal && (
+              <Card className="m-10 p-10 flex flex-col bg-white/90 dark:bg-gray-900/90 border border-slate-200/80 dark:border-gray-700/80 shadow h-[900px]">
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
+                      <BarChart2 className="w-5 h-5 text-purple-500" />
+                      Poll Results
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      {Object.keys(pollResults).length > 0 && (
+                        <Button
+                          onClick={fetchResults}
+                          variant="outline"
+                          size="sm"
+                          className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30 text-xs sm:text-sm"
+                        >
+                          Refresh Results
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="flex-1 overflow-hidden flex flex-col">
+                  {Object.keys(pollResults).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center h-full">
+                      <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                        <Users className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                        No poll results yet
+                      </h3>
+                      <p className="text-gray-500 dark:text-gray-400 mb-4">
+                        Poll results will appear here once students submit their responses.
+                      </p>
+                      <Button
+                        onClick={fetchResults}
+                        variant="outline"
+                        className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30"
+                      >
+                        Check for Results
+                      </Button>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-full w-full">
+                      <div className="overflow-y-auto pr-2 flex-1">
+                        <div className="space-y-4">
+                          {Object.entries(pollResults ?? {})
+                            .reverse()
+                            .map(([pollQuestion, options]) => {
+                              const totalVotes = Object.values(options ?? {}).reduce((sum, data) => sum + data.count, 0);
+                              const isShowingNames = showMemberNames[pollQuestion] !== false;
+
+                              const sortedOptions = Object.entries(options ?? {}).sort((a, b) => b[1].count - a[1].count);
+                              const topCount = sortedOptions?.[0]?.[1]?.count ?? 0;
+
+                              return (
+                                <Card
+                                  key={pollQuestion}
+                                  className="bg-white/80 dark:bg-gray-800/80 border border-slate-200/70 dark:border-gray-700/70 flex-shrink-0"
+                                >
+                                  <CardHeader className="pb-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <CardTitle className="text-sm sm:text-base text-gray-800 dark:text-gray-200 line-clamp-2">
+                                        {pollQuestion}
+                                      </CardTitle>
+
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                                          {totalVotes} vote{totalVotes !== 1 ? "s" : ""}
+                                        </span>
+
+                                        <Button
+                                          onClick={() => toggleMemberNames(pollQuestion)}
+                                          variant="ghost"
+                                          size="sm"
+                                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1"
+                                          title={isShowingNames ? "Hide member names" : "Show member names"}
+                                        >
+                                          {isShowingNames ? <Eye size={16} /> : <EyeOff size={16} />}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardHeader>
+
+                                  <CardContent className="pt-0">
+                                    <div className="space-y-3">
+                                      {Object.entries(options ?? {}).map(([opt, data]) => {
+                                        const percentage = totalVotes > 0 ? ((data.count / totalVotes) * 100).toFixed(1) : "0";
+                                        const isTop = data.count === topCount && topCount > 0;
+
+                                        return (
+                                          <div key={opt} className="space-y-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                <span className="font-medium text-purple-600 dark:text-purple-400 text-xs sm:text-sm flex-shrink-0">
+                                                  {opt}
+                                                  {isTop && (
+                                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                                                      Top
+                                                    </span>
+                                                  )}
+                                                </span>
+
+                                                <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-2 min-w-0">
+                                                  <div
+                                                    className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full transition-all duration-500 ease-out"
+                                                    style={{ width: `${percentage}%` }}
+                                                  />
+                                                </div>
+                                              </div>
+
+                                              <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                                <span className="text-gray-700 dark:text-gray-300 font-medium text-xs sm:text-sm">
+                                                  {data.count}
+                                                </span>
+                                                <span className="text-gray-500 dark:text-gray-400 text-xs">({percentage}%)</span>
+                                              </div>
+                                            </div>
+
+                                            {isShowingNames && data.users.length > 0 ? (
+                                              <div className="ml-4 pl-2 border-l-2 border-purple-200 dark:border-purple-700">
+                                                <div className="flex flex-wrap gap-1 mt-1">
+                                                  {data.users.map((user, userIndex) => (
+                                                    <span
+                                                      key={userIndex}
+                                                      className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700"
+                                                    >
+                                                      <Users size={10} className="mr-1" />
+                                                      {user.name}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            ) : data.users.length > 0 ? (
+                                              <div className="ml-4 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                                <Users size={12} />
+                                                <span>{data.users.length} member{data.users.length !== 1 ? "s" : ""}</span>
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+        </div>
 
 
-      {/* <ShowStudentsModal
+        {/* <ShowStudentsModal
         isOpen={showStudentsModal}
         onClose={() => setShowStudentsModal(false)}
         students={students}
       /> */}
 
 
-      <Modal
-        show={showRecordModal}
-        title={"Record with Whisper AI"}
-        content={
-          <>
-            <p className="mb-4">Record audio using your microphone with Whisper AI transcription</p>
-            <AudioRecorder
-              onRecordingComplete={handleAudioFromRecording}
-              onAudioStream={handleLiveAudioStream}
-              enableLiveTranscription={true}
-            />
-            {audioBlob && (
-              <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
-                <p className="text-green-800 dark:text-green-400 text-sm flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Recording complete! Click "Load" to process with Whisper AI
-                </p>
-              </div>
-            )}
-          </>
-        }
-        onClose={() => {
-          setShowRecordModal(false);
-          setAudioBlob(undefined);
-          setIsLiveRecordingActive(false);
-        }}
-        submitText={"Load"}
-        submitEnabled={audioBlob !== undefined}
-        onSubmit={() => {
-          processAudioBlob();
-          setAudioBlob(undefined);
-        }}
-      />
+        <Modal
+          show={showRecordModal}
+          title={"Record with Whisper AI"}
+          content={
+            <>
+              <p className="mb-4">Record audio using your microphone with Whisper AI transcription</p>
+              <AudioRecorder
+                onRecordingComplete={handleAudioFromRecording}
+                onAudioStream={handleLiveAudioStream}
+                enableLiveTranscription={true}
+              />
+              {audioBlob && (
+                <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                  <p className="text-green-800 dark:text-green-400 text-sm flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Recording complete! Click "Load" to process with Whisper AI
+                  </p>
+                </div>
+              )}
+            </>
+          }
+          onClose={() => {
+            setShowRecordModal(false);
+            setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+          }}
+          submitText={"Load"}
+          submitEnabled={audioBlob !== undefined}
+          onSubmit={() => {
+            processAudioBlob();
+            setAudioBlob(undefined);
+          }}
+        />
       </div>
     </div>
   );
