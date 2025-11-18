@@ -179,12 +179,12 @@ export default function TeacherDashboard() {
               <p className="mb-4 opacity-90 text-sm sm:text-base">
                 Track, analyze, and enhance student learning outcomes
               </p>
-              <Button
+              {/* <Button
                 variant="secondary"
                 className="bg-white text-blue-800 hover:bg-white/90 text-sm sm:text-base"
               >
                 Quick Start Guide
-              </Button>
+              </Button> */}
             </div>
             <div className="lg:w-1/2 flex justify-center">
               <div className="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-white/20 rounded-full flex items-center justify-center">
