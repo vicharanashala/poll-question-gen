@@ -194,6 +194,7 @@ export default function StudentDashboard() {
                   onClick={() => {
                     navigate({ to: '/student/pollroom' });
                   }}
+                  data-tour="join-room-btn"
                 >
                   Join Poll Room
                 </Button>
@@ -208,7 +209,7 @@ export default function StudentDashboard() {
           </Card>
 
           {/* Poll Stats Summary */}
-          <Card className="flex flex-col justify-between p-4 sm:p-6 shadow-lg dark:shadow-2xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+          <Card className="flex flex-col justify-between p-4 sm:p-6 shadow-lg dark:shadow-2xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" data-tour="poll-stats">
             <CardContent className="p-4 sm:p-6 space-y-3 sm:space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -240,7 +241,7 @@ export default function StudentDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
 
           {/* Recent Polls (combined box) */}
-          <Card className="md:col-span-2 shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+          <Card className="md:col-span-2 shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" data-tour="active-polls">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-blue-700 dark:text-blue-400 flex items-center gap-2 text-sm sm:text-base">
                 <Trophy className="h-5 w-5" />
@@ -391,7 +392,7 @@ export default function StudentDashboard() {
           </Card>
 
           {/* Room-wise Results */}
-          <Card className="shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+          <Card className="shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" data-tour="room-scores">
             <CardHeader>
               <CardTitle className="text-blue-700 dark:text-blue-400 flex items-center gap-2 text-sm sm:text-base">
                 <BookOpen className="h-5 w-5" />
@@ -449,7 +450,7 @@ export default function StudentDashboard() {
         </div>
 
         {/* Performance Summary */}
-        <Card className="shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
+        <Card className="shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" data-tour="performance-summary">
           <CardHeader>
             <CardTitle className="text-blue-800 dark:text-blue-200 font-bold flex items-center gap-2 text-sm sm:text-base">
               <Trophy className="h-5 w-5 text-blue-600 dark:text-blue-400" />

@@ -1,4 +1,5 @@
 import { ThemeToggle } from "@/components/theme-toggle";
+import { StudentTourGuide } from "@/components/student-tour-guide";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { Outlet, Link, useNavigate, useLocation } from "@tanstack/react-router";
@@ -82,6 +83,7 @@ export default function StudentLayout() {
                 : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
+              data-tour="dashboard-nav"
             >
               <Link to="/student/home">
                 <Home className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
@@ -97,6 +99,7 @@ export default function StudentLayout() {
                 : 'text-slate-700 hover:bg-blue-50 hover:text-blue-800 border border-transparent dark:text-gray-300 dark:hover:bg-blue-900/20 dark:hover:text-blue-100'
                 }`}
               asChild
+              data-tour="join-room-nav"
             >
               <Link to="/student/pollroom">
                 <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
@@ -139,7 +142,8 @@ export default function StudentLayout() {
 
           {/* Right side - matching teacher's style */}
           <div className="flex items-center gap-2 sm:gap-4">
-            <ThemeToggle />
+            <StudentTourGuide />
+            <ThemeToggle data-tour="theme-toggle" />
 
             {/* User Profile Dropdown - matching teacher's style */}
             <DropdownMenu>
