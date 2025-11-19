@@ -92,6 +92,7 @@ export default function StudentPollRoom() {
       socket.off('room-ended');
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('live-poll-results');  
 
       socket.on("new-poll", (poll: Poll) => {
         setLivePolls(prev => [...prev, poll]);
@@ -102,6 +103,9 @@ export default function StudentPollRoom() {
         toast.error('Room has ended');
         navigate({ to: '/student/home' });
       });
+      socket.on('live-poll-results',()=>{
+        loadRoomDetails(roomCode)   
+      })
 
       socket.on('connect', () => {
         console.log('Socket reconnected, rejoining room...');
@@ -131,6 +135,7 @@ export default function StudentPollRoom() {
       socket.off('room-ended');
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('live-poll-results');  
     };
   }, [roomCode, navigate]);
 
