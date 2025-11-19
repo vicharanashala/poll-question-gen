@@ -83,7 +83,7 @@ export function TeacherSidebar({ ...props }: React.ComponentProps<typeof Sidebar
   }
 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible="icon" {...props} data-tour="sidebar">
       <SidebarHeader className="border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-2 px-2 py-4">
           <div className="h-8 w-8 flex-shrink-0">

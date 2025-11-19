@@ -1,9 +1,8 @@
 import { ThemeToggle } from "@/components/theme-toggle";
-// import { Button } from "@/components/ui/button";
+import { TourGuide } from "@/components/tour-guide";
 import { Outlet } from "@tanstack/react-router";
 import { TeacherSidebar } from "@/components/teacher-sidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-// import { Menu } from "lucide-react";
 
 // import React from "react";
 
@@ -31,17 +30,18 @@ export default function TeacherLayout() {
       <SidebarInset className="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-900 dark:via-slate-900 dark:to-gray-950">
         <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm dark:bg-gray-900/95 dark:border-gray-800">
           <div className="flex h-16 items-center gap-4 px-4">
-            <SidebarTrigger className="hover:bg-blue-50 dark:hover:bg-blue-900/20" />
+            <SidebarTrigger className="hover:bg-blue-50 dark:hover:bg-blue-900/20" data-tour="sidebar-trigger" />
 
             <div className="flex flex-1 items-center justify-between">
               <div className="flex items-center gap-4">
-                <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h1 className="text-lg font-semibold text-gray-900 dark:text-white" data-tour="dashboard-header">
                   Teacher Dashboard
                 </h1>
               </div>
               
               <div className="flex items-center gap-2">
-                <ThemeToggle />
+                <TourGuide />
+                <ThemeToggle data-tour="theme-toggle" />
               </div>
             </div>
           </div>
