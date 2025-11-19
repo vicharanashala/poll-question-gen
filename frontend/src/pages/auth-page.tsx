@@ -295,7 +295,7 @@ export default function AuthPage() {
             {/* Header */}
             <div className="text-center space-y-2">
               <h2 className="text-2xl sm:text-3xl font-bold text-blue-500 tracking-tight">
-                {isSignUp ? "Create Account" : "Welcome Back"}
+                {isSignUp ? "Create Account" : "WELCOME!"}
               </h2>
               <p className="text-sm sm:text-base text-muted-foreground">
                 {isSignUp
