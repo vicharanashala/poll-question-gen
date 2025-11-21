@@ -213,6 +213,7 @@ export default function TeacherPollRoom() {
   const [useWhisper, setUseWhisper] = useState(false);
   const [useWhisperGGML, setUseWhisperGGML] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
+  const [showGGMLRecordModel, setShowGGMLRecordModel] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
 
 
@@ -476,13 +477,29 @@ export default function TeacherPollRoom() {
     void processPendingQueue();
   }, [processPendingQueue]);
 
+  const [shouldProcessTranscript, setShouldProcessTranscript] = useState(false);
+  useEffect(() => {
+    
+    if (transcriber.output?.text) {
+      setTranscript(transcriber.output.text);
+      setIsProcessing(false);
+      
+      // Reset flag
+    }
+    if(shouldProcessTranscript )
+    {
+      generateQuestions()
+      setShouldProcessTranscript(false);
+    } 
+  }, [transcriber.output, shouldProcessTranscript]);
 
-  // useEffect(() => {
-  //   if (transcriber.output?.text) {
-  //     setTranscript(transcriber.output.text);
-  //     setIsProcessing(false);
-  //   }
-  // }, [transcriber.output]);
+  /* useEffect(() => {
+    console.log("the second loop coming===",transcriber)
+     if (transcriber.output?.text) {
+       setTranscript(transcriber.output.text);
+       setIsProcessing(false);
+     }
+  }, [transcriber.output]);*/
 
   // // Update processing state based on transcriber.isBusy
   // useEffect(() => {
@@ -620,9 +637,14 @@ export default function TeacherPollRoom() {
       }
     } else {
       try {
-        if (useWhisper || useWhisperGGML) {
+        if (useWhisper  ) {
           setShowRecordModal(true);
-        } else {
+        }
+        else if(useWhisperGGML)
+        {
+          setShowGGMLRecordModel(true)
+        }
+         else {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
           });
@@ -742,6 +764,7 @@ export default function TeacherPollRoom() {
       setIsRecording(false);
       setIsListening(false);
       setShowRecordModal(false);
+      setShowGGMLRecordModel(false)
     };
 
     fileReader.readAsArrayBuffer(audioBlob);
@@ -831,7 +854,6 @@ export default function TeacherPollRoom() {
 
     // Get the current transcript value from the state
     const currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim();
-
     if (!currentTranscript) {
       toast.error("Please provide YouTube URL, upload file, or record audio");
       return;
@@ -1063,6 +1085,37 @@ export default function TeacherPollRoom() {
       console.log("Live transcription update:", text);
     }
   }, [transcriber.output, isLiveRecordingActive, transcriber.isLiveMode]);
+  
+  /*const hasGeneratedRef = useRef(false);
+
+  useEffect(() => {
+    const text = transcriber.output?.text;
+    const isComplete = !transcriber.output?.isBusy;
+  
+    if (
+      text &&
+      isComplete &&
+      !isLiveRecordingActive &&
+      !hasGeneratedRef.current
+    ) {
+      hasGeneratedRef.current = true; // prevent second call
+      setTranscript(text);
+      generateQuestions();
+      console.log("Transcribed successfully", text);
+      toast.success("Transcribed successfully");
+    }
+  
+    // Live updates (unchanged)
+    if (text && isLiveRecordingActive && transcriber.isLiveMode) {
+      console.log("Live transcription update:", text);
+    }
+  }, [
+    transcriber.output?.isBusy,
+    transcriber.output?.text,
+    isLiveRecordingActive,
+    transcriber.isLiveMode,
+  ]);
+  */
 
   useEffect(() => {
     const text = transcriber.output?.text;
@@ -1210,6 +1263,7 @@ export default function TeacherPollRoom() {
     setFrequencyData([]);
     setUseWhisper(false);
     setShowRecordModal(false);
+    setShowGGMLRecordModel(false)
     setAudioBlob(undefined);
     setIsProcessing(false);
 
@@ -1873,7 +1927,7 @@ export default function TeacherPollRoom() {
                               ))
                             ) : (
                               <div className="space-y-2">
-                                <p className="text-sm text-muted-foreground">Tap mic to start recording</p>
+                                <p className="text-sm text-muted-foreground ">Tap mic to start recording</p>
                                 <div className="flex flex-col space-y-2">
                                   <div className="flex items-center space-x-2">
                                     <Checkbox
@@ -1924,6 +1978,7 @@ export default function TeacherPollRoom() {
                             )}
                           </div>
                         </div>
+                        {/*
                         {(showAudioOptions || useWhisperGGML)&& (
                           <div className="border border-border rounded-lg p-4 space-y-2 transition-transform duration-200 hover:scale-102">
                             <p className="text-xs text-muted-foreground mb-1">
@@ -1940,9 +1995,9 @@ export default function TeacherPollRoom() {
                                 value={transcriber.transcriberType}
                                 onValueChange={(value) => {
                                   transcriber.setTranscriberType(value as "xenova" | "ggml");
-                                  setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
+                                  setAudioManagerKey(Date.now()); 
                                   
-                                  // Set the appropriate Whisper mode flags to enable live transcription
+                                 
                                   if (value === "ggml") {
                                     setUseWhisper(false);
                                     setUseWhisperGGML(true);
@@ -1967,10 +2022,10 @@ export default function TeacherPollRoom() {
                               </p>
                             </div>
                             
-                            {/* Model Download Status UI - Only show for GGML */}
+                           
                             {useWhisperGGML && (
                               <div className="mb-4 space-y-2">
-                                {/* Show download progress when model is downloading */}
+                               
                                 {transcriber.isModelLoading && transcriber.progressItems.length > 0 && (
                                   <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20">
                                     <div className="flex items-center justify-between mb-2">
@@ -2002,7 +2057,7 @@ export default function TeacherPollRoom() {
                                   </div>
                                 )}
                                 
-                                {/* Show initialization spinner when loading but no progress items yet */}
+                                
                                 {transcriber.isModelLoading && transcriber.progressItems.length === 0 && (
                                   <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-3 bg-blue-50 dark:bg-blue-900/20">
                                     <div className="flex items-center gap-2">
@@ -2017,7 +2072,7 @@ export default function TeacherPollRoom() {
                                   </div>
                                 )}
                                 
-                                {/* Show ready status when model is loaded and ready */}
+                               
                                 {!transcriber.isModelLoading && transcriber.progressItems.length === 0 && (
                                   <div className="border border-green-200 dark:border-green-800 rounded-lg p-3 bg-green-50 dark:bg-green-900/20">
                                     <div className="flex items-center gap-2">
@@ -2046,6 +2101,7 @@ export default function TeacherPollRoom() {
                             />
                           </div>
                         )}
+                            */}
                         {/* Text File Upload UI */}
                         {showUploadTextFileModal && (
                           <div className="border border-border rounded-lg p-4 space-y-2 transition-transform duration-200 hover:scale-102">
@@ -2159,7 +2215,7 @@ export default function TeacherPollRoom() {
                           </div>
                         )}
 
-                        {/* GGML Streaming Status Indicators */}
+                        {/* GGML Streaming Status Indicators 
                         {useWhisperGGML && isLiveRecordingActive && (
                           <div className="flex items-center gap-4 mb-2 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
                             <div className="flex items-center gap-2">
@@ -2178,6 +2234,7 @@ export default function TeacherPollRoom() {
                             )}
                           </div>
                         )}
+                        */}
                         <Transcript
                           transcribedData={transcriber.output}
                           liveTranscription={(useWhisper || useWhisperGGML) ? (transcriber.output?.text || '') : displayTranscript}
@@ -3028,12 +3085,65 @@ export default function TeacherPollRoom() {
             setShowRecordModal(false);
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
+            setShouldProcessTranscript(false);
           }}
           submitText={"Load"}
           submitEnabled={audioBlob !== undefined}
           onSubmit={() => {
             processAudioBlob();
             setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+            setShouldProcessTranscript(true);
+           
+          }}
+        />
+        <Modal
+          show={showGGMLRecordModel}
+          title={"Record with Whisper GGML"}
+          content={
+            <>
+              <p className="mb-4">Record audio using your microphone with Whisper GGML transcription</p>
+              <AudioManager
+                              key={audioManagerKey}
+                              transcriber={transcriber}
+                              enableLiveTranscription={ useWhisperGGML}
+                              onLiveRecordingStart={() => setIsLiveRecordingActive(true)}
+                              onLiveRecordingStop={() => {
+                                setIsLiveRecordingActive(false);
+                                setLocalVoiceActivity(false);
+                              }}
+                              onVoiceActivityChange={(active) => {
+                                setLocalVoiceActivity(active);
+                              }}
+                              onRecordingComplete={handleAudioFromRecording}
+                            />
+              {audioBlob && (
+                <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                  <p className="text-green-800 dark:text-green-400 text-sm flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Recording complete! Click "Load" to process with Whisper AI
+                  </p>
+                </div>
+              )}
+            </>
+          }
+          onClose={() => {
+            setShowGGMLRecordModel(false);
+            setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+            setShouldProcessTranscript(false);
+          }}
+          submitText={"Load"}
+          submitEnabled={audioBlob !== undefined}
+          onSubmit={() => {
+            processAudioBlob();
+            setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+           // generateQuestions()
+           setShouldProcessTranscript(true);
+           
           }}
         />
       </div>
