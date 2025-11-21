@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useRef } from "react";
-import { useWorker } from "./useWorker";
+import { useWorker, WorkerType } from "./useWorker";
 import Constants from "../utils/Constants";
 
 interface ProgressItem {
@@ -38,6 +38,9 @@ export interface Transcriber {
     isModelLoading: boolean;
     progressItems: ProgressItem[];
     start: (audioData: AudioBuffer | undefined) => void;
+    updateTranscript: (text: string, chunks: { text: string; timestamp: [number, number | null] }[]) => void;
+    startStreaming: () => void;
+    stopStreaming: () => void;
     output?: TranscriberData;
     model: string;
     setModel: (model: string) => void;
@@ -51,6 +54,10 @@ export interface Transcriber {
     setLanguage: (language: string) => void;
     isLiveMode: boolean;
     accumulatedChunks: { text: string; timestamp: [number, number | null] }[];
+    transcriberType: WorkerType;
+    setTranscriberType: (type: WorkerType) => void;
+    streamStatus: string;
+    voiceActivity: boolean;
 }
 
 export function useTranscriber(): Transcriber {
@@ -68,11 +75,54 @@ export function useTranscriber(): Transcriber {
         { text: string; timestamp: [number, number | null] }[]
     >([]);
     const accumulatedTextRef = useRef<string>("");
+    const [transcriberType, setTranscriberTypeState] = useState<WorkerType>("xenova");
+    const [streamStatus, setStreamStatus] = useState<string>("");
+    const [voiceActivity, setVoiceActivity] = useState<boolean>(false);
+    const isStreamingRef = useRef(false);
+    const transcriberTypeRef = useRef<WorkerType>(transcriberType);
+    
+    // Update ref when transcriberType changes
+    transcriberTypeRef.current = transcriberType;
+    
+    // Wrapper to log transcriberType changes
+    const setTranscriberType = useCallback((type: WorkerType) => {
+        console.log('[useTranscriber] setTranscriberType called, changing from', transcriberTypeRef.current, 'to', type);
+        setTranscriberTypeState(type);
+    }, []);
 
     const webWorker = useWorker((event) => {
         const message = event.data;
+        console.log('[useTranscriber] Message received from worker:', message);
+        
         // Update the state with the result
         switch (message.status) {
+            case "pong":
+                // Test response from worker
+                console.log('[useTranscriber] Worker ping response received:', message.data);
+                break;
+            case "debug":
+                // Log debug messages from worker to console
+                console.log(message.data?.message || message.data);
+                break;
+            case "stream_status":
+                // Update stream status (waiting, processing, etc.)
+                setStreamStatus(message.data?.status || "");
+                break;
+            case "voice_activity":
+                // Update voice activity indicator
+                setVoiceActivity(message.data?.active || false);
+                break;
+            case "stream_stopped":
+                setStreamStatus("stopped");
+                setIsLiveMode(false);
+                isStreamingRef.current = false;
+                break;
+            case "stream_started":
+                console.log('[useTranscriber] Stream started, setting isStreamingRef to true');
+                isStreamingRef.current = true;
+                setIsLiveMode(true);
+                setStreamStatus("waiting");
+                break;
             case "progress":
                 // Model file progress: update one of the progress items.
                 setProgressItems((prev) =>
@@ -184,7 +234,7 @@ export function useTranscriber(): Transcriber {
                 // initiate/download/done
                 break;
         }
-    });
+    }, transcriberType);
 
     const [model, setModel] = useState<string>(Constants.DEFAULT_MODEL);
     const [subtask, setSubtask] = useState<string>(Constants.DEFAULT_SUBTASK);
@@ -203,52 +253,151 @@ export function useTranscriber(): Transcriber {
         setIsLiveMode(false);
         setAccumulatedChunks([]);
         accumulatedTextRef.current = "";
+        setStreamStatus("");
+        setVoiceActivity(false);
+        isStreamingRef.current = false;
     }, []);
+
+    const startStreaming = useCallback(() => {
+        if (transcriberType === "ggml") {
+            console.log('[useTranscriber] Starting GGML streaming mode');
+            console.log('[useTranscriber] webWorker:', webWorker);
+            console.log('[useTranscriber] webWorker.constructor.name:', webWorker.constructor.name);
+            isStreamingRef.current = true; // Set immediately to avoid race condition
+            setIsLiveMode(true);
+            setStreamStatus("waiting");
+            const message = {
+                action: "start_stream",
+                model: model || "tiny.en",
+                options: {
+                    lang: "en",
+                    suppress_non_speech: true,
+                    max_tokens: 16
+                }
+            };
+            console.log('[useTranscriber] Sending start_stream message:', message);
+            try {
+                webWorker.postMessage(message);
+                console.log('[useTranscriber] start_stream message sent successfully');
+            } catch (error) {
+                console.error('[useTranscriber] Error sending start_stream message:', error);
+            }
+        }
+    }, [webWorker, model, transcriberType]);
+
+    const stopStreaming = useCallback(() => {
+        if (transcriberType === "ggml") {
+            console.log('[useTranscriber] Stopping GGML streaming mode');
+            isStreamingRef.current = false; // Set immediately
+            setIsLiveMode(false);
+            setStreamStatus("stopped");
+            webWorker.postMessage({
+                action: "stop_stream"
+            });
+        }
+    }, [webWorker, transcriberType]);
 
     const postRequest = useCallback(
         async (audioData: AudioBuffer | undefined) => {
-            if (audioData) {
-                // NEW: Detect if we're already transcribing (live mode)
-                if (isBusy) {
-                    setIsLiveMode(true);
-                } else {
-                    setTranscript(undefined);
-                    setIsLiveMode(false);
-                    setAccumulatedChunks([]);
-                    accumulatedTextRef.current = "";
+            // GGML StreamTranscriber does not send AudioBuffer - it sends text segments directly
+            // Skip audio processing if data is not an AudioBuffer
+            if (!audioData) {
+                return;
+            }
+            
+            // Check if audioData is actually an AudioBuffer
+            if (!(audioData instanceof AudioBuffer)) {
+                console.warn('[useTranscriber] Received non-AudioBuffer data (likely GGML segment), skipping audio processing');
+                return;
+            }
+            
+            let audio;
+            if (audioData.numberOfChannels === 2) {
+                const SCALING_FACTOR = Math.sqrt(2);
+
+                let left = audioData.getChannelData(0);
+                let right = audioData.getChannelData(1);
+
+                audio = new Float32Array(left.length);
+                for (let i = 0; i < audioData.length; ++i) {
+                    audio[i] = SCALING_FACTOR * (left[i] + right[i]) / 2;
                 }
+            } else {
+                // If the audio is not stereo, we can just use the first channel:
+                audio = audioData.getChannelData(0);
+            }
 
-                setIsBusy(true);
-
-                let audio;
-                if (audioData.numberOfChannels === 2) {
-                    const SCALING_FACTOR = Math.sqrt(2);
-
-                    let left = audioData.getChannelData(0);
-                    let right = audioData.getChannelData(1);
-
-                    audio = new Float32Array(left.length);
-                    for (let i = 0; i < audioData.length; ++i) {
-                        audio[i] = SCALING_FACTOR * (left[i] + right[i]) / 2;
+                // For GGML streaming mode, send chunks instead of full transcription
+                if (transcriberType === "ggml" && isStreamingRef.current) {
+                    // Send streaming chunk
+                    // Convert Float32Array to regular array for postMessage (Float32Array may not transfer correctly)
+                    const audioArray = Array.from(audio);
+                    // Only log occasionally to reduce spam
+                    if (Math.random() < 0.01) { // Log ~1% of chunks
+                        console.log('[useTranscriber] Sending streaming chunk, length:', audio.length);
+                    }
+                    const message = {
+                        action: "stream_chunk",
+                        audio: audioArray, // Send as regular array
+                        model: model,
+                    };
+                    try {
+                        webWorker.postMessage(message);
+                    } catch (error) {
+                        console.error('[useTranscriber] Error sending stream_chunk message:', error);
                     }
                 } else {
-                    // If the audio is not stereo, we can just use the first channel:
-                    audio = audioData.getChannelData(0);
-                }
+                    // Regular transcription mode
+                    // NEW: Detect if we're already transcribing (live mode)
+                    if (isBusy) {
+                        setIsLiveMode(true);
+                    } else {
+                        setTranscript(undefined);
+                        setIsLiveMode(false);
+                        setAccumulatedChunks([]);
+                        accumulatedTextRef.current = "";
+                    }
 
-                webWorker.postMessage({
-                    audio,
-                    model,
-                    multilingual,
-                    quantized,
-                    subtask: multilingual ? subtask : null,
-                    language:
-                        multilingual && language !== "auto" ? language : null,
-                });
-            }
+                    setIsBusy(true);
+
+                    webWorker.postMessage({
+                        audio,
+                        model,
+                        multilingual,
+                        quantized,
+                        subtask: multilingual ? subtask : null,
+                        language:
+                            multilingual && language !== "auto" ? language : null,
+                    });
+                }
         },
-        [webWorker, model, multilingual, quantized, subtask, language, isBusy],
+        [webWorker, model, multilingual, quantized, subtask, language, isBusy, transcriberType, isStreamingRef],
     );
+
+    // Method to update transcript directly (for GGML streaming segments)
+    const updateTranscript = useCallback((text: string, chunks: { text: string; timestamp: [number, number | null] }[]) => {
+        console.log('[useTranscriber] updateTranscript called with:', { text, chunksCount: chunks.length });
+        
+        // Update accumulated chunks in live mode
+        if (isLiveMode) {
+            setAccumulatedChunks((prev) => {
+                // Filter out duplicates based on text
+                const existingTexts = new Set(prev.map(c => c.text));
+                const uniqueNewChunks = chunks.filter(
+                    chunk => !existingTexts.has(chunk.text)
+                );
+                return [...prev, ...uniqueNewChunks];
+            });
+            accumulatedTextRef.current = text;
+        }
+        
+        // Update transcript
+        setTranscript({
+            isBusy: false,
+            text: text,
+            chunks: chunks,
+        });
+    }, [isLiveMode]);
 
     const transcriber = useMemo(() => {
         return {
@@ -257,6 +406,9 @@ export function useTranscriber(): Transcriber {
             isModelLoading,
             progressItems,
             start: postRequest,
+            updateTranscript,
+            startStreaming,
+            stopStreaming,
             output: transcript,
             model,
             setModel,
@@ -270,12 +422,20 @@ export function useTranscriber(): Transcriber {
             setLanguage,
             isLiveMode,
             accumulatedChunks,
+            transcriberType,
+            setTranscriberType,
+            streamStatus,
+            voiceActivity,
         };
     }, [
+        onInputChange,
         isBusy,
         isModelLoading,
         progressItems,
         postRequest,
+        updateTranscript,
+        startStreaming,
+        stopStreaming,
         transcript,
         model,
         multilingual,
@@ -284,6 +444,9 @@ export function useTranscriber(): Transcriber {
         language,
         isLiveMode,
         accumulatedChunks,
+        transcriberType,
+        streamStatus,
+        voiceActivity,
     ]);
 
     return transcriber;
