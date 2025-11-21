@@ -211,6 +211,7 @@ export default function TeacherPollRoom() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [showAudioOptions, setShowAudioOptions] = useState(false);
   const [useWhisper, setUseWhisper] = useState(false);
+  const [useWhisperGGML, setUseWhisperGGML] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
 
@@ -229,6 +230,7 @@ export default function TeacherPollRoom() {
   const transcriber = useTranscriber();
   const [transcript, setTranscript] = useState<string | null>(null);
   const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
+  const [localVoiceActivity, setLocalVoiceActivity] = useState(false);
   // const [showStudentsModal, setShowStudentsModal] = useState(false)
   const [students, setStudents] = useState<Array<{ id?: string; name?: string }>>([]);
 
@@ -505,7 +507,7 @@ export default function TeacherPollRoom() {
 
   // Watch Whisper live chunks and enqueue 100-word checkpoints
   useEffect(() => {
-    if (!useWhisper) return;
+    if (!useWhisper && !useWhisperGGML) return;
     // Build buffer text from accumulated chunks
     const text = (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim();
     bufferTextRef.current = text;
@@ -515,11 +517,11 @@ export default function TeacherPollRoom() {
       processedWordsRef.current += 100;
       enqueueTextChunk(chunkWords);
     }
-  }, [transcriber.accumulatedChunks, useWhisper, enqueueTextChunk]);
+  }, [transcriber.accumulatedChunks, useWhisper, useWhisperGGML, enqueueTextChunk]);
 
   // Watch non-Whisper live transcript (Web Speech API) and enqueue 100-word checkpoints
   useEffect(() => {
-    if (useWhisper) return;
+    if (useWhisper || useWhisperGGML) return;
     const text = displayTranscript.trim();
     bufferTextRef.current = text;
     const words = text ? text.split(/\s+/).filter(Boolean) : [];
@@ -528,7 +530,7 @@ export default function TeacherPollRoom() {
       processedWordsRef.current += 100;
       enqueueTextChunk(chunkWords);
     }
-  }, [displayTranscript, useWhisper, enqueueTextChunk]);
+  }, [displayTranscript, useWhisper, useWhisperGGML, enqueueTextChunk]);
 
   const updateAudioLevel = useCallback(() => {
     if (analyserRef.current) {
@@ -573,7 +575,7 @@ export default function TeacherPollRoom() {
       setIsProcessing(true);
       try {
         // Determine current buffer based on mode
-        const textBuffer = useWhisper
+        const textBuffer = (useWhisper || useWhisperGGML)
           ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim()
           : displayTranscript.trim();
 
@@ -618,7 +620,7 @@ export default function TeacherPollRoom() {
       }
     } else {
       try {
-        if (useWhisper) {
+        if (useWhisper || useWhisperGGML) {
           setShowRecordModal(true);
         } else {
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -654,6 +656,7 @@ export default function TeacherPollRoom() {
     setIsListening,
     setIsLiveRecordingActive,
     useWhisper,
+    useWhisperGGML,
     transcriber.accumulatedChunks,
     displayTranscript,
     enqueueTextChunk,
@@ -1247,7 +1250,7 @@ export default function TeacherPollRoom() {
 
   // Watch Whisper live chunks and enqueue 100-word checkpoints
   useEffect(() => {
-    if (!useWhisper) return;
+    if (!useWhisper && !useWhisperGGML) return;
     // Build buffer text from accumulated chunks
     const text = (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim();
     bufferTextRef.current = text;
@@ -1257,11 +1260,11 @@ export default function TeacherPollRoom() {
       processedWordsRef.current += 100;
       enqueueTextChunk(chunkWords);
     }
-  }, [transcriber.accumulatedChunks, useWhisper, enqueueTextChunk]);
+  }, [transcriber.accumulatedChunks, useWhisper, useWhisperGGML, enqueueTextChunk]);
 
   // Watch non-Whisper live transcript (Web Speech API) and enqueue 100-word checkpoints
   useEffect(() => {
-    if (useWhisper) return;
+    if (useWhisper || useWhisperGGML) return;
     const text = displayTranscript.trim();
     bufferTextRef.current = text;
     const words = text ? text.split(/\s+/).filter(Boolean) : [];
@@ -1270,7 +1273,7 @@ export default function TeacherPollRoom() {
       processedWordsRef.current += 100;
       enqueueTextChunk(chunkWords);
     }
-  }, [displayTranscript, useWhisper, enqueueTextChunk]);
+  }, [displayTranscript, useWhisper, useWhisperGGML, enqueueTextChunk]);
 
   const handleGeneratedQuestionClick = () => {
     setShowPreview(!showPreview)
@@ -1839,17 +1842,17 @@ export default function TeacherPollRoom() {
                           <Button
                             onClick={() => handleRecordingToggle()}
                             size="lg"
-                            variant={(isRecording && !useWhisper) ? "destructive" : "default"}
+                            variant={(isRecording && !useWhisper && !useWhisperGGML) ? "destructive" : "default"}
                             className={`h-20 w-20 md:w-25 md:h-25 rounded-full flex items-center justify-center 
                               bg-gradient-to-r from-purple-500 to-blue-500 text-white 
                               hover:from-purple-600 hover:to-blue-600 shadow-lg 
-                              ${(isRecording && !useWhisper) && "animate-pulse"} transition-all`}
+                              ${(isRecording && !useWhisper && !useWhisperGGML) && "animate-pulse"} transition-all`}
                           >
-                            {(isRecording && !useWhisper) ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
+                            {(isRecording && !useWhisper && !useWhisperGGML) ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
                           </Button>
 
                           <div className="flex items-end gap-1 h-8">
-                            {isRecording && isListening && !useWhisper ? (
+                            {isRecording && isListening && !useWhisper && !useWhisperGGML ? (
                               frequencyData.map((level, index) => (
                                 <div
                                   key={index}
@@ -1860,7 +1863,7 @@ export default function TeacherPollRoom() {
                                   }}
                                 />
                               ))
-                            ) : isRecording && !useWhisper ? (
+                            ) : isRecording && !useWhisper && !useWhisperGGML ? (
                               Array.from({ length: 20 }).map((_, index) => (
                                 <div
                                   key={index}
@@ -1871,24 +1874,57 @@ export default function TeacherPollRoom() {
                             ) : (
                               <div className="space-y-2">
                                 <p className="text-sm text-muted-foreground">Tap mic to start recording</p>
-                                <div className="flex items-center space-x-2">
-                                  <Checkbox
-                                    id="use-whisper"
-                                    checked={useWhisper}
-                                    onCheckedChange={(checked) => setUseWhisper(checked === true)}
-                                  />
-                                  <label
-                                    htmlFor="use-whisper"
-                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                  >
-                                    Use Whisper AI
-                                  </label>
+                                <div className="flex flex-col space-y-2">
+                                  <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                      id="use-whisper"
+                                      checked={useWhisper}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setUseWhisper(true);
+                                          setUseWhisperGGML(false);
+                                          transcriber.setTranscriberType("xenova");
+                                          setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
+                                        } else {
+                                          setUseWhisper(false);
+                                        }
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor="use-whisper"
+                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                      Use Whisper AI
+                                    </label>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                      id="use-whisper-ggml"
+                                      checked={useWhisperGGML}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setUseWhisperGGML(true);
+                                          setUseWhisper(false);
+                                          transcriber.setTranscriberType("ggml");
+                                          setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
+                                        } else {
+                                          setUseWhisperGGML(false);
+                                        }
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor="use-whisper-ggml"
+                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                      Use Whisper ggml
+                                    </label>
+                                  </div>
                                 </div>
                               </div>
                             )}
                           </div>
                         </div>
-                        {showAudioOptions && (
+                        {(showAudioOptions || useWhisperGGML)&& (
                           <div className="border border-border rounded-lg p-4 space-y-2 transition-transform duration-200 hover:scale-102">
                             <p className="text-xs text-muted-foreground mb-1">
                               Please clear the previous transcription before uploading a new audio file.
@@ -1896,12 +1932,117 @@ export default function TeacherPollRoom() {
                             <p className="text-xs text-muted-foreground mb-2">
                               Upload an audio file instead of recording
                             </p>
+                            <div className="mb-4">
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Transcription Engine:
+                              </label>
+                              <Select
+                                value={transcriber.transcriberType}
+                                onValueChange={(value) => {
+                                  transcriber.setTranscriberType(value as "xenova" | "ggml");
+                                  setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
+                                  
+                                  // Set the appropriate Whisper mode flags to enable live transcription
+                                  if (value === "ggml") {
+                                    setUseWhisper(false);
+                                    setUseWhisperGGML(true);
+                                  } else if (value === "xenova") {
+                                    setUseWhisper(true);
+                                    setUseWhisperGGML(false);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="w-full max-w-xs">
+                                  <SelectValue placeholder="Select transcription engine" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="xenova">Xenova (Transformers.js)</SelectItem>
+                                  <SelectItem value="ggml">GGML (Whisper.cpp)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {transcriber.transcriberType === "xenova" 
+                                  ? "Uses Transformers.js - Better for multilingual support"
+                                  : "Uses Whisper.cpp GGML - Faster, smaller models"}
+                              </p>
+                            </div>
+                            
+                            {/* Model Download Status UI - Only show for GGML */}
+                            {useWhisperGGML && (
+                              <div className="mb-4 space-y-2">
+                                {/* Show download progress when model is downloading */}
+                                {transcriber.isModelLoading && transcriber.progressItems.length > 0 && (
+                                  <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/20">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                        Downloading model...
+                                      </span>
+                                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                                        {transcriber.progressItems.map(item => 
+                                          `${(item.progress * 100).toFixed(1)}%`
+                                        ).join(', ')}
+                                      </span>
+                                    </div>
+                                    {transcriber.progressItems.map((item, index) => (
+                                      <div key={index} className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs text-blue-600 dark:text-blue-400 mb-1">
+                                          <span>{item.name || item.file}</span>
+                                          <span>
+                                            {((item.loaded / 1024 / 1024).toFixed(1))}MB / {((item.total / 1024 / 1024).toFixed(1))}MB
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2 overflow-hidden">
+                                          <div 
+                                            className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
+                                            style={{ width: `${(item.progress * 100)}%` }}
+                                          ></div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                
+                                {/* Show initialization spinner when loading but no progress items yet */}
+                                {transcriber.isModelLoading && transcriber.progressItems.length === 0 && (
+                                  <div className="border border-blue-200 dark:border-blue-800 rounded-lg p-3 bg-blue-50 dark:bg-blue-900/20">
+                                    <div className="flex items-center gap-2">
+                                      <svg className="animate-spin h-4 w-4 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                                      </svg>
+                                      <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                        Checking for cached model or initializing...
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* Show ready status when model is loaded and ready */}
+                                {!transcriber.isModelLoading && transcriber.progressItems.length === 0 && (
+                                  <div className="border border-green-200 dark:border-green-800 rounded-lg p-3 bg-green-50 dark:bg-green-900/20">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                      <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                                        Model ready! You can start recording.
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
                             <AudioManager
                               key={audioManagerKey}
                               transcriber={transcriber}
-                              enableLiveTranscription={useWhisper}
+                              enableLiveTranscription={useWhisper || useWhisperGGML}
                               onLiveRecordingStart={() => setIsLiveRecordingActive(true)}
-                              onLiveRecordingStop={() => setIsLiveRecordingActive(false)}
+                              onLiveRecordingStop={() => {
+                                setIsLiveRecordingActive(false);
+                                setLocalVoiceActivity(false);
+                              }}
+                              onVoiceActivityChange={(active) => {
+                                setLocalVoiceActivity(active);
+                              }}
                             />
                           </div>
                         )}
@@ -2018,10 +2159,29 @@ export default function TeacherPollRoom() {
                           </div>
                         )}
 
+                        {/* GGML Streaming Status Indicators */}
+                        {useWhisperGGML && isLiveRecordingActive && (
+                          <div className="flex items-center gap-4 mb-2 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-3 h-3 rounded-full ${(transcriber.voiceActivity || localVoiceActivity) ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                              <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                                {(transcriber.voiceActivity || localVoiceActivity) ? 'Listening... (speech detected)' : 'Waiting... (silence)'}
+                              </span>
+                            </div>
+                            {transcriber.streamStatus && (
+                              <div className="text-xs text-purple-600 dark:text-purple-400">
+                                Status: {transcriber.streamStatus === 'waiting' ? 'Waiting for speech...' : 
+                                         transcriber.streamStatus === 'processing' ? 'Processing audio...' :
+                                         transcriber.streamStatus === 'stopped' ? 'Stopped' :
+                                         transcriber.streamStatus}
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <Transcript
                           transcribedData={transcriber.output}
-                          liveTranscription={useWhisper ? (transcriber.output?.text || '') : displayTranscript}
-                          isRecording={useWhisper ? isLiveRecordingActive : (isRecording || isListening)}
+                          liveTranscription={(useWhisper || useWhisperGGML) ? (transcriber.output?.text || '') : displayTranscript}
+                          isRecording={(useWhisper || useWhisperGGML) ? isLiveRecordingActive : (isRecording || isListening)}
                         />
 
                         <div>
