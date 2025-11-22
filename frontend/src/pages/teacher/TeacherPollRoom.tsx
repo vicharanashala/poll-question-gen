@@ -1892,7 +1892,7 @@ export default function TeacherPollRoom() {
                             {(isRecording && !useWhisper && !useWhisperGGML) ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
                           </Button>
 
-                          <div className="flex items-end gap-1 h-8">
+                          <div className="flex items-end gap-1 h-8 mt-8">
                             {isRecording && isListening && !useWhisper && !useWhisperGGML ? (
                               frequencyData.map((level, index) => (
                                 <div
