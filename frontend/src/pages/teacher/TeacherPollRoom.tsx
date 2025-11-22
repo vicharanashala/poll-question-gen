@@ -479,17 +479,19 @@ export default function TeacherPollRoom() {
 
   const [shouldProcessTranscript, setShouldProcessTranscript] = useState(false);
   useEffect(() => {
-    
+   
     if (transcriber.output?.text) {
       setTranscript(transcriber.output.text);
-      setIsProcessing(false);
       
+     
       // Reset flag
     }
     if(shouldProcessTranscript )
     {
       generateQuestions()
       setShouldProcessTranscript(false);
+     
+     
     } 
   }, [transcriber.output, shouldProcessTranscript]);
 
@@ -914,6 +916,7 @@ export default function TeacherPollRoom() {
       }
     } finally {
       setIsGenerating(false);
+      setIsProcessing(false)
     }
   }, [
     transcript,
