@@ -22,12 +22,7 @@ function debugLog(...args) {
         return String(arg);
     }).join(' ');
     
-    // Log in worker (may not be visible) - keep one console.log for worker console
-    if (typeof console !== 'undefined' && console.log) {
-        console.log('[GGML Worker]', ...args);
-    }
-    
-    // Send to main thread so it's visible in console
+    // Send to main thread
     self.postMessage({
         status: "debug",
         data: { message: `[GGML Worker] ${message}` },
@@ -51,10 +46,6 @@ try {
         data: { message: "[GGML Worker] ✅ Worker script executing! Timestamp: " + Date.now() },
     });
     
-    // Also log to console (visible in worker console)
-    if (typeof console !== 'undefined' && console.log) {
-        console.log('[GGML Worker] ✅ Initial postMessage sent successfully');
-    }
 } catch (error) {
     // Try to send error via postMessage
     try {
@@ -67,26 +58,13 @@ try {
     } catch (e) {
         // If even that fails, we can't communicate
     }
-    // Log to console if available
-    if (typeof console !== 'undefined' && console.error) {
-        console.error('[GGML Worker] ❌ Error during initialization:', error);
-    }
 }
 
 // Wrap initialization in try-catch to catch any errors
 try {
-    // Direct console.log to verify worker is loading (visible in worker console)
-    console.log('[GGML Worker] Worker script loaded and initialized');
-    console.log('[GGML Worker] Worker location:', self.location.href);
-    console.log('[GGML Worker] Worker type:', typeof Worker !== 'undefined' ? 'Worker available' : 'Worker not available');
-    console.log('[GGML Worker] self type:', typeof self);
-    console.log('[GGML Worker] self.location:', self.location);
-
     debugLog('Worker script loaded and initialized');
     debugLog('Worker location:', self.location.href);
 } catch (error) {
-    console.error('[GGML Worker] Error during initialization:', error);
-    console.error('[GGML Worker] Error stack:', error.stack);
     self.postMessage({
         status: "error",
         data: { message: `[GGML Worker] Initialization error: ${error.message}` },
@@ -185,7 +163,6 @@ async function downloadModel(url, onProgress) {
     const response = await fetch(url);
     
     if (!response.ok) {
-        console.error('[GGML Worker] Download failed:', response.statusText);
         debugLog('Download failed:', response.statusText);
         throw new Error(`Failed to download model: ${response.statusText}`);
     }
@@ -806,15 +783,10 @@ self.addEventListener("message", async (event) => {
         
         // Handle test ping - respond immediately without any processing
         if (message && message.action === 'ping') {
-            console.log('[GGML Worker] Ping received, responding with pong');
             self.postMessage({ status: 'pong', data: { message: 'Worker is alive!', timestamp: Date.now() } });
             return;
         }
     
-        // Direct console.log for immediate visibility
-        console.log('[GGML Worker] Message received from main thread:', message);
-        console.log('[GGML Worker] Message type/action:', message.action || 'transcribe');
-        
         debugLog('Message received from main thread:', message);
         debugLog('Message type/action:', message.action || 'transcribe');
         debugLog('Full message data:', JSON.stringify(message, null, 2));
@@ -824,7 +796,6 @@ self.addEventListener("message", async (event) => {
         
         // Handle different message types
         if (message.action === 'start_stream') {
-            console.log('[GGML Worker] start_stream action received');
             debugLog('Starting stream transcription');
             await startStreaming(modelName, message.options || {});
         } else if (message.action === 'stop_stream') {
@@ -832,10 +803,8 @@ self.addEventListener("message", async (event) => {
             await stopStreaming();
         } else if (message.action === 'stream_chunk') {
             // Add audio chunk to streaming buffer
-            console.log('[GGML Worker] stream_chunk received, length:', message.audio?.length, 'isStreaming:', isStreaming);
             debugLog('Received streaming chunk, length:', message.audio?.length, 'isStreaming:', isStreaming);
             if (!isStreaming) {
-                console.log('[GGML Worker] WARNING: Received stream_chunk but isStreaming is false! Starting stream...');
                 debugLog('WARNING: Received stream_chunk but isStreaming is false! Starting stream...');
                 await startStreaming(modelName);
             }
@@ -874,8 +843,6 @@ self.addEventListener("message", async (event) => {
             debugLog('Transcription complete, all messages sent');
         }
     } catch (error) {
-        console.error('[GGML Worker] Error processing message:', error);
-        console.error('[GGML Worker] Error stack:', error.stack);
         debugLog('Error processing message:', error);
         debugLog('Error stack:', error.stack);
         self.postMessage({
@@ -888,13 +855,10 @@ self.addEventListener("message", async (event) => {
 
 // Add error handler for uncaught errors
 self.addEventListener('error', (event) => {
-    console.error('[GGML Worker] Uncaught error:', event.error);
-    console.error('[GGML Worker] Error message:', event.message);
-    console.error('[GGML Worker] Error filename:', event.filename);
-    console.error('[GGML Worker] Error lineno:', event.lineno);
+    // Error handler (no logging)
 });
 
 // Add error handler for unhandled promise rejections
 self.addEventListener('unhandledrejection', (event) => {
-    console.error('[GGML Worker] Unhandled promise rejection:', event.reason);
+    // Unhandled rejection handler (no logging)
 });

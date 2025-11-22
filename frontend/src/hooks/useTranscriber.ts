@@ -87,23 +87,19 @@ export function useTranscriber(): Transcriber {
 
     // Wrapper to log transcriberType changes
     const setTranscriberType = useCallback((type: WorkerType) => {
-        console.log('[useTranscriber] setTranscriberType called, changing from', transcriberTypeRef.current, 'to', type);
         setTranscriberTypeState(type);
     }, []);
 
     const webWorker = useWorker((event) => {
         const message = event.data;
-        console.log('[useTranscriber] Message received from worker:', message);
 
         // Update the state with the result
         switch (message.status) {
             case "pong":
                 // Test response from worker
-                console.log('[useTranscriber] Worker ping response received:', message.data);
                 break;
             case "debug":
-                // Log debug messages from worker to console
-                console.log(message.data?.message || message.data);
+                // Debug messages from worker (no logging)
                 break;
             case "stream_status":
                 // Update stream status (waiting, processing, etc.)
@@ -119,7 +115,6 @@ export function useTranscriber(): Transcriber {
                 isStreamingRef.current = false;
                 break;
             case "stream_started":
-                console.log('[useTranscriber] Stream started, setting isStreamingRef to true');
                 isStreamingRef.current = true;
                 setIsLiveMode(true);
                 setStreamStatus("waiting");
@@ -261,9 +256,6 @@ export function useTranscriber(): Transcriber {
 
     const startStreaming = useCallback(() => {
         if (transcriberType === "ggml") {
-            console.log('[useTranscriber] Starting GGML streaming mode');
-            console.log('[useTranscriber] webWorker:', webWorker);
-            console.log('[useTranscriber] webWorker.constructor.name:', webWorker.constructor.name);
             isStreamingRef.current = true; // Set immediately to avoid race condition
             setIsLiveMode(true);
             setStreamStatus("waiting");
@@ -276,19 +268,16 @@ export function useTranscriber(): Transcriber {
                     max_tokens: 16
                 }
             };
-            console.log('[useTranscriber] Sending start_stream message:', message);
             try {
                 webWorker.postMessage(message);
-                console.log('[useTranscriber] start_stream message sent successfully');
             } catch (error) {
-                console.error('[useTranscriber] Error sending start_stream message:', error);
+                // Error sending start_stream message
             }
         }
     }, [webWorker, model, transcriberType]);
 
     const stopStreaming = useCallback(() => {
         if (transcriberType === "ggml") {
-            console.log('[useTranscriber] Stopping GGML streaming mode');
             isStreamingRef.current = false; // Set immediately
             setIsLiveMode(false);
             setStreamStatus("stopped");
@@ -308,7 +297,6 @@ export function useTranscriber(): Transcriber {
 
             // Check if audioData is actually an AudioBuffer
             if (!(audioData instanceof AudioBuffer)) {
-                console.warn('[useTranscriber] Received non-AudioBuffer data (likely GGML segment), skipping audio processing');
                 return;
             }
 
@@ -333,10 +321,6 @@ export function useTranscriber(): Transcriber {
                 // Send streaming chunk
                 // Convert Float32Array to regular array for postMessage (Float32Array may not transfer correctly)
                 const audioArray = Array.from(audio);
-                // Only log occasionally to reduce spam
-                if (Math.random() < 0.01) { // Log ~1% of chunks
-                    console.log('[useTranscriber] Sending streaming chunk, length:', audio.length);
-                }
                 const message = {
                     action: "stream_chunk",
                     audio: audioArray, // Send as regular array
@@ -345,7 +329,7 @@ export function useTranscriber(): Transcriber {
                 try {
                     webWorker.postMessage(message);
                 } catch (error) {
-                    console.error('[useTranscriber] Error sending stream_chunk message:', error);
+                    // Error sending stream_chunk message
                 }
             } else {
                 // Regular transcription mode
@@ -397,8 +381,6 @@ export function useTranscriber(): Transcriber {
 
     // Method to update transcript directly (for GGML streaming segments)
     const updateTranscript = useCallback((text: string, chunks: { text: string; timestamp: [number, number | null] }[]) => {
-        console.log('[useTranscriber] updateTranscript called with:', { text, chunksCount: chunks.length });
-
         // Update accumulated chunks in live mode
         if (isLiveModeRef.current) {
             setAccumulatedChunks((prev) => {

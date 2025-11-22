@@ -279,12 +279,9 @@ export default function TeacherPollRoom() {
 
     // Join room function
     const joinRoom = () => {
-      console.log('Joining room:', roomCode);
-
       socket.emit('join-room', roomCode, (response: any) => {
-        // console.log('Join room response:', response);
         if (response?.status === 'error') {
-          console.error('Error joining room:', response.message);
+          // Error joining room
         } else {
           setJoinedRoom(true);
         }
@@ -350,12 +347,12 @@ export default function TeacherPollRoom() {
       });
 
       socket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
+        // Socket connection error
         setJoinedRoom(false);
       });
 
       socket.on('error', (error) => {
-        console.error('Socket error:', error);
+        // Socket error
       });
     };
 
@@ -416,12 +413,10 @@ export default function TeacherPollRoom() {
     if (processingQueueRef.current) return;
     processingQueueRef.current = true;
 
-    console.log(`[Queue] Starting to process ${pendingTextChunksRef.current.length} pending chunks`);
 
     while (pendingTextChunksRef.current.length > 0) {
       const chunk = pendingTextChunksRef.current.shift();
       if (!chunk) continue;
-      console.log(`[Queue] Processing chunk of length ${chunk.split(/\s+/).filter(Boolean).length} words`);
       try {
         const formData = new FormData();
         formData.append('transcript', chunk);
@@ -455,14 +450,11 @@ export default function TeacherPollRoom() {
         const filteredQuestions = cleanQuestions.map((q: GeneratedQuestion) => filterQuestionOptions(q));
 
         if (filteredQuestions.length > 0) {
-          console.log(`[Questions] Generated ${filteredQuestions.length} new questions from chunk`);
-          console.log(`[Questions] Queue status: Current: ${queuedGeneratedQuestionsRef.current.length}, Adding: ${filteredQuestions.length}`);
           queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
           setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
-          console.log(`[Questions] New total in queue: ${queuedGeneratedQuestionsRef.current.length}`);
         }
       } catch (err) {
-        console.error('Failed to process queued chunk', err);
+        // Failed to process queued chunk
       }
     }
 
@@ -496,7 +488,6 @@ export default function TeacherPollRoom() {
   }, [transcriber.output, shouldProcessTranscript]);
 
   /* useEffect(() => {
-    console.log("the second loop coming===",transcriber)
      if (transcriber.output?.text) {
        setTranscript(transcriber.output.text);
        setIsProcessing(false);
@@ -619,9 +610,6 @@ export default function TeacherPollRoom() {
         if (queuedGeneratedQuestionsRef.current.length > 0) {
           const queued = queuedGeneratedQuestionsRef.current;
           const prevLen = generatedQuestions.length;
-          console.log(`[Final] Processing completed - Words processed: ${processedWordsRef.current}`);
-          console.log(`[Final] Total questions generated: ${queued.length}`);
-          console.log(`[Final] Questions per 100 words: ${(queued.length / (processedWordsRef.current / 100)).toFixed(2)}`);
           setGeneratedQuestions((prev) => [...prev, ...queued]);
           setShowPreview(true);
           // open the single-question viewer starting at the first newly added question
@@ -633,7 +621,7 @@ export default function TeacherPollRoom() {
           toast.success("Generated questions are ready");
         }
       } catch (err) {
-        console.error("Error finalizing queued question generation:", err);
+        // Error finalizing queued question generation
       } finally {
         setIsProcessing(false);
       }
@@ -671,7 +659,7 @@ export default function TeacherPollRoom() {
           setInterimTranscript("");
         }
       } catch (error) {
-        console.error("Error accessing microphone:", error);
+        // Error accessing microphone
       }
     }
   }, [
@@ -725,7 +713,9 @@ export default function TeacherPollRoom() {
         const IS_FROM_ONEND = true;
         handleRecordingToggle(IS_FROM_ONEND);
       };
-      recognition.onerror = (event: any) => console.error(event.error);
+      recognition.onerror = (event: any) => {
+        // Recognition error
+      };
 
       recognitionRef.current = recognition;
     } else {
@@ -797,7 +787,7 @@ export default function TeacherPollRoom() {
       toast.success("Room ended successfully");
       navigate({ to: '/teacher/pollroom' });
     } catch (error) {
-      console.error('Error ending room:', error);
+      // Error ending room
       if (error && typeof error === 'object' && 'response' in error) {
         const apiError = error as { response?: { data?: { message?: string } } };
         toast.error(apiError.response?.data?.message || "Failed to end room");
@@ -829,7 +819,7 @@ export default function TeacherPollRoom() {
       // setShowPreview(false);
       fetchResults()
     } catch (error) {
-      console.error("Failed to create poll:", error);
+      // Failed to create poll
       toast.error("Failed to create poll");
     }
   };
@@ -907,7 +897,7 @@ export default function TeacherPollRoom() {
       setShowPreview(true);
       toast.success(`Generated ${filteredQuestions.length} questions successfully!`);
     } catch (error) {
-      console.error('Error generating questions:', error);
+      // Error generating questions
       if (error && typeof error === 'object' && 'response' in error) {
         const apiError = error as { response?: { data?: { message?: string } } };
         toast.error(apiError.response?.data?.message || "Failed to generate questions");
@@ -949,7 +939,7 @@ export default function TeacherPollRoom() {
       setShouldGenerate(true);
       // Don't set isProcessing to false here - let the useEffect handle it
     } catch (error) {
-      console.error('Error in processContent:', error);
+      // Error in processContent
       toast.error('Failed to process content');
     }
   }, []);
@@ -964,7 +954,7 @@ export default function TeacherPollRoom() {
           await generateQuestions();
           // console.log('useEffect: Question generation completed');
         } catch (error) {
-          console.error('Error generating questions:', error);
+          // Error generating questions
           toast.error('Failed to generate questions');
         } finally {
           // console.log('useEffect: Setting isProcessing to false');
@@ -999,7 +989,7 @@ export default function TeacherPollRoom() {
         }
         setTextFileContent(content);
       } catch (error) {
-        console.error('Error reading file:', error);
+        // Error reading file
         toast.error('Failed to read the file');
         setFileName('');
         setTextFileContent('');
@@ -1014,7 +1004,7 @@ export default function TeacherPollRoom() {
     try {
       reader.readAsText(file);
     } catch (error) {
-      console.error('Error reading file:', error);
+      // Error reading file
       toast.error('Failed to process the file');
       setFileName('');
       setTextFileContent('');
@@ -1042,7 +1032,7 @@ export default function TeacherPollRoom() {
       setTextFileContent('');
       setFileName('');
     } catch (error) {
-      console.error('Error processing file content:', error);
+      // Error processing file content
       toast.error('Failed to process file content');
       setIsProcessing(false); // Only set to false on error
     } finally {
@@ -1057,15 +1047,13 @@ export default function TeacherPollRoom() {
       return;
     }
 
-    console.log('Paste: Setting isProcessing to true');
     setIsProcessing(true);
     
     try {
-      console.log('Paste: Calling processContent');
       await processContent(pastedContent);
       setPastedContent('');
     } catch (error) {
-      console.error('Error processing paste content:', error);
+      // Error processing paste content
       toast.error('Failed to process paste content');
       setIsProcessing(false); // Only set to false on error
     } finally {
@@ -1080,12 +1068,10 @@ export default function TeacherPollRoom() {
     const isComplete = !transcriber.output?.isBusy;
     if (text && isComplete && !isLiveRecordingActive) {
       setTranscript(text);
-      console.log("Transcribed successfully", text);
       toast.success("Transcribed successfully");
     }
     // In live mode, show partial transcripts as they come
     if (text && isLiveRecordingActive && transcriber.isLiveMode) {
-      console.log("Live transcription update:", text);
     }
   }, [transcriber.output, isLiveRecordingActive, transcriber.isLiveMode]);
   
@@ -1104,13 +1090,11 @@ export default function TeacherPollRoom() {
       hasGeneratedRef.current = true; // prevent second call
       setTranscript(text);
       generateQuestions();
-      console.log("Transcribed successfully", text);
       toast.success("Transcribed successfully");
     }
   
     // Live updates (unchanged)
     if (text && isLiveRecordingActive && transcriber.isLiveMode) {
-      console.log("Live transcription update:", text);
     }
   }, [
     transcriber.output?.isBusy,

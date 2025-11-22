@@ -235,7 +235,7 @@ export function AudioManager(props: {
                 }
                 setAudioFromDownload(data, mimeType);
             } catch (error) {
-                console.log("Request failed or aborted", error);
+                // Request failed or aborted
             } finally {
                 setProgress(undefined);
             }
@@ -262,11 +262,10 @@ export function AudioManager(props: {
                 }
             );
             const data = response.data;
-            // console.log("YouTube audio data received:", data);
             setProgress(undefined);
             setAudioFromDownload(data, "audio/mp3");
         } catch (err) {
-            console.error("Failed to fetch YouTube audio:", err);
+            // Failed to fetch YouTube audio
             setProgress(undefined);
         }
     };
@@ -746,14 +745,12 @@ function InlineStreamingRecorder(props: {
 
                 if (transcriberRef.current.updateTranscript) {
                     transcriberRef.current.updateTranscript(text.trim(), chunks);
-                } else {
-                    console.warn('[InlineStreamingRecorder] updateTranscript method not available');
                 }
             }
         },
         (loaded, total) => {
             const progress = loaded / total;
-            console.log('[InlineStreamingRecorder] Model download progress:', (progress * 100).toFixed(2) + '%');
+            // console.log('[InlineStreamingRecorder] Model download progress:', (progress * 100).toFixed(2) + '%');
         }
     );
 
@@ -771,7 +768,6 @@ function InlineStreamingRecorder(props: {
     }, [recording]);
 
     const startRecording = async () => {
-        console.log('[InlineStreamingRecorder] startRecording called');
 
         // Reset recorded blob and duration
         setRecordedBlob(null);
@@ -780,7 +776,6 @@ function InlineStreamingRecorder(props: {
 
         try {
             if (!streamRef.current) {
-                console.log('[InlineStreamingRecorder] Requesting microphone access...');
                 streamRef.current = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         channelCount: 1,
@@ -789,7 +784,6 @@ function InlineStreamingRecorder(props: {
                         noiseSuppression: true
                     }
                 });
-                console.log('[InlineStreamingRecorder] Microphone access granted');
             }
 
             // Set up MediaRecorder for audio clip recording
@@ -822,13 +816,11 @@ function InlineStreamingRecorder(props: {
                 }
             });
 
-            console.log('[InlineStreamingRecorder] Creating AudioContext...');
             audioContextRef.current = new AudioContext({
                 sampleRate: Constants.SAMPLING_RATE,
             });
 
             if (audioContextRef.current.state === 'suspended') {
-                console.log('[InlineStreamingRecorder] Resuming suspended audio context...');
                 await audioContextRef.current.resume();
             }
 
@@ -836,7 +828,6 @@ function InlineStreamingRecorder(props: {
 
             // For non-GGML: Create ScriptProcessor to send chunks to worker
             if (!isGGML) {
-                console.log('[InlineStreamingRecorder] Creating ScriptProcessor for non-GGML...');
                 processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
 
                 processorRef.current.onaudioprocess = (e: AudioProcessingEvent) => {
@@ -851,14 +842,14 @@ function InlineStreamingRecorder(props: {
                             audioBuffer.getChannelData(0).set(inputData);
                             props.onAudioStream(audioBuffer);
                         } catch (error) {
-                            console.error('[InlineStreamingRecorder] Error processing audio chunk:', error);
+                            // Error processing audio chunk
                         }
                     }
                 };
                 source.connect(processorRef.current);
                 processorRef.current.connect(audioContextRef.current.destination);
             } else {
-                console.log('[InlineStreamingRecorder] GGML mode - StreamTranscriber handles audio internally');
+                // console.log('[InlineStreamingRecorder] GGML mode - StreamTranscriber handles audio internally');
             }
 
             // Start MediaRecorder
@@ -869,7 +860,7 @@ function InlineStreamingRecorder(props: {
 
             // For GGML, use StreamTranscriber directly
             if (isGGML && !streamingStartedRef.current && streamRef.current) {
-                console.log('[InlineStreamingRecorder] Starting GGML streaming');
+                // console.log('[InlineStreamingRecorder] Starting GGML streaming');
                 try {
                     const modelName = props.transcriber.model || "tiny.en";
                     const initialized = await ggmlStreaming.initStreamTranscriber(modelName);
@@ -892,30 +883,29 @@ function InlineStreamingRecorder(props: {
 
                     streamingStartedRef.current = true;
                 } catch (error) {
-                    console.error('[InlineStreamingRecorder] Error starting GGML streaming:', error);
+                    // Error starting GGML streaming
                     isRecordingRef.current = false;
                     setRecording(false);
                     return;
                 }
             } else if (!isGGML) {
                 if (!streamingStartedRef.current) {
-                    console.log('[InlineStreamingRecorder] Starting non-GGML streaming mode');
+                    // console.log('[InlineStreamingRecorder] Starting non-GGML streaming mode');
                     props.transcriber.startStreaming();
                     streamingStartedRef.current = true;
                 }
             }
 
             props.onRecordingStart?.();
-            console.log('[InlineStreamingRecorder] Recording started successfully');
+            // console.log('[InlineStreamingRecorder] Recording started successfully');
         } catch (error) {
-            console.error("[InlineStreamingRecorder] Error accessing microphone:", error);
+            // Error accessing microphone
             isRecordingRef.current = false;
             setRecording(false);
         }
     };
 
     const stopRecording = async () => {
-        console.log('[InlineStreamingRecorder] stopRecording called');
         isRecordingRef.current = false;
 
         // Stop MediaRecorder
@@ -926,10 +916,10 @@ function InlineStreamingRecorder(props: {
         // Stop streaming
         if (streamingStartedRef.current) {
             if (isGGML) {
-                console.log('[InlineStreamingRecorder] Stopping GGML streaming');
+                // console.log('[InlineStreamingRecorder] Stopping GGML streaming');
                 await ggmlStreaming.stopStreaming();
             } else {
-                console.log('[InlineStreamingRecorder] Stopping non-GGML streaming');
+                // console.log('[InlineStreamingRecorder] Stopping non-GGML streaming');
                 props.transcriber.stopStreaming();
             }
             streamingStartedRef.current = false;
@@ -951,7 +941,7 @@ function InlineStreamingRecorder(props: {
 
         setRecording(false);
         props.onRecordingStop?.();
-        console.log('[InlineStreamingRecorder] Recording stopped');
+        // console.log('[InlineStreamingRecorder] Recording stopped');
     };
 
     const handleToggleRecording = () => {

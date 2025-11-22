@@ -95,6 +95,5 @@ export const useAuthStore = create<AuthStore>()(
 useAuthStore.subscribe((state) => {
   if (state.token) {
     // Set token for API client (if needed beyond localStorage)
-    console.log('Auth token updated in store');
   }
 });

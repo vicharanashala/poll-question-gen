@@ -120,7 +120,7 @@ function getModelUrl(modelName: string): string {
         "small": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
         "small.en": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
     };
-    
+
     return modelMap[modelName] || modelMap["tiny.en"];
 }
 
@@ -131,7 +131,6 @@ async function getOrDownloadModel(
     // Check cache
     const cachedModel = await getModelFromIndexedDB(modelName);
     if (cachedModel) {
-        console.log('[useGGMLStreaming] Using cached model');
         if (onProgress) {
             onProgress(cachedModel.length, cachedModel.length);
         }
@@ -140,13 +139,11 @@ async function getOrDownloadModel(
 
     // Download
     const modelUrl = getModelUrl(modelName);
-    console.log('[useGGMLStreaming] Downloading model:', modelUrl);
     const modelData = await downloadModel(modelUrl, onProgress);
-    
+
     // Save to cache
     await saveModelToIndexedDB(modelName, modelData);
-    console.log('[useGGMLStreaming] Model downloaded and cached');
-    
+
     return modelData;
 }
 
@@ -163,7 +160,6 @@ export function useGGMLStreaming(
     const initStreamTranscriber = useCallback(async (modelName: string): Promise<boolean> => {
         try {
             if (streamTranscriberRef.current && currentModelNameRef.current === modelName) {
-                console.log('[useGGMLStreaming] StreamTranscriber already initialized');
                 return true;
             }
 
@@ -177,7 +173,6 @@ export function useGGMLStreaming(
                 streamTranscriberRef.current = null;
             }
 
-            console.log('[useGGMLStreaming] Initializing StreamTranscriber for model:', modelName);
 
             // Get or download model
             const modelData = await getOrDownloadModel(modelName, onProgressCallback);
@@ -205,22 +200,19 @@ export function useGGMLStreaming(
                 model: modelUrl,
                 audioWorkletPath: "/audio-worklets", // Path to worklet scripts in public directory
                 onReady: () => {
-                    console.log('[useGGMLStreaming] StreamTranscriber ready');
                     setIsReady(true);
                 },
                 onStreamStatus: (status: string) => {
-                    console.log('[useGGMLStreaming] Stream status:', status);
                     setStreamStatus(status);
                 },
                 onSegment: (segment: any) => {
-                    console.log('[useGGMLStreaming] New segment:', segment);
                     // Convert to our format
                     const convertedSegment: StreamTranscriberSegment = {
                         segment: segment.segment || {
                             text: segment.text || '',
                             timestamps: {
-                                from: typeof segment.timestamps?.from === 'string' 
-                                    ? parseFloat(segment.timestamps.from) 
+                                from: typeof segment.timestamps?.from === 'string'
+                                    ? parseFloat(segment.timestamps.from)
                                     : (segment.timestamps?.from || 0),
                                 to: typeof segment.timestamps?.to === 'string'
                                     ? parseFloat(segment.timestamps.to)
@@ -238,10 +230,8 @@ export function useGGMLStreaming(
             // Initialize
             await streamTranscriberRef.current.init();
             currentModelNameRef.current = modelName;
-            console.log('[useGGMLStreaming] StreamTranscriber initialized successfully');
             return true;
         } catch (error) {
-            console.error('[useGGMLStreaming] Initialization failed:', error);
             setIsReady(false);
             return false;
         }
@@ -273,7 +263,6 @@ export function useGGMLStreaming(
             ...options
         };
 
-        console.log('[useGGMLStreaming] Starting stream with options:', defaultOptions);
 
         // Start the transcriber (same pattern as app.js)
         await streamTranscriberRef.current.start({
@@ -289,7 +278,6 @@ export function useGGMLStreaming(
             maxRecordMs: defaultOptions.maxRecordMs,
             minSilenceMs: defaultOptions.minSilenceMs,
             onVoiceActivity: (active: boolean) => {
-                console.log('[useGGMLStreaming] Voice activity:', active);
                 setVoiceActivity(active);
                 if (defaultOptions.onVoiceActivity) {
                     defaultOptions.onVoiceActivity(active);
@@ -297,16 +285,14 @@ export function useGGMLStreaming(
             }
         });
 
-        console.log('[useGGMLStreaming] Streaming started');
     }, []);
 
     const stopStreaming = useCallback(async (): Promise<void> => {
         if (streamTranscriberRef.current) {
             try {
                 await streamTranscriberRef.current.stop();
-                console.log('[useGGMLStreaming] Streaming stopped');
             } catch (error) {
-                console.error('[useGGMLStreaming] Error stopping stream:', error);
+                // Error stopping stream
             }
         }
         setStreamStatus("stopped");
