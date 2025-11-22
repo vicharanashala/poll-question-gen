@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from "react";
+import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useWorker, WorkerType } from "./useWorker";
 import Constants from "../utils/Constants";
 
@@ -53,6 +53,7 @@ export interface Transcriber {
     language?: string;
     setLanguage: (language: string) => void;
     isLiveMode: boolean;
+    setLiveMode: (isLive: boolean) => void;
     accumulatedChunks: { text: string; timestamp: [number, number | null] }[];
     transcriberType: WorkerType;
     setTranscriberType: (type: WorkerType) => void;
@@ -80,10 +81,10 @@ export function useTranscriber(): Transcriber {
     const [voiceActivity, setVoiceActivity] = useState<boolean>(false);
     const isStreamingRef = useRef(false);
     const transcriberTypeRef = useRef<WorkerType>(transcriberType);
-    
+
     // Update ref when transcriberType changes
     transcriberTypeRef.current = transcriberType;
-    
+
     // Wrapper to log transcriberType changes
     const setTranscriberType = useCallback((type: WorkerType) => {
         console.log('[useTranscriber] setTranscriberType called, changing from', transcriberTypeRef.current, 'to', type);
@@ -93,7 +94,7 @@ export function useTranscriber(): Transcriber {
     const webWorker = useWorker((event) => {
         const message = event.data;
         console.log('[useTranscriber] Message received from worker:', message);
-        
+
         // Update the state with the result
         switch (message.status) {
             case "pong":
@@ -304,13 +305,13 @@ export function useTranscriber(): Transcriber {
             if (!audioData) {
                 return;
             }
-            
+
             // Check if audioData is actually an AudioBuffer
             if (!(audioData instanceof AudioBuffer)) {
                 console.warn('[useTranscriber] Received non-AudioBuffer data (likely GGML segment), skipping audio processing');
                 return;
             }
-            
+
             let audio;
             if (audioData.numberOfChannels === 2) {
                 const SCALING_FACTOR = Math.sqrt(2);
@@ -327,77 +328,96 @@ export function useTranscriber(): Transcriber {
                 audio = audioData.getChannelData(0);
             }
 
-                // For GGML streaming mode, send chunks instead of full transcription
-                if (transcriberType === "ggml" && isStreamingRef.current) {
-                    // Send streaming chunk
-                    // Convert Float32Array to regular array for postMessage (Float32Array may not transfer correctly)
-                    const audioArray = Array.from(audio);
-                    // Only log occasionally to reduce spam
-                    if (Math.random() < 0.01) { // Log ~1% of chunks
-                        console.log('[useTranscriber] Sending streaming chunk, length:', audio.length);
-                    }
-                    const message = {
-                        action: "stream_chunk",
-                        audio: audioArray, // Send as regular array
-                        model: model,
-                    };
-                    try {
-                        webWorker.postMessage(message);
-                    } catch (error) {
-                        console.error('[useTranscriber] Error sending stream_chunk message:', error);
-                    }
-                } else {
-                    // Regular transcription mode
-                    // NEW: Detect if we're already transcribing (live mode)
-                    if (isBusy) {
-                        setIsLiveMode(true);
-                    } else {
-                        setTranscript(undefined);
-                        setIsLiveMode(false);
-                        setAccumulatedChunks([]);
-                        accumulatedTextRef.current = "";
-                    }
-
-                    setIsBusy(true);
-
-                    webWorker.postMessage({
-                        audio,
-                        model,
-                        multilingual,
-                        quantized,
-                        subtask: multilingual ? subtask : null,
-                        language:
-                            multilingual && language !== "auto" ? language : null,
-                    });
+            // For GGML streaming mode, send chunks instead of full transcription
+            if (transcriberType === "ggml" && isStreamingRef.current) {
+                // Send streaming chunk
+                // Convert Float32Array to regular array for postMessage (Float32Array may not transfer correctly)
+                const audioArray = Array.from(audio);
+                // Only log occasionally to reduce spam
+                if (Math.random() < 0.01) { // Log ~1% of chunks
+                    console.log('[useTranscriber] Sending streaming chunk, length:', audio.length);
                 }
+                const message = {
+                    action: "stream_chunk",
+                    audio: audioArray, // Send as regular array
+                    model: model,
+                };
+                try {
+                    webWorker.postMessage(message);
+                } catch (error) {
+                    console.error('[useTranscriber] Error sending stream_chunk message:', error);
+                }
+            } else {
+                // Regular transcription mode
+                // NEW: Detect if we're already transcribing (live mode)
+                if (isBusy) {
+                    setIsLiveMode(true);
+                } else {
+                    setTranscript(undefined);
+                    setIsLiveMode(false);
+                    setAccumulatedChunks([]);
+                    accumulatedTextRef.current = "";
+                }
+
+                setIsBusy(true);
+
+                webWorker.postMessage({
+                    audio,
+                    model,
+                    multilingual,
+                    quantized,
+                    subtask: multilingual ? subtask : null,
+                    language:
+                        multilingual && language !== "auto" ? language : null,
+                });
+            }
         },
         [webWorker, model, multilingual, quantized, subtask, language, isBusy, transcriberType, isStreamingRef],
     );
 
+    const isLiveModeRef = useRef(false);
+
+    const setLiveMode = useCallback((isLive: boolean) => {
+        setIsLiveMode(isLive);
+        isLiveModeRef.current = isLive;
+    }, []);
+
+    // Sync transcript with accumulated chunks in live mode
+    useEffect(() => {
+        if (isLiveMode && accumulatedChunks.length > 0) {
+            const fullText = accumulatedChunks.map(c => c.text).join(" ");
+            accumulatedTextRef.current = fullText;
+            setTranscript({
+                isBusy: false,
+                text: fullText,
+                chunks: accumulatedChunks,
+            });
+        }
+    }, [accumulatedChunks, isLiveMode]);
+
     // Method to update transcript directly (for GGML streaming segments)
     const updateTranscript = useCallback((text: string, chunks: { text: string; timestamp: [number, number | null] }[]) => {
         console.log('[useTranscriber] updateTranscript called with:', { text, chunksCount: chunks.length });
-        
+
         // Update accumulated chunks in live mode
-        if (isLiveMode) {
+        if (isLiveModeRef.current) {
             setAccumulatedChunks((prev) => {
-                // Filter out duplicates based on text
-                const existingTexts = new Set(prev.map(c => c.text));
+                // Filter out duplicates based on text and timestamp
+                const existingKeys = new Set(prev.map(c => `${c.text}-${c.timestamp[0]}`));
                 const uniqueNewChunks = chunks.filter(
-                    chunk => !existingTexts.has(chunk.text)
+                    chunk => !existingKeys.has(`${chunk.text}-${chunk.timestamp[0]}`)
                 );
                 return [...prev, ...uniqueNewChunks];
             });
-            accumulatedTextRef.current = text;
+        } else {
+            // Update transcript directly if not in live mode
+            setTranscript({
+                isBusy: false,
+                text: text,
+                chunks: chunks,
+            });
         }
-        
-        // Update transcript
-        setTranscript({
-            isBusy: false,
-            text: text,
-            chunks: chunks,
-        });
-    }, [isLiveMode]);
+    }, []);
 
     const transcriber = useMemo(() => {
         return {
@@ -421,6 +441,7 @@ export function useTranscriber(): Transcriber {
             language,
             setLanguage,
             isLiveMode,
+            setLiveMode,
             accumulatedChunks,
             transcriberType,
             setTranscriberType,
@@ -443,6 +464,7 @@ export function useTranscriber(): Transcriber {
         subtask,
         language,
         isLiveMode,
+        setLiveMode,
         accumulatedChunks,
         transcriberType,
         streamStatus,

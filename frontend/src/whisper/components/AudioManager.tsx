@@ -125,7 +125,7 @@ export enum AudioSource {
 export function AudioManager(props: {
     transcriber: Transcriber;
     enableLiveTranscription?: boolean;
-    onLiveRecordingStart?: () => void;  
+    onLiveRecordingStart?: () => void;
     onLiveRecordingStop?: () => void;
     onVoiceActivityChange?: (active: boolean) => void;
     onRecordingComplete: (blob: Blob) => void;
@@ -613,8 +613,8 @@ function RecordModal(props: {
                         onRecordingComplete={setAudioBlob}
                         onAudioStream={props.onAudioStream}
                         enableLiveTranscription={props.enableLiveTranscription}
-                        // onRecordingStart={props.onRecordingStart}
-                        // onRecordingStop={props.onRecordingStop}  
+                    // onRecordingStart={props.onRecordingStart}
+                    // onRecordingStop={props.onRecordingStop}  
                     />
                 </>
             }
@@ -711,13 +711,18 @@ function InlineStreamingRecorder(props: {
     const processorRef = useRef<ScriptProcessorNode | null>(null);
     const isRecordingRef = useRef(false);
     const streamingStartedRef = useRef(false);
-    
+
     // MediaRecorder for saving audio clip
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const recordingStartTimeRef = useRef<number>(0);
-    
+
+    const transcriberRef = useRef(props.transcriber);
+    useEffect(() => {
+        transcriberRef.current = props.transcriber;
+    }, [props.transcriber]);
+
     // Use GGML streaming hook when transcriberType is "ggml"
     const isGGML = props.transcriber.transcriberType === "ggml";
     const ggmlStreaming = useGGMLStreaming(
@@ -725,7 +730,7 @@ function InlineStreamingRecorder(props: {
             const segmentData = segment.segment || segment;
             const text = segmentData.text || segment.text || '';
             const timestamps = segmentData.timestamps || segment.timestamps || {};
-            
+
             if (text) {
                 const fromTime = timestamps && 'from' in timestamps
                     ? (typeof timestamps.from === 'string' ? parseFloat(timestamps.from) : timestamps.from || 0)
@@ -733,14 +738,14 @@ function InlineStreamingRecorder(props: {
                 const toTime = timestamps && 'to' in timestamps
                     ? (typeof timestamps.to === 'string' ? parseFloat(timestamps.to) : timestamps.to || null)
                     : null;
-                
+
                 const chunks = [{
                     text: text.trim(),
                     timestamp: [fromTime, toTime] as [number, number | null]
                 }];
-                
-                if (props.transcriber.updateTranscript) {
-                    props.transcriber.updateTranscript(text.trim(), chunks);
+
+                if (transcriberRef.current.updateTranscript) {
+                    transcriberRef.current.updateTranscript(text.trim(), chunks);
                 } else {
                     console.warn('[InlineStreamingRecorder] updateTranscript method not available');
                 }
@@ -751,7 +756,7 @@ function InlineStreamingRecorder(props: {
             console.log('[InlineStreamingRecorder] Model download progress:', (progress * 100).toFixed(2) + '%');
         }
     );
-    
+
     // Timer effect for duration tracking
     useEffect(() => {
         if (recording) {
@@ -767,12 +772,12 @@ function InlineStreamingRecorder(props: {
 
     const startRecording = async () => {
         console.log('[InlineStreamingRecorder] startRecording called');
-        
+
         // Reset recorded blob and duration
         setRecordedBlob(null);
         setDuration(0);
         recordingStartTimeRef.current = Date.now();
-        
+
         try {
             if (!streamRef.current) {
                 console.log('[InlineStreamingRecorder] Requesting microphone access...');
@@ -808,7 +813,7 @@ function InlineStreamingRecorder(props: {
                     }
 
                     setRecordedBlob(blob);
-                    
+
                     if (props.onRecordingComplete) {
                         props.onRecordingComplete(blob);
                     }
@@ -821,19 +826,19 @@ function InlineStreamingRecorder(props: {
             audioContextRef.current = new AudioContext({
                 sampleRate: Constants.SAMPLING_RATE,
             });
-            
+
             if (audioContextRef.current.state === 'suspended') {
                 console.log('[InlineStreamingRecorder] Resuming suspended audio context...');
                 await audioContextRef.current.resume();
             }
-            
+
             const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
 
             // For non-GGML: Create ScriptProcessor to send chunks to worker
             if (!isGGML) {
                 console.log('[InlineStreamingRecorder] Creating ScriptProcessor for non-GGML...');
                 processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
-                
+
                 processorRef.current.onaudioprocess = (e: AudioProcessingEvent) => {
                     if (isRecordingRef.current && props.onAudioStream) {
                         try {
@@ -861,7 +866,7 @@ function InlineStreamingRecorder(props: {
 
             isRecordingRef.current = true;
             setRecording(true);
-            
+
             // For GGML, use StreamTranscriber directly
             if (isGGML && !streamingStartedRef.current && streamRef.current) {
                 console.log('[InlineStreamingRecorder] Starting GGML streaming');
@@ -871,7 +876,8 @@ function InlineStreamingRecorder(props: {
                     if (!initialized) {
                         throw new Error('Failed to initialize StreamTranscriber');
                     }
-                    
+
+                    props.transcriber.setLiveMode(true);
                     await ggmlStreaming.startStreaming(streamRef.current, {
                         lang: "en",
                         suppress_non_speech: true,
@@ -883,7 +889,7 @@ function InlineStreamingRecorder(props: {
                             props.onVoiceActivityChange?.(active);
                         }
                     });
-                    
+
                     streamingStartedRef.current = true;
                 } catch (error) {
                     console.error('[InlineStreamingRecorder] Error starting GGML streaming:', error);
@@ -898,7 +904,7 @@ function InlineStreamingRecorder(props: {
                     streamingStartedRef.current = true;
                 }
             }
-            
+
             props.onRecordingStart?.();
             console.log('[InlineStreamingRecorder] Recording started successfully');
         } catch (error) {
@@ -911,12 +917,12 @@ function InlineStreamingRecorder(props: {
     const stopRecording = async () => {
         console.log('[InlineStreamingRecorder] stopRecording called');
         isRecordingRef.current = false;
-        
+
         // Stop MediaRecorder
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
             mediaRecorderRef.current.stop();
         }
-        
+
         // Stop streaming
         if (streamingStartedRef.current) {
             if (isGGML) {
@@ -928,12 +934,12 @@ function InlineStreamingRecorder(props: {
             }
             streamingStartedRef.current = false;
         }
-        
+
         if (processorRef.current) {
             processorRef.current.disconnect();
             processorRef.current = null;
         }
-        
+
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
             streamRef.current = null;
@@ -942,7 +948,7 @@ function InlineStreamingRecorder(props: {
             audioContextRef.current.close();
             audioContextRef.current = null;
         }
-        
+
         setRecording(false);
         props.onRecordingStop?.();
         console.log('[InlineStreamingRecorder] Recording stopped');
@@ -960,11 +966,10 @@ function InlineStreamingRecorder(props: {
         <div className='flex flex-col justify-center items-center w-full max-w-2xl gap-4'>
             <button
                 type='button'
-                className={`m-2 inline-flex justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-all duration-200 ${
-                    recording
-                        ? "bg-red-500 hover:bg-red-600"
-                        : "bg-green-500 hover:bg-green-600"
-                }`}
+                className={`m-2 inline-flex justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-all duration-200 ${recording
+                    ? "bg-red-500 hover:bg-red-600"
+                    : "bg-green-500 hover:bg-green-600"
+                    }`}
                 onClick={handleToggleRecording}
             >
                 {recording
