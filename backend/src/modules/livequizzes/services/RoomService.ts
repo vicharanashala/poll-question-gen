@@ -80,7 +80,9 @@ export class RoomService {
           participant.score -= 2;
         }
 
-        // optional: compute timeTaken if you want, using answer.answeredAt - poll.createdAt
+        // Calculate time taken for this answer (in seconds)
+        const answerTime = (answer.answeredAt.getTime() - poll.createdAt.getTime()) / 1000;
+        participant.timeTaken += answerTime;
       }
     }
 
@@ -91,12 +93,27 @@ export class RoomService {
     // 4️⃣ Convert map to array and merge names
     const participants = Array.from(participantsMap.values()).map((p) => {
       const user = users.find(u => u.firebaseUID === p.userId);
+      
+      // Format time taken - convert seconds to minutes and seconds
+      let timeDisplay = "N/A";
+      if (p.timeTaken > 0) {
+        const totalSeconds = Math.round(p.timeTaken);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        
+        if (minutes > 0) {
+          timeDisplay = `${minutes}m ${seconds}s`;
+        } else {
+          timeDisplay = `${seconds}s`;
+        }
+      }
+      
       return {
         name: user?.firstName ?? 'Anonymous',
         score: p.score,
         correct: p.correct,
         wrong: p.wrong,
-        timeTaken: p.timeTaken > 0 ? `${Math.ceil(p.timeTaken / 60)} min` : "N/A"
+        timeTaken: timeDisplay
       };
     });
 
