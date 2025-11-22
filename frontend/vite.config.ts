@@ -42,5 +42,13 @@ export default defineConfig({
         "node_modules/@transcribe/shout",
       ]
     }
+  },
+
+  preview: {
+    port: 4173,
+    headers: {
+      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Opener-Policy": "same-origin",
+    },
   }
 });

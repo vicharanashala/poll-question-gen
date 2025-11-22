@@ -23,10 +23,18 @@ class AudioBufferProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs, parameters) {
+    // Check if input exists
+    if (!inputs || !inputs[0] || !inputs[0].length) {
+      return true;
+    }
+
     // buffer input data
     if (this.buffer.length < this.buffer_size) {
       try {
-        this.buffer.push(...inputs[0][0]);
+        const inputChannel = inputs[0][0];
+        if (inputChannel) {
+          this.buffer.push(...inputChannel);
+        }
       } catch (error) {
         // just catch
       }

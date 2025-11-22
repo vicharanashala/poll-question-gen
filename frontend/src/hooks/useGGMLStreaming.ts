@@ -188,21 +188,49 @@ export function useGGMLStreaming(
             // )).StreamTranscriber;
             const createModule = (await import("@transcribe/shout")).default;
 
+            // Wrap createModule to inject locateFile for production builds
+            const createModuleWrapper = (moduleObj: any) => {
+                if (!moduleObj) moduleObj = {};
+                moduleObj.locateFile = (path: string, scriptDirectory: string) => {
+                    console.log(`[GGML] locateFile called for: ${path}, scriptDir: ${scriptDirectory}`);
+                    // In production, assets are in /assets/ but worker/wasm might be in /
+                    // Force worker and wasm to be loaded from root if they are there
+                    if (path.endsWith('worker.mjs') || path.endsWith('worker.js')) {
+                        console.log(`[GGML] Redirecting worker to /${path}`);
+                        return `/${path}`;
+                    }
+                    if (path.endsWith('.wasm')) {
+                        console.log(`[GGML] Redirecting wasm to /${path}`);
+                        return `/${path}`;
+                    }
+                    return scriptDirectory + path;
+                };
+                return createModule(moduleObj);
+            };
+
             // Create blob URL from model data
             const modelBlob = new Blob([modelData as BlobPart], { type: "application/octet-stream" });
             const modelUrl = URL.createObjectURL(modelBlob);
 
+            console.log("[GGML] Initializing StreamTranscriber...");
             // Create StreamTranscriber instance (same pattern as app.js)
             // This spawns its own internal Web Worker for WASM computation
             // Specify audioWorkletPath so it can find the worklet scripts
+            // Use absolute path for worklets to avoid relative path issues in production
+            const workletPath = new URL("/audio-worklets", window.location.origin).href;
+            console.log(`[GGML] Using audioWorkletPath: ${workletPath}`);
+
             streamTranscriberRef.current = new StreamTranscriber({
-                createModule,
+                createModule: createModuleWrapper,
                 model: modelUrl,
-                audioWorkletPath: "/audio-worklets", // Path to worklet scripts in public directory
+                // @ts-ignore - The library expects audioWorkletsPath (plural) despite TS types saying otherwise
+                audioWorkletsPath: workletPath, // Path to worklet scripts in public directory
                 onReady: () => {
+                    console.log("[GGML] StreamTranscriber ready");
                     setIsReady(true);
                 },
                 onStreamStatus: (status: string) => {
+                    console.log(`[GGML] Stream status: ${status}`);
                     setStreamStatus(status);
                 },
                 onSegment: (segment: any) => {
@@ -229,9 +257,11 @@ export function useGGMLStreaming(
 
             // Initialize
             await streamTranscriberRef.current.init();
+            console.log("[GGML] StreamTranscriber initialized");
             currentModelNameRef.current = modelName;
             return true;
         } catch (error) {
+            console.error("[GGML] Initialization error:", error);
             setIsReady(false);
             return false;
         }
@@ -265,11 +295,18 @@ export function useGGMLStreaming(
 
 
         // Start the transcriber (same pattern as app.js)
-        await streamTranscriberRef.current.start({
-            lang: defaultOptions.lang,
-            suppress_non_speech: defaultOptions.suppress_non_speech,
-            max_tokens: defaultOptions.max_tokens
-        });
+        console.log("[GGML] Starting stream...");
+        try {
+            await streamTranscriberRef.current.start({
+                lang: defaultOptions.lang,
+                suppress_non_speech: defaultOptions.suppress_non_speech,
+                max_tokens: defaultOptions.max_tokens
+            });
+            console.log("[GGML] Stream started successfully");
+        } catch (e) {
+            console.error("[GGML] Error starting stream:", e);
+            throw e;
+        }
 
         // Transcribe the stream (same pattern as app.js)
         // This internally extracts audio from MediaStream and sends to worker
