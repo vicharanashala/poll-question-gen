@@ -135,6 +135,9 @@ export function useTranscriber(): Transcriber {
                 // console.log("update", message);
                 // eslint-disable-next-line no-case-declarations
                 const updateMessage = message as TranscriberUpdateData;
+                if (transcriberTypeRef.current === "xenova") {
+                    return; // do nothing
+                }
 
                 // NEW: In live mode, accumulate chunks
                 if (isLiveMode) {
