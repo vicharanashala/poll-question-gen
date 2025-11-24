@@ -128,7 +128,8 @@ export function AudioManager(props: {
     onLiveRecordingStart?: () => void;
     onLiveRecordingStop?: () => void;
     onVoiceActivityChange?: (active: boolean) => void;
-    onRecordingComplete: (blob: Blob) => void;
+    onRecordingComplete?: (blob: Blob) => void;
+    onClearTranscription?:() => void;
 }) {
     const [progress, setProgress] = useState<number | undefined>(undefined);
     const [audioData, setAudioData] = useState<
@@ -318,6 +319,7 @@ export function AudioManager(props: {
                                     onVoiceActivityChange={props.onVoiceActivityChange}
                                     transcriber={props.transcriber}
                                     onRecordingComplete={props.onRecordingComplete}
+                                    onClearTranscription={props.onClearTranscription}
                                 />
                             </div>
                         )}
@@ -700,6 +702,7 @@ function InlineStreamingRecorder(props: {
     onRecordingStop?: () => void;
     onVoiceActivityChange?: (active: boolean) => void;
     transcriber: Transcriber;
+    onClearTranscription?:() => void
 }) {
     const [recording, setRecording] = useState(false);
     const [duration, setDuration] = useState(0);
@@ -952,6 +955,16 @@ function InlineStreamingRecorder(props: {
         }
     };
 
+    const handleClearTranscription = () => {
+       // Use the onInputChange method to clear transcript and reset state
+       props.transcriber.onInputChange();
+        
+       // Call parent's clear handler if provided
+       if (props.onClearTranscription) {
+           props.onClearTranscription();
+       }
+    };
+
     return (
         <div className='flex flex-col justify-center items-center w-full max-w-2xl gap-4'>
             <button
@@ -976,9 +989,20 @@ function InlineStreamingRecorder(props: {
             {/* Transcription text display */}
             {props.enableLiveTranscription && (
                 <div className="w-full">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Transcription:
-                    </label>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Transcription:
+                        </label>
+                        <button
+                            type="button"
+                            onClick={handleClearTranscription}
+                            disabled={!props.transcriber.output?.text}
+                            className="text-xs px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700
+                                     text-white disabled:text-gray-500 rounded-md transition-colors disabled:cursor-not-allowed"
+                        >
+                            Clear
+                        </button>
+                    </div>
                     <textarea
                         readOnly
                         value={props.transcriber.output?.text || ''}

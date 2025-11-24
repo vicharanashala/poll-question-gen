@@ -96,6 +96,8 @@ type GeneratedQuestion = {
 };
 
 export default function TeacherPollRoom() {
+  const [isTranscriptionSettling, setIsTranscriptionSettling] = useState(false);
+
   const params = useParams({ from: '/teacher/pollroom/$code' });
   const navigate = useNavigate();
   const roomCode: string = params.code as string;
@@ -838,6 +840,11 @@ export default function TeacherPollRoom() {
     setIsTranscribing(!!transcriber.output?.isBusy);
   }, [transcriber.output?.isBusy]);
 
+  const handleClearAll = () => {
+    setTranscript('');
+    setShouldProcessTranscript(false);
+    // Clear any other related state
+  };
 
   const generateQuestions = useCallback(async () => {
     if (transcriber.output?.isBusy || isRecording || isListening) {
@@ -3098,11 +3105,17 @@ export default function TeacherPollRoom() {
                               onLiveRecordingStop={() => {
                                 setIsLiveRecordingActive(false);
                                 setLocalVoiceActivity(false);
+                                setIsTranscriptionSettling(true);
+                                    // Wait for final chunks to process (2-3 seconds)
+                                setTimeout(() => {
+                                  setIsTranscriptionSettling(false);
+                                }, 2500); // 2.5 seconds delay
                               }}
                               onVoiceActivityChange={(active) => {
                                 setLocalVoiceActivity(active);
                               }}
                               onRecordingComplete={handleAudioFromRecording}
+                              onClearTranscription={handleClearAll}
                             />
               {audioBlob && (
                 <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
@@ -3121,15 +3134,26 @@ export default function TeacherPollRoom() {
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
             setShouldProcessTranscript(false);
+            setIsTranscriptionSettling(false);
           }}
           submitText={"Load"}
-          submitEnabled={audioBlob !== undefined}
+          
+          submitEnabled={
+            !!(
+              audioBlob !== undefined && 
+              !isLiveRecordingActive && 
+              !isTranscriptionSettling &&
+              (transcriber.output?.text?.trim() || transcript?.trim() || displayTranscript?.trim())
+            )
+          }
           onSubmit={() => {
             processAudioBlob();
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
            // generateQuestions()
+           setIsTranscriptionSettling(false);
            setShouldProcessTranscript(true);
+           
            
           }}
         />
