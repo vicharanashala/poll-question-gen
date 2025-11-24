@@ -1,116 +1,67 @@
-import { useState, useEffect, useRef } from "react";
-// Import workers using Vite's ?worker&url syntax - this ensures Vite bundles them correctly
-// ?worker&url returns a string URL that can be used with new Worker()
+import { useEffect, useRef, useState } from "react";
 import XenovaWorkerUrl from "../whisper/worker.js?worker&url";
 import GgmlWorkerUrl from "../whisper/worker-ggml.js?worker&url";
 
-export interface MessageEventHandler {
-    (event: MessageEvent): void;
-}
-
 export type WorkerType = "xenova" | "ggml";
 
-export function useWorker(messageEventHandler: MessageEventHandler, workerType: WorkerType = "xenova"): Worker {
+export function useWorker(
+    messageEventHandler: (event: MessageEvent) => void,
+    workerType: WorkerType = "xenova"
+): Worker | null {
+    const handlerRef = useRef(messageEventHandler);
     const workerRef = useRef<Worker | null>(null);
-    const [worker, setWorker] = useState<Worker>(() => {
-        // Create initial worker synchronously
-        try {
-            return createWorker(messageEventHandler, workerType);
-        } catch (error) {
-            // Return a dummy worker that will be replaced
-            const dummy = new Worker('data:text/javascript,', { type: "classic" });
-            dummy.terminate();
-            return dummy;
-        }
-    });
-    const previousTypeRef = useRef<WorkerType>(workerType);
+    const [worker, setWorker] = useState<Worker | null>(null);
 
+    // Keep handler always fresh
     useEffect(() => {
-        // Recreate worker if type changed
-        if (previousTypeRef.current !== workerType) {
-            // Terminate old worker
-            if (workerRef.current) {
-                workerRef.current.terminate();
-            }
-            
-            // Create new worker
-            try {
-                const newWorker = createWorker(messageEventHandler, workerType);
-                workerRef.current = newWorker;
-                setWorker(newWorker);
-                previousTypeRef.current = workerType;
-            } catch (error) {
-                // Failed to create new worker
-            }
-        }
-    }, [workerType, messageEventHandler]);
+        handlerRef.current = messageEventHandler;
+    }, [messageEventHandler]);
 
+    // Create or recreate worker when type changes
     useEffect(() => {
-        workerRef.current = worker;
+        // Kill old worker
+        if (workerRef.current) {
+            workerRef.current.terminate();
+            workerRef.current = null;
+        }
+
+        // Create new worker
+        const newWorker = createWorker(workerType, (event) => {
+            handlerRef.current(event);
+        });
+
+        workerRef.current = newWorker;
+        setWorker(newWorker);
+
         return () => {
-            // Cleanup: terminate worker on unmount
-            if (workerRef.current) {
-                workerRef.current.terminate();
-            }
+            newWorker.terminate();
         };
-    }, [worker]);
+    }, [workerType]);
 
     return worker;
 }
 
-function createWorker(messageEventHandler: MessageEventHandler, workerType: WorkerType): Worker {
+// --- Worker factory ---
+
+function createWorker(type: WorkerType, handler: (e: MessageEvent) => void): Worker {
     let worker: Worker;
-    
-    if (workerType === "ggml") {
-        // Use Vite's bundled GGML worker
+
+    if (type === "ggml") {
+        // Try classic first, then module
         try {
-            worker = new Worker(GgmlWorkerUrl, {
-                type: "classic", // GGML worker doesn't need ES modules
-            });
-        } catch (error) {
-            // Fallback: try with module type
-            try {
-                worker = new Worker(GgmlWorkerUrl, {
-                    type: "module",
-                });
-            } catch (error2) {
-                throw error2;
-            }
+            worker = new Worker(GgmlWorkerUrl, { type: "classic" });
+        } catch {
+            worker = new Worker(GgmlWorkerUrl, { type: "module" });
         }
     } else {
-        // Use Vite's bundled Xenova worker
-        try {
-            worker = new Worker(XenovaWorkerUrl, {
-                type: "module",
-            });
-        } catch (error) {
-            throw error;
-        }
+        worker = new Worker(new URL("../whisper/worker.js", import.meta.url), {
+            type: "module",
+        });
     }
-    
-    // Add error handler to catch worker loading/execution errors
-    worker.addEventListener("error", (event) => {
-        // Error handler (no logging)
-    });
-    
-    // Add messageerror handler for message parsing errors
-    worker.addEventListener("messageerror", (event) => {
-        // Message error handler (no logging)
-    });
-    
-    // Listen for messages from the Web Worker
-    worker.addEventListener("message", (event) => {
-        messageEventHandler(event);
-    });
-    
-    // Send a test message to verify worker is responding
-    setTimeout(() => {
-        try {
-            worker.postMessage({ action: 'ping', test: true });
-        } catch (error) {
-            // Error sending test ping
-        }
-    }, 100);
-    
+
+    worker.addEventListener("message", handler);
+    worker.addEventListener("error", () => {});
+    worker.addEventListener("messageerror", () => {});
+
     return worker;
 }
