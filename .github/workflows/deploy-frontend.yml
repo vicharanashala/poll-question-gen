@@ -11,7 +11,7 @@ on:
       deploy_production:
         description: "Also deploy to production?"
         required: true
-        default: "false"
+        default: "true"
         type: choice
         options:
           - "false"
