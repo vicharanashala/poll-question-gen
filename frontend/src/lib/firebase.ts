@@ -3,7 +3,8 @@ import { getAnalytics } from "firebase/analytics";
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   signOut,
   createUserWithEmailAndPassword,
@@ -12,7 +13,6 @@ import {
 } from "firebase/auth";
 import { IUser, useAuthStore } from "./store/auth-store";
 import { mapFirebaseUserToAppUser } from "./api/auth";
-// import { log } from "console";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
 
@@ -62,18 +62,33 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
 // -------------------- AUTH FUNCTIONS -------------------- //
 
 export const loginWithGoogle = async () => {
-  const result = await signInWithPopup(auth, provider);
-  const firebaseUser = result.user;
-  const idToken = await result.user.getIdToken();
+  // Redirect to Google sign-in
+  await signInWithRedirect(auth, provider);
+  // User will be redirected away, then back to your app
+  // The result will be handled by handleRedirectResult()
+};
 
-  const backendUser = await createBackendUser(firebaseUser);
-  // const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
+// Call this function when your app loads to handle the redirect result
+export const handleRedirectResult = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const firebaseUser = result.user;
+      const idToken = await firebaseUser.getIdToken();
 
-  const setAuthState = useAuthStore.getState();
-  setAuthState.setToken(idToken);
-  setAuthState.setUserRole?.(backendUser?.role);
+      const backendUser = await createBackendUser(firebaseUser);
 
-  return { result, role: backendUser?.role };
+      const setAuthState = useAuthStore.getState();
+      setAuthState.setToken(idToken);
+      setAuthState.setUserRole?.(backendUser?.role);
+
+      return { result, role: backendUser?.role };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error handling redirect result:", error);
+    throw error;
+  }
 };
 
 export const loginWithEmail = async (
@@ -132,7 +147,7 @@ export const createUserWithEmail = async (
 
 export const logout = () => {
   signOut(auth);
-  useAuthStore.getState().clearUser?.(); // safe call if function exists
+  useAuthStore.getState().clearUser?.();
 };
 
 export const createBackendUser = async (firebaseUser: User) => {
@@ -144,7 +159,7 @@ export const createBackendUser = async (firebaseUser: User) => {
       lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
       email: firebaseUser.email || '',
       avatar: firebaseUser.photoURL || null,
-      role: "", // null,
+      role: "",
 
       phoneNumber: null,
       bio: null,
