@@ -10,6 +10,11 @@ export default defineConfig({
   },
   worker: {
     format: 'es', 
+    rollupOptions: {
+      output: {
+        inlineDynamicImports: false,
+      }
+    },
     plugins: () => [comlink()]
   },
   plugins: [react()],
@@ -19,4 +24,7 @@ export default defineConfig({
     },
   },
   assetsInclude: ["**/*.wasm", "**/*.ggml", "**/*.bin"],
+  optimizeDeps: {
+    exclude: ["@transcribe/transcriber", "@transcribe/shout"]
+  }
 });

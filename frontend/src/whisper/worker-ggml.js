@@ -370,6 +370,7 @@ async function initTranscriber(modelName) {
         debugLog('Importing @transcribe/transcriber and @transcribe/shout');
         const { FileTranscriber } = await import("@transcribe/transcriber");
         const createModule = (await import("@transcribe/shout")).default;
+        const createCpuModule = () => createModule({ gpu: false });
         debugLog('Libraries imported successfully');
         
         // Create a blob URL from the model data
@@ -381,7 +382,7 @@ async function initTranscriber(modelName) {
         // Create transcriber instance
         debugLog('Creating FileTranscriber instance');
         transcriber = new FileTranscriber({
-            createModule,
+            createModule: createCpuModule,
             model: modelUrl
         });
         debugLog('FileTranscriber instance created');
@@ -432,6 +433,7 @@ async function initStreamTranscriber(modelName) {
         debugLog('Importing StreamTranscriber from @transcribe/transcriber');
         const { StreamTranscriber } = await import("@transcribe/transcriber");
         const createModule = (await import("@transcribe/shout")).default;
+        const createCpuModule = () => createModule({ gpu: false });
         debugLog('StreamTranscriber imported successfully');
         
         // Create a blob URL from the model data
@@ -443,7 +445,7 @@ async function initStreamTranscriber(modelName) {
         // Create stream transcriber instance with callbacks
         debugLog('Creating StreamTranscriber instance with callbacks');
         streamTranscriber = new StreamTranscriber({
-            createModule,
+            createModule: createCpuModule,
             model: modelUrl,
             onReady: () => {
                 debugLog('StreamTranscriber ready callback fired');
