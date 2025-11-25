@@ -9,6 +9,7 @@ export default defineConfig({
     port: 3000,
   },
   worker: {
+    format: "es",
     plugins: () => [comlink()]
   },
   plugins: [react()],
@@ -18,5 +19,5 @@ export default defineConfig({
       "@": resolve(__dirname, "./src"),
     },
   },
-  
+
 });
