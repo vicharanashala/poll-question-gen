@@ -30,7 +30,6 @@ export default function AuthPage() {
   }>({});
 
   const setUser = useAuthStore((state) => state.setUser);
-  const [checkingRedirect, setCheckingRedirect] = useState(true);
 
   // Password validation
   const passwordsMatch = !confirmPassword || password === confirmPassword;
@@ -75,8 +74,7 @@ export default function AuthPage() {
     try {
       setLoading(true);
       setFormErrors({});
-      await loginWithGoogle();
-     /* const { result, role } = await loginWithGoogle();
+      const { result, role } = await loginWithGoogle();
       setUser({
         uid: result.user.uid,
         email: result.user.email || "",
@@ -90,7 +88,7 @@ export default function AuthPage() {
         navigate({ to: `/${role}/home` });
       } else {
         navigate({ to: '/select-role' });
-      }*/
+      }
     } catch (error) {
       console.error("Google Login Failed", error);
       setFormErrors({
@@ -185,23 +183,6 @@ export default function AuthPage() {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    // Check if we're returning from a Google redirect
-    const authAttempt = sessionStorage.getItem('auth-attempt');
-    if (authAttempt === 'google') {
-      setLoading(true);
-    }
-    
-    // Give initAuth time to process redirect
-    const timer = setTimeout(() => {
-      setCheckingRedirect(false);
-      if (!user) {
-        setLoading(false);
-      }
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [user]);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -215,16 +196,6 @@ export default function AuthPage() {
       }
     }
   }, [isAuthenticated, user, navigate]);
-  if (checkingRedirect && sessionStorage.getItem('auth-attempt') === 'google') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[linear-gradient(135deg,_#f8f9fb_90%,_#e0e7ff_100%)]">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin mx-auto text-blue-600" />
-          <p className="mt-4 text-lg text-gray-600">Completing sign in...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col relative bg-[linear-gradient(135deg,_#f8f9fb_90%,_#e0e7ff_100%)] overflow-hidden">
