@@ -48,11 +48,14 @@ function createWorker(type: WorkerType, handler: (e: MessageEvent) => void): Wor
 
     if (type === "ggml") {
         // Try classic first, then module
-        try {
-            worker = new Worker(GgmlWorkerUrl, { type: "classic" });
-        } catch {
-            worker = new Worker(GgmlWorkerUrl, { type: "module" });
-        }
+        // try {
+        //     worker = new Worker(GgmlWorkerUrl, { type: "classic" });
+        // } catch {
+        //     worker = new Worker(GgmlWorkerUrl, { type: "module" });
+        // }
+        worker = new Worker(new URL("../whisper/worker-ggml.js", import.meta.url), {
+            type: "module",
+        });
     } else {
         worker = new Worker(new URL("../whisper/worker.js", import.meta.url), {
             type: "module",
@@ -60,8 +63,8 @@ function createWorker(type: WorkerType, handler: (e: MessageEvent) => void): Wor
     }
 
     worker.addEventListener("message", handler);
-    worker.addEventListener("error", () => {});
-    worker.addEventListener("messageerror", () => {});
+    worker.addEventListener("error", () => { });
+    worker.addEventListener("messageerror", () => { });
 
     return worker;
 }
