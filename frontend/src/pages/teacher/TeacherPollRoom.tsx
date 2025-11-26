@@ -477,8 +477,8 @@ export default function TeacherPollRoom() {
    
   const text = transcriber.output?.text;
   const isComplete = !transcriber.output?.isBusy;
-  
-  if (text && isComplete && shouldProcessTranscript) {
+ 
+  if (text && isComplete && shouldProcessTranscript && !isLiveRecordingActive) {
    
 
     generateQuestions();     
