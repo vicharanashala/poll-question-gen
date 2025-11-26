@@ -474,19 +474,16 @@ export default function TeacherPollRoom() {
   const [shouldProcessTranscript, setShouldProcessTranscript] = useState(false);
   useEffect(() => {
    
-    if (transcriber.output?.text) {
-      setTranscript(transcriber.output.text);
-      
-     
-      // Reset flag
-    }
-    if(shouldProcessTranscript )
-    {
-      generateQuestions()
-      setShouldProcessTranscript(false);
-     
-     
-    } 
+   
+  const text = transcriber.output?.text;
+  const isComplete = !transcriber.output?.isBusy;
+  
+  if (text && isComplete && shouldProcessTranscript) {
+   
+
+    generateQuestions();     
+    setShouldProcessTranscript(false);
+  }
   }, [transcriber.output, shouldProcessTranscript]);
 
   /* useEffect(() => {
