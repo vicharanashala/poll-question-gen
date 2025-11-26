@@ -9,10 +9,14 @@ export default defineConfig({
     port: 3000,
   },
   worker: {
-    format: 'es', 
+    format: 'es',
     rollupOptions: {
       output: {
         inlineDynamicImports: false,
+        entryFileNames: 'worker/[name]-[hash].js',
+        chunkFileNames: 'worker/[name]-[hash].js',
+        assetFileNames: 'worker/[name]-[hash][ext]',
+
       }
     },
     plugins: () => [comlink()]
