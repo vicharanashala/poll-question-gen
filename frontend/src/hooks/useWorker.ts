@@ -53,9 +53,7 @@ function createWorker(type: WorkerType, handler: (e: MessageEvent) => void): Wor
         // } catch {
         //     worker = new Worker(GgmlWorkerUrl, { type: "module" });
         // }
-        worker = new Worker(new URL("../whisper/worker-ggml.js", import.meta.url), {
-            type: "module",
-        });
+        worker = new Worker(GgmlWorkerUrl, { type: "module" });
     } else {
         worker = new Worker(new URL("../whisper/worker.js", import.meta.url), {
             type: "module",
