@@ -12,10 +12,11 @@ const pwaOptions: Partial<VitePWAOptions> = {
   includeAssets: [
     'favicon.ico',
     'apple-touch-icon.png',
-    'masked-icon.svg',
-    'robots.txt',
-    '**/*.{png,jpg,jpeg,svg,gif,webp,avif,ico}',
-    '**/*.{woff,woff2,ttf,eot}',
+    'pwa-64-64.png',
+    'pwa-192-192.png',
+    'pwa-512-512.png',
+    'maskable-icon-512-512.png',
+    'robots.txt'
   ],
   devOptions: {
     enabled: false, // Disable in development to prevent caching issues
@@ -23,15 +24,15 @@ const pwaOptions: Partial<VitePWAOptions> = {
     navigateFallback: 'index.html',
   },
   manifest: {
-    name: 'Poll Question Generator',
-    short_name: 'PollGen',
+    name: 'Spandan',
+    short_name: 'Spandan',
     description: 'An interactive poll question generator for teachers',
     theme_color: '#000000',
     background_color: '#ffffff',
     display: 'standalone',
+    orientation: 'portrait',
     start_url: '/',
     scope: '/',
-    orientation: 'portrait',
     icons: [
       {
         src: '/pwa-64-64.png',

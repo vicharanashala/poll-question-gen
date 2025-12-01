@@ -1,6 +1,6 @@
 {
-  "name": "Poll Question Generator",
-  "short_name": "PollGen",
+  "name": "Spandan - Poll Question Generator",
+  "short_name": "Spandan",
   "description": "An interactive poll question generator for teachers",
   "start_url": "/",
   "display": "standalone",
