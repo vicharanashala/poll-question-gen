@@ -216,11 +216,6 @@ export default defineConfig(({ }) => {
       port: 3000,
       host: '0.0.0.0',
       strictPort: false,
-      allowedHosts:[
-        'https://cytoarchitecturally-subaxile-flynn.ngrok-free.dev/',
-        'cytoarchitecturally-subaxile-flynn.ngrok-free.dev'
-      ],
-      cors:true
     },
 
     plugins: [
