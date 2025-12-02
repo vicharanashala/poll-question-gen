@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Wand2, Edit3, Loader2, LogOut, AlertTriangle, Users, Eye, EyeOff } from "lucide-react";
 import api from "@/lib/api/api";
 import { useAuthStore } from '@/lib/store/auth-store';
+import { auth } from "@/lib/firebase";
 import { useTranscriber } from "@/hooks/useTranscriber";
 import { AudioManager } from "@/whisper/components/AudioManager";
 import AudioRecorder from "@/whisper/components/AudioRecorder";
@@ -101,7 +102,7 @@ export default function TeacherPollRoom() {
   const params = useParams({ from: '/teacher/pollroom/$code' });
   const navigate = useNavigate();
   const roomCode: string = params.code as string;
-  const { user } = useAuthStore();
+  const { user, token } = useAuthStore();
 
   // Helper Hooks - defined at the top to avoid temporal dead zone
   const filterQuestionOptions = useCallback((questionData: GeneratedQuestion): GeneratedQuestion => {
@@ -214,7 +215,9 @@ export default function TeacherPollRoom() {
   const [showAudioOptions, setShowAudioOptions] = useState(false);
   const [useWhisper, setUseWhisper] = useState(false);
   const [useWhisperGGML, setUseWhisperGGML] = useState(false);
+  const [useExternlApi, setExternalApi] = useState(false)
   const [showRecordModal, setShowRecordModal] = useState(false);
+  const [showExternalModal, setShowExternalModal] = useState(false)
   const [showGGMLRecordModel, setShowGGMLRecordModel] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
 
@@ -330,7 +333,7 @@ export default function TeacherPollRoom() {
 
       // Set up new listeners
       socket.on('live-poll-results', handlePollUpdate);
-      socket.on('poll-results-updated', (data)=>{
+      socket.on('poll-results-updated', (data) => {
         setPollResults(data)
       });
       socket.on('room-updated', (updatedRoom) => {
@@ -471,20 +474,7 @@ export default function TeacherPollRoom() {
     void processPendingQueue();
   }, [processPendingQueue]);
 
-  const [shouldProcessTranscript, setShouldProcessTranscript] = useState(false);
-  useEffect(() => {
-   
-   
-  const text = transcriber.output?.text;
-  const isComplete = !transcriber.output?.isBusy;
- 
-  if (text && isComplete && shouldProcessTranscript && !isLiveRecordingActive) {
-   
 
-    generateQuestions();     
-    setShouldProcessTranscript(false);
-  }
-  }, [transcriber.output, shouldProcessTranscript]);
 
   /* useEffect(() => {
      if (transcriber.output?.text) {
@@ -626,14 +616,16 @@ export default function TeacherPollRoom() {
       }
     } else {
       try {
-        if (useWhisper  ) {
+        if (useWhisper) {
           setShowRecordModal(true);
         }
-        else if(useWhisperGGML)
-        {
+        else if (useWhisperGGML) {
           setShowGGMLRecordModel(true)
         }
-         else {
+        else if (useExternlApi) {
+          setShowExternalModal(true)
+        }
+        else {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
           });
@@ -668,6 +660,7 @@ export default function TeacherPollRoom() {
     setIsLiveRecordingActive,
     useWhisper,
     useWhisperGGML,
+    useExternlApi,
     transcriber.accumulatedChunks,
     displayTranscript,
     enqueueTextChunk,
@@ -731,6 +724,7 @@ export default function TeacherPollRoom() {
     if (!data) return;
 
     setAudioBlob(data);
+    setIsTranscriptionComplete(true)
   };
 
   const processAudioBlob = async () => {
@@ -738,27 +732,28 @@ export default function TeacherPollRoom() {
 
     setIsProcessing(true);
 
-    const fileReader = new FileReader();
+    /* const fileReader = new FileReader();
+ 
+     fileReader.onloadend = async () => {
+       const arrayBuffer = fileReader.result as ArrayBuffer;
+       if (!arrayBuffer) return;
+ 
+       const audioCTX = new AudioContext({
+         sampleRate: 16000, // Whisper default sample rate
+       });
+ 
+       const decoded = await audioCTX.decodeAudioData(arrayBuffer);
+       transcriber.onInputChange();
+       transcriber.start(decoded);*/
 
-    fileReader.onloadend = async () => {
-      const arrayBuffer = fileReader.result as ArrayBuffer;
-      if (!arrayBuffer) return;
+    setIsRecording(false);
+    setIsListening(false);
+    setShowRecordModal(false);
+    setShowExternalModal(false)
+    setShowGGMLRecordModel(false)
+    // };
 
-      const audioCTX = new AudioContext({
-        sampleRate: 16000, // Whisper default sample rate
-      });
-
-      const decoded = await audioCTX.decodeAudioData(arrayBuffer);
-      transcriber.onInputChange();
-      transcriber.start(decoded);
-
-      setIsRecording(false);
-      setIsListening(false);
-      setShowRecordModal(false);
-      setShowGGMLRecordModel(false)
-    };
-
-    fileReader.readAsArrayBuffer(audioBlob);
+    // fileReader.readAsArrayBuffer(audioBlob);
   };
 
   // Handle live audio streaming for Whisper
@@ -766,6 +761,111 @@ export default function TeacherPollRoom() {
     setIsLiveRecordingActive(true);
     transcriber.start(audioBuffer);
   };
+  const [partialTranscripts, setPartialTranscripts] = useState<{ seq: number; text: string }[]>([]);
+  const seqRef = useRef(0); // sequence number for chunks
+  const [transcribedTextFromExternal, setTranscribedTextFromExternal] = useState("")
+  function audioBufferToWavBlob(audioBuffer: AudioBuffer): Blob {
+    const numChannels = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const samples = audioBuffer.length;
+    const bytesPerSample = 2;
+    const blockAlign = numChannels * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + samples * blockAlign);
+    const view = new DataView(buffer);
+
+    // WAV header
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + samples * blockAlign, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bytesPerSample * 8, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, samples * blockAlign, true);
+
+    // Write PCM samples
+    for (let ch = 0; ch < numChannels; ch++) {
+      const channelData = audioBuffer.getChannelData(ch);
+      let offset = 44 + ch * 2;
+      for (let i = 0; i < samples; i++) {
+        let sample = Math.max(-1, Math.min(1, channelData[i]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(offset, sample, true);
+        offset += blockAlign;
+      }
+    }
+
+    return new Blob([buffer], { type: "audio/wav" });
+  }
+
+  function writeString(view: DataView, offset: number, string: string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
+  const handleLiveAudioStreamForExternalAPI = async (audioBuffer: AudioBuffer) => {
+    const seq = seqRef.current++;
+    //setIsLiveRecordingActive(true);
+    const wavBlob = audioBufferToWavBlob(audioBuffer);
+    const form = new FormData();
+    form.append("file", wavBlob, `chunk-${seq}.wav`);
+    form.append("seq", String(seq));
+
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("https://mesne-unlicentiously-allie.ngrok-free.dev/transcribe", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
+        body: form,
+      });
+      const data = await res.json();
+
+      // append chunk text to state
+      setPartialTranscripts((prev) => {
+        const next = prev.filter((p) => p.seq !== seq).concat({ seq, text: data.text ?? "" });
+        next.sort((a, b) => a.seq - b.seq);
+        // console.log("partial transcjkk==",next)
+        setTranscribedTextFromExternal(next.map(p => p.text).join(" "));
+        return next;
+      });
+      // console.log("partial transcjkk==",partialTranscripts)
+    } catch (err) {
+      console.error("Chunk transcription error seq=", seq, err);
+    }
+  };
+  const processAudioBlobForExternalAPi = async () => {
+    if (partialTranscripts.length === 0) return;
+    setIsProcessing(true);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // combine all chunk texts
+    /* console.log("the partial teanscript===",partialTranscripts)
+     const finalText = partialTranscripts[partialTranscripts.length - 1].text;*/
+
+
+
+    generateQuestions(transcribedTextFromExternal)
+
+
+    // Reset state for next recording
+    setPartialTranscripts([]);
+    setIsRecording(false);
+    setIsListening(false);
+    setShowExternalModal(false)
+    setShowGGMLRecordModel(false)
+  };
+
+
+
+
+
+
 
   // Note: render guard is applied later after hooks to keep hook order stable
 
@@ -831,30 +931,36 @@ export default function TeacherPollRoom() {
       toast.error("Failed to fetch results");
     }
   };
- 
+
 
   useEffect(() => {
     setIsTranscribing(!!transcriber.output?.isBusy);
   }, [transcriber.output?.isBusy]);
 
-  const handleClearAll = () => {
-    setTranscript('');
-    setShouldProcessTranscript(false);
-    // Clear any other related state
-  };
 
-  const generateQuestions = useCallback(async () => {
-    if (transcriber.output?.isBusy || isRecording || isListening) {
-      return;
+  const generateQuestions = useCallback(async (finalSpeechText?: string) => {
+    // console.log("generate question calling===****=",finalSpeechText)
+    /* if (transcriber.output?.isBusy || isRecording || isListening) {
+       return;
+     }*/
+    let currentTranscript
+    let textToUse
+    if (finalSpeechText) {
+      currentTranscript = finalSpeechText
+      textToUse = finalSpeechText
+    }
+    else {
+      currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim();
+      textToUse = transcript || transcriber.output?.text || displayTranscript.trim();
     }
 
     // Get the current transcript value from the state
-    const currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim();
+
     if (!currentTranscript) {
       toast.error("Please provide YouTube URL, upload file, or record audio");
       return;
     }
-    const textToUse = transcript || transcriber.output?.text || displayTranscript.trim();
+
     if (!textToUse) {
       toast.error("No transcript available to generate questions from");
       return;
@@ -924,7 +1030,7 @@ export default function TeacherPollRoom() {
     questionCount,
     questionSpec,
     roomCode,
-    selectedModel
+    selectedModel,
   ]);
 
 
@@ -956,7 +1062,6 @@ export default function TeacherPollRoom() {
         setShouldGenerate(false); // Reset the flag first
         try {
           await generateQuestions();
-          // console.log('useEffect: Question generation completed');
         } catch (error) {
           // Error generating questions
           toast.error('Failed to generate questions');
@@ -1027,11 +1132,11 @@ export default function TeacherPollRoom() {
 
     // console.log('Setting isProcessing to true');
     setIsProcessing(true);
-    
+
     try {
       // console.log('Calling processContent');
       await processContent(textFileContent);
-      
+
       // Reset states after successful processing
       setTextFileContent('');
       setFileName('');
@@ -1052,7 +1157,7 @@ export default function TeacherPollRoom() {
     }
 
     setIsProcessing(true);
-    
+
     try {
       await processContent(pastedContent);
       setPastedContent('');
@@ -1064,21 +1169,74 @@ export default function TeacherPollRoom() {
       setShowPasteModal(false);
     }
   };
+  const [hasGeneratedQuestions, setHasGeneratedQuestions] = useState(false);
+  const [isTranscriptionComplete, setIsTranscriptionComplete] = useState(false);
+  const [shouldProcessTranscript, setShouldProcessTranscript] = useState(false);
+  const [whisperAiText, setWhisperAiText] = useState('')
+  useEffect(() => {
 
+
+    const text = transcriber.output?.text;
+    const isComplete = !transcriber.output?.isBusy;
+
+    if (text && isComplete && shouldProcessTranscript && !isLiveRecordingActive) {
+      setShouldProcessTranscript(false);
+    }
+  }, [transcriber.output, shouldProcessTranscript]);
 
 
   useEffect(() => {
     const text = transcriber.output?.text;
     const isComplete = !transcriber.output?.isBusy;
-    if (text && isComplete && !isLiveRecordingActive) {
+
+    // 1️⃣ Final transcription completed
+    if (text && isComplete && !isLiveRecordingActive && !hasGeneratedQuestions) {
       setTranscript(text);
       toast.success("Transcribed successfully");
+      setIsProcessing(true);
+
+      // Capture the final text in a local variable
+      const finalText = text;
+
+      setTimeout(() => {
+        generateQuestions(whisperAiText);
+      }, 5000); // 5 seconds delay
+
+      setHasGeneratedQuestions(true); // prevent multiple calls
+      setWhisperAiText(finalText); // set final text
     }
-    // In live mode, show partial transcripts as they come
-    if (text && isLiveRecordingActive && transcriber.isLiveMode) {
+
+    // 2️⃣ Live transcription updates
+    if (isLiveRecordingActive && text) {
+      setWhisperAiText(prev => prev + text); // append partial text
+      setHasGeneratedQuestions(false); // allow next final transcription
     }
-  }, [transcriber.output, isLiveRecordingActive, transcriber.isLiveMode]);
-  
+
+    // 3️⃣ Optional: reset whisperAiText when transcription marked complete
+    if (isTranscriptionComplete) {
+      //console.log("Transcription done ===", text);
+      // setWhisperAiText(text || '');
+    }
+  }, [transcriber.output, isLiveRecordingActive, hasGeneratedQuestions, isTranscriptionComplete]);
+
+
+
+
+
+  /* useEffect(() => {
+     const text = transcriber.output?.text;
+     const isComplete = !transcriber.output?.isBusy;
+     if (text && isComplete && !isLiveRecordingActive) {
+       setTranscript(text);
+       console.log("the trenacribe text coming more times====",text)
+       generateQuestions()
+       toast.success("Transcribed successfully");
+     }
+     // In live mode, show partial transcripts as they come
+     if (text && isLiveRecordingActive && transcriber.isLiveMode) {
+     }
+   }, [transcriber.output, isLiveRecordingActive, transcriber.isLiveMode]);*/
+
   /*const hasGeneratedRef = useRef(false);
 
   useEffect(() => {
@@ -1114,6 +1272,7 @@ export default function TeacherPollRoom() {
 
     if (isGenerateClicked && text && isComplete) {
       setTranscript(text);
+      console.log("the second effect running====")
       toast.success("Transcribed successfully");
       setIsGenerating(true);
       generateQuestions();
@@ -1255,6 +1414,7 @@ export default function TeacherPollRoom() {
     setUseWhisper(false);
     setShowRecordModal(false);
     setShowGGMLRecordModel(false)
+    setShowExternalModal(false)
     setAudioBlob(undefined);
     setIsProcessing(false);
 
@@ -1887,17 +2047,17 @@ export default function TeacherPollRoom() {
                           <Button
                             onClick={() => handleRecordingToggle()}
                             size="lg"
-                            variant={(isRecording && !useWhisper && !useWhisperGGML) ? "destructive" : "default"}
+                            variant={(isRecording && !useWhisper && !useWhisperGGML && !useExternlApi) ? "destructive" : "default"}
                             className={`h-20 w-20 md:w-25 md:h-25 rounded-full flex items-center justify-center 
                               bg-gradient-to-r from-purple-500 to-blue-500 text-white 
                               hover:from-purple-600 hover:to-blue-600 shadow-lg 
-                              ${(isRecording && !useWhisper && !useWhisperGGML) && "animate-pulse"} transition-all`}
+                              ${(isRecording && !useWhisper && !useWhisperGGML && !useExternlApi) && "animate-pulse"} transition-all`}
                           >
-                            {(isRecording && !useWhisper && !useWhisperGGML) ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
+                            {(isRecording && !useWhisper && !useWhisperGGML && !useExternlApi) ? <MicOff className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
                           </Button>
 
                           <div className="flex items-end gap-1 h-8 mt-8">
-                            {isRecording && isListening && !useWhisper && !useWhisperGGML ? (
+                            {isRecording && isListening && !useWhisper && !useWhisperGGML && !useExternlApi ? (
                               frequencyData.map((level, index) => (
                                 <div
                                   key={index}
@@ -1908,7 +2068,7 @@ export default function TeacherPollRoom() {
                                   }}
                                 />
                               ))
-                            ) : isRecording && !useWhisper && !useWhisperGGML ? (
+                            ) : isRecording && !useWhisper && !useWhisperGGML && !useExternlApi ? (
                               Array.from({ length: 20 }).map((_, index) => (
                                 <div
                                   key={index}
@@ -1928,6 +2088,7 @@ export default function TeacherPollRoom() {
                                         if (checked) {
                                           setUseWhisper(true);
                                           setUseWhisperGGML(false);
+                                          setExternalApi(false)
                                           transcriber.setTranscriberType("xenova");
                                           setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
                                         } else {
@@ -1943,6 +2104,29 @@ export default function TeacherPollRoom() {
                                     </label>
                                   </div>
                                   <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                      id="use-external-api"
+                                      checked={useExternlApi}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setExternalApi(true)
+                                          setUseWhisper(false);
+                                          setUseWhisperGGML(false);
+
+                                          setAudioManagerKey(Date.now()); // Reset AudioManager when type changes
+                                        } else {
+                                          setExternalApi(false);
+                                        }
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor="use-external-api"
+                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                      Use External AI
+                                    </label>
+                                  </div>
+                                  {/* <div className="flex items-center space-x-2">
                                     <Checkbox
                                       id="use-whisper-ggml"
                                       checked={useWhisperGGML}
@@ -1963,7 +2147,7 @@ export default function TeacherPollRoom() {
                                     >
                                       Use Whisper ggml
                                     </label>
-                                  </div>
+                                    </div>*/}
                                 </div>
                               </div>
                             )}
@@ -2227,8 +2411,8 @@ export default function TeacherPollRoom() {
                         )}
                         */}
                         <Transcript
-                          transcribedData={transcriber.output}
-                          liveTranscription={(useWhisper || useWhisperGGML) ? (transcriber.output?.text || '') : displayTranscript}
+                          transcribedData={''}
+                          liveTranscription={(useWhisper || useWhisperGGML) ? ('') : displayTranscript}
                           isRecording={(useWhisper || useWhisperGGML) ? isLiveRecordingActive : (isRecording || isListening)}
                         />
 
@@ -2652,18 +2836,18 @@ export default function TeacherPollRoom() {
 
           {/* Loading Overlay */}
           {isProcessing && (
-              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center">
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-                  <div className="flex flex-col items-center space-y-4">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
-                      Please wait while we process your questions. This may take a moment...
-                    </p>
-                  </div>
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center">
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+                <div className="flex flex-col items-center space-y-4">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white">Processing Your Questions</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 text-center">
+                    Please wait while we process your questions. This may take a moment...
+                  </p>
                 </div>
+              </div>
             </div>
-            )}
+          )}
 
           {/* Create Poll  */}
           {showPollModal && (
@@ -3060,13 +3244,29 @@ export default function TeacherPollRoom() {
                 onAudioStream={handleLiveAudioStream}
                 enableLiveTranscription={true}
               />
-              {audioBlob && (
+              {whisperAiText?.length >= 1 && (
+                <textarea
+                  className="w-full mt-3 p-2 text-sm border rounded-md bg-gray-50 mb-5"
+                  rows={4}
+                  readOnly
+                  value={whisperAiText}
+                />
+              )}
+              {audioBlob && isTranscriptionComplete && (
                 <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
                   <p className="text-green-800 dark:text-green-400 text-sm flex items-center">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     Recording complete! Click "Load" to process with Whisper AI
+                  </p>
+                </div>
+              )}
+              {!isTranscriptionComplete && audioBlob && (
+                <div className="mt-4 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+                  <p className="text-blue-800 dark:text-blue-400 text-sm flex items-center">
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Finalizing transcription...
                   </p>
                 </div>
               )}
@@ -3077,18 +3277,77 @@ export default function TeacherPollRoom() {
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
             setShouldProcessTranscript(false);
+            setIsTranscriptionComplete(false);
           }}
           submitText={"Load"}
-          submitEnabled={audioBlob !== undefined}
+          submitEnabled={
+            isTranscriptionComplete
+
+          }
+
           onSubmit={() => {
             processAudioBlob();
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
             setShouldProcessTranscript(true);
-           
+            setIsTranscriptionComplete(false);
+
           }}
         />
         <Modal
+          show={showExternalModal}
+          title={"Record with External API"}
+          content={
+            <>
+              <p className="mb-4">Record audio using your microphone with External API transcription</p>
+              <AudioRecorder
+                onRecordingComplete={handleAudioFromRecording}
+                onAudioStream={handleLiveAudioStreamForExternalAPI}
+                enableLiveTranscription={true}
+                transcribeModel="external-api"
+              />
+              {transcribedTextFromExternal.length >= 1 && (
+                <textarea
+                  className="w-full mt-3 p-2 text-sm border rounded-md bg-gray-50 mb-5"
+                  rows={4}
+                  readOnly
+                  value={transcribedTextFromExternal}
+                />
+              )}
+
+              {audioBlob && (
+                <div className="mt-4 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
+                  <p className="text-green-800 dark:text-green-400 text-sm flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Recording complete! Click "Load" to process with Whisper AI
+                  </p>
+                </div>
+              )}
+
+            </>
+          }
+          onClose={() => {
+            setShowExternalModal(false);
+            setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+            setShouldProcessTranscript(false);
+
+          }}
+          submitText={"Load"}
+          submitEnabled={audioBlob !== undefined}
+          onSubmit={() => {
+            processAudioBlobForExternalAPi();
+            setAudioBlob(undefined);
+            setIsLiveRecordingActive(false);
+            setShouldProcessTranscript(true);
+            setShowExternalModal(false);
+
+
+          }}
+        />
+        {/*  <Modal
           show={showGGMLRecordModel}
           title={"Record with Whisper GGML"}
           content={
@@ -3153,7 +3412,7 @@ export default function TeacherPollRoom() {
            
            
           }}
-        />
+        />*/}
       </div>
     </div>
   );

@@ -154,7 +154,6 @@ export function useTranscriber(): Transcriber {
                     // Update accumulated text
                     accumulatedTextRef.current = updateMessage.data[0];
                 }
-
                 setTranscript({
                     isBusy: true,
                     text: updateMessage.data[0],
@@ -163,7 +162,6 @@ export function useTranscriber(): Transcriber {
                 break;
             case "complete":
                 // Received complete transcript
-                // console.log("complete", message);
                 // eslint-disable-next-line no-case-declarations
                 const completeMessage = message as TranscriberCompleteData;
 
@@ -188,13 +186,18 @@ export function useTranscriber(): Transcriber {
                         .map(c => c.text)
                         .join(' ')
                         .trim();
+                        /*setTranscript({
+                            isBusy: false,
+                            text: completeText || completeMessage.data.text,
+                            chunks: accumulatedChunks.length > 0
+                                ? [...accumulatedChunks, ...finalChunks]
+                                : completeMessage.data.chunks,
+                        });*/
 
                     setTranscript({
                         isBusy: false,
-                        text: completeText || completeMessage.data.text,
-                        chunks: accumulatedChunks.length > 0
-                            ? [...accumulatedChunks, ...finalChunks]
-                            : completeMessage.data.chunks,
+                        text: completeMessage.data.text,
+                        chunks: completeMessage.data.chunks,
                     });
                 } else {
                     setTranscript({
@@ -370,7 +373,7 @@ export function useTranscriber(): Transcriber {
     }, []);
 
     // Sync transcript with accumulated chunks in live mode
-    useEffect(() => {
+   /* useEffect(() => {
         if (isLiveMode && accumulatedChunks.length > 0) {
             const fullText = accumulatedChunks.map(c => c.text).join(" ");
             accumulatedTextRef.current = fullText;
@@ -380,7 +383,7 @@ export function useTranscriber(): Transcriber {
                 chunks: accumulatedChunks,
             });
         }
-    }, [accumulatedChunks, isLiveMode]);
+    }, [accumulatedChunks, isLiveMode]);*/
 
     // Method to update transcript directly (for GGML streaming segments)
     const updateTranscript = useCallback((text: string, chunks: { text: string; timestamp: [number, number | null] }[]) => {
