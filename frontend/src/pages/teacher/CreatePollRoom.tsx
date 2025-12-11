@@ -93,6 +93,24 @@ export default function CreatePollRoom() {
           <p className="text-xs sm:text-base text-slate-600 dark:text-gray-400 mt-2">
             Define your assessment parameters for optimal student engagement
           </p>
+
+          <div className="bg-blue-50 dark:bg-blue-900/30 rounded-xl p-3 sm:p-4 border border-blue-200 dark:border-blue-800 mt-4">
+            <div className="flex items-start gap-2 sm:gap-3">
+              <div className="h-7 w-7 sm:h-8 sm:w-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg flex items-center justify-center flex-shrink-0 dark:from-blue-500 dark:to-blue-700">
+                <Users className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-xs sm:text-base text-blue-900 dark:text-blue-300 mb-1">
+                  Assessment Workflow
+                </h3>
+                <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400 leading-relaxed">
+                  After creation, you'll receive a unique identifier for the students to join.
+                  You can then administer assessments, monitor participation,
+                  and analyze results in real-time through the educator's dashboard.
+                </p>
+              </div>
+            </div>
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-4 sm:space-y-6">
@@ -140,25 +158,6 @@ export default function CreatePollRoom() {
               )}
             </div>
           </Button>
-
-          {/* Information Panel */}
-          <div className="bg-blue-50 dark:bg-blue-900/30 rounded-xl p-3 sm:p-4 border border-blue-200 dark:border-blue-800">
-            <div className="flex items-start gap-2 sm:gap-3">
-              <div className="h-7 w-7 sm:h-8 sm:w-8 bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg flex items-center justify-center flex-shrink-0 dark:from-blue-500 dark:to-blue-700">
-                <Users className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-xs sm:text-base text-blue-900 dark:text-blue-300 mb-1">
-                  Assessment Workflow
-                </h3>
-                <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-400 leading-relaxed">
-                  After creation, you'll receive a unique identifier for the students to join.
-                  You can then administer assessments, monitor participation,
-                  and analyze results in real-time through the educator's dashboard.
-                </p>
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
