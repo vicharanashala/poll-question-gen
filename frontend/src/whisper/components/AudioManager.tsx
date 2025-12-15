@@ -1,4 +1,4 @@
-import React, { JSX, useEffect, useState } from "react";
+import React, { JSX, useEffect, useState, useRef } from "react";
 import axios, { AxiosResponse } from "axios";
 import Modal from "./modal/Modal";
 import { UrlInput } from "./modal/UrlInput";
@@ -7,6 +7,7 @@ import Constants from "../../utils/Constants";
 import { Transcriber } from "../../hooks/useTranscriber";
 import AudioRecorder from "./AudioRecorder";
 import api from "@/lib/api/api";
+import { useGGMLStreaming } from "../../hooks/useGGMLStreaming";
 //import { t } from "node_modules/framer-motion/dist/types.d-D0HXPxHm";
 
 // List of supported languages:
@@ -124,8 +125,11 @@ export enum AudioSource {
 export function AudioManager(props: {
     transcriber: Transcriber;
     enableLiveTranscription?: boolean;
-    onLiveRecordingStart?: () => void;  
-    onLiveRecordingStop?: () => void;   
+    onLiveRecordingStart?: () => void;
+    onLiveRecordingStop?: () => void;
+    onVoiceActivityChange?: (active: boolean) => void;
+    onRecordingComplete?: (blob: Blob) => void;
+    onClearTranscription?:() => void;
 }) {
     const [progress, setProgress] = useState<number | undefined>(undefined);
     const [audioData, setAudioData] = useState<
@@ -204,6 +208,7 @@ export function AudioManager(props: {
     // Handle live audio streaming during recording
     const handleLiveAudioStream = (audioBuffer: AudioBuffer) => {
         setIsLiveRecording(true);
+        // Just send the audio buffer - streaming is already started in startRecording
         props.transcriber.start(audioBuffer);
     };
 
@@ -231,7 +236,7 @@ export function AudioManager(props: {
                 }
                 setAudioFromDownload(data, mimeType);
             } catch (error) {
-                console.log("Request failed or aborted", error);
+                // Request failed or aborted
             } finally {
                 setProgress(undefined);
             }
@@ -258,11 +263,10 @@ export function AudioManager(props: {
                 }
             );
             const data = response.data;
-            // console.log("YouTube audio data received:", data);
             setProgress(undefined);
             setAudioFromDownload(data, "audio/mp3");
         } catch (err) {
-            console.error("Failed to fetch YouTube audio:", err);
+            // Failed to fetch YouTube audio
             setProgress(undefined);
         }
     };
@@ -284,6 +288,88 @@ export function AudioManager(props: {
         }
     }, [props.transcriber.output?.isBusy]);
 
+    // If live transcription is enabled, show inline streaming UI instead of modal
+    if (props.enableLiveTranscription) {
+        return (
+            <div className="flex flex-col items-center justify-start w-full max-w-2xl mx-auto mt-6 space-y-4 px-4">
+                <div className="w-full rounded-lg bg-white dark:bg-slate-800 shadow-md ring-1 ring-slate-300 dark:ring-slate-700 p-4 space-y-4">
+                    <div className="flex flex-wrap justify-center items-center gap-4">
+                        <FileTile
+                            icon={<FolderIcon />}
+                            text={"From file"}
+                            onFileUpdate={(decoded, blobUrl, mimeType) => {
+                                props.transcriber.onInputChange();
+                                setAudioData({
+                                    buffer: decoded,
+                                    url: blobUrl,
+                                    source: AudioSource.FILE,
+                                    mimeType: mimeType,
+                                });
+                                setIsProcessing(true);
+                                props.transcriber.start(decoded);
+                            }}
+                        />
+                        {navigator.mediaDevices && (
+                            <div className="flex flex-col items-center">
+                                <InlineStreamingRecorder
+                                    onAudioStream={handleLiveAudioStream}
+                                    enableLiveTranscription={props.enableLiveTranscription}
+                                    onRecordingStart={props.onLiveRecordingStart}
+                                    onRecordingStop={props.onLiveRecordingStop}
+                                    onVoiceActivityChange={props.onVoiceActivityChange}
+                                    transcriber={props.transcriber}
+                                    onRecordingComplete={props.onRecordingComplete}
+                                    onClearTranscription={props.onClearTranscription}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    {<AudioDataBar progress={isAudioLoading ? progress : +!!audioData} />}
+                </div>
+
+                {audioData && (
+                    <div className="w-full max-w-xl">
+                        <AudioPlayer
+                            audioUrl={audioData.url}
+                            mimeType={audioData.mimeType}
+                        />
+                    </div>
+                )}
+
+                {(isProcessing || isLiveRecording) && (
+                    <div className="flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 mt-2">
+                        <svg
+                            className="animate-spin h-4 w-4 text-purple-600 dark:text-purple-400"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                        >
+                            <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                            ></circle>
+                            <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8v8z"
+                            ></path>
+                        </svg>
+                        <span>
+                            {isLiveRecording
+                                ? "Live transcription in progress..."
+                                : "Processing audio..."}
+                        </span>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    // Fallback to modal-based UI when live transcription is disabled
     return (
         <div className="flex flex-col items-center justify-start w-full max-w-2xl mx-auto mt-6 space-y-4 px-4">
             <div className="w-full rounded-lg bg-white dark:bg-slate-800 shadow-md ring-1 ring-slate-300 dark:ring-slate-700 p-4 space-y-4">
@@ -528,8 +614,8 @@ function RecordModal(props: {
                         onRecordingComplete={setAudioBlob}
                         onAudioStream={props.onAudioStream}
                         enableLiveTranscription={props.enableLiveTranscription}
-                        // onRecordingStart={props.onRecordingStart}
-                        // onRecordingStop={props.onRecordingStop}  
+                    // onRecordingStart={props.onRecordingStart}
+                    // onRecordingStop={props.onRecordingStop}  
                     />
                 </>
             }
@@ -587,3 +673,367 @@ function MicrophoneIcon() {
     );
 }
 
+
+import { formatAudioTimestamp } from "../../utils/AudioUtils";
+import { webmFixDuration } from "../../utils/BlobFix";
+
+
+function getMimeType() {
+    const types = [
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg",
+        "audio/wav",
+        "audio/aac",
+    ];
+    for (let i = 0; i < types.length; i++) {
+        if (MediaRecorder.isTypeSupported(types[i])) {
+            return types[i];
+        }
+    }
+    return undefined;
+}
+
+function InlineStreamingRecorder(props: {
+    onAudioStream?: (audioBuffer: AudioBuffer) => void;
+    onRecordingComplete?: (blob: Blob) => void;
+    enableLiveTranscription?: boolean;
+    onRecordingStart?: () => void;
+    onRecordingStop?: () => void;
+    onVoiceActivityChange?: (active: boolean) => void;
+    transcriber: Transcriber;
+    onClearTranscription?:() => void
+}) {
+    const [recording, setRecording] = useState(false);
+    const [duration, setDuration] = useState(0);
+    const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+
+    const streamRef = useRef<MediaStream | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const processorRef = useRef<ScriptProcessorNode | null>(null);
+    const isRecordingRef = useRef(false);
+    const streamingStartedRef = useRef(false);
+
+    // MediaRecorder for saving audio clip
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const recordingStartTimeRef = useRef<number>(0);
+
+    const transcriberRef = useRef(props.transcriber);
+    useEffect(() => {
+        transcriberRef.current = props.transcriber;
+    }, [props.transcriber]);
+
+    // Use GGML streaming hook when transcriberType is "ggml"
+    const isGGML = props.transcriber.transcriberType === "ggml";
+    const ggmlStreaming = useGGMLStreaming(
+        (segment) => {
+            const segmentData = segment.segment || segment;
+            const text = segmentData.text || segment.text || '';
+            const timestamps = segmentData.timestamps || segment.timestamps || {};
+
+            if (text) {
+                const fromTime = timestamps && 'from' in timestamps
+                    ? (typeof timestamps.from === 'string' ? parseFloat(timestamps.from) : timestamps.from || 0)
+                    : 0;
+                const toTime = timestamps && 'to' in timestamps
+                    ? (typeof timestamps.to === 'string' ? parseFloat(timestamps.to) : timestamps.to || null)
+                    : null;
+
+                const chunks = [{
+                    text: text.trim(),
+                    timestamp: [fromTime, toTime] as [number, number | null]
+                }];
+
+                if (transcriberRef.current.updateTranscript) {
+                    transcriberRef.current.updateTranscript(text.trim(), chunks);
+                }
+            }
+        },
+        (loaded, total) => {
+            const progress = loaded / total;
+            // console.log('[InlineStreamingRecorder] Model download progress:', (progress * 100).toFixed(2) + '%');
+        }
+    );
+
+    // Timer effect for duration tracking
+    useEffect(() => {
+        if (recording) {
+            const timer = setInterval(() => {
+                setDuration((prevDuration) => prevDuration + 1);
+            }, 1000);
+
+            return () => {
+                clearInterval(timer);
+            };
+        }
+    }, [recording]);
+
+    const startRecording = async () => {
+
+        // Reset recorded blob and duration
+        setRecordedBlob(null);
+        setDuration(0);
+        recordingStartTimeRef.current = Date.now();
+
+        try {
+            if (!streamRef.current) {
+                streamRef.current = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    }
+                });
+            }
+
+            // Set up MediaRecorder for audio clip recording
+            const mimeType = getMimeType();
+            const mediaRecorder = new MediaRecorder(streamRef.current, {
+                mimeType,
+            });
+            mediaRecorderRef.current = mediaRecorder;
+
+            mediaRecorder.addEventListener("dataavailable", async (event) => {
+                if (event.data.size > 0) {
+                    chunksRef.current.push(event.data);
+                }
+                if (mediaRecorder.state === "inactive") {
+                    const duration = Date.now() - recordingStartTimeRef.current;
+
+                    let blob = new Blob(chunksRef.current, { type: mimeType });
+
+                    if (mimeType === "audio/webm") {
+                        blob = await webmFixDuration(blob, duration, blob.type);
+                    }
+
+                    setRecordedBlob(blob);
+
+                    if (props.onRecordingComplete) {
+                        props.onRecordingComplete(blob);
+                    }
+
+                    chunksRef.current = [];
+                }
+            });
+
+            audioContextRef.current = new AudioContext({
+                sampleRate: Constants.SAMPLING_RATE,
+            });
+
+            if (audioContextRef.current.state === 'suspended') {
+                await audioContextRef.current.resume();
+            }
+
+            const source = audioContextRef.current.createMediaStreamSource(streamRef.current);
+
+            // For non-GGML: Create ScriptProcessor to send chunks to worker
+            if (!isGGML) {
+                processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+
+                processorRef.current.onaudioprocess = (e: AudioProcessingEvent) => {
+                    if (isRecordingRef.current && props.onAudioStream) {
+                        try {
+                            const inputData = e.inputBuffer.getChannelData(0);
+                            const audioBuffer = audioContextRef.current!.createBuffer(
+                                1,
+                                inputData.length,
+                                Constants.SAMPLING_RATE
+                            );
+                            audioBuffer.getChannelData(0).set(inputData);
+                            props.onAudioStream(audioBuffer);
+                        } catch (error) {
+                            // Error processing audio chunk
+                        }
+                    }
+                };
+                source.connect(processorRef.current);
+                processorRef.current.connect(audioContextRef.current.destination);
+            } else {
+                // console.log('[InlineStreamingRecorder] GGML mode - StreamTranscriber handles audio internally');
+            }
+
+            // Start MediaRecorder
+            mediaRecorder.start();
+
+            isRecordingRef.current = true;
+            setRecording(true);
+
+            // For GGML, use StreamTranscriber directly
+            if (isGGML && !streamingStartedRef.current && streamRef.current) {
+                // console.log('[InlineStreamingRecorder] Starting GGML streaming');
+                try {
+                    const modelName = props.transcriber.model || "tiny.en";
+                    const initialized = await ggmlStreaming.initStreamTranscriber(modelName);
+                    if (!initialized) {
+                        throw new Error('Failed to initialize StreamTranscriber');
+                    }
+
+                    props.transcriber.setLiveMode(true);
+                    await ggmlStreaming.startStreaming(streamRef.current, {
+                        lang: "en",
+                        suppress_non_speech: true,
+                        max_tokens: 16,
+                        preRecordsMs: 200,
+                        maxRecordMs: 5000,
+                        minSilenceMs: 500,
+                        onVoiceActivity: (active: boolean) => {
+                            props.onVoiceActivityChange?.(active);
+                        }
+                    });
+
+                    streamingStartedRef.current = true;
+                } catch (error) {
+                    // Error starting GGML streaming
+                    isRecordingRef.current = false;
+                    setRecording(false);
+                    return;
+                }
+            } else if (!isGGML) {
+                if (!streamingStartedRef.current) {
+                    // console.log('[InlineStreamingRecorder] Starting non-GGML streaming mode');
+                    props.transcriber.startStreaming();
+                    streamingStartedRef.current = true;
+                }
+            }
+
+            props.onRecordingStart?.();
+            // console.log('[InlineStreamingRecorder] Recording started successfully');
+        } catch (error) {
+            // Error accessing microphone
+            isRecordingRef.current = false;
+            setRecording(false);
+        }
+    };
+
+    const stopRecording = async () => {
+        isRecordingRef.current = false;
+
+        // Stop MediaRecorder
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            mediaRecorderRef.current.stop();
+        }
+
+        // Stop streaming
+        if (streamingStartedRef.current) {
+            if (isGGML) {
+                // console.log('[InlineStreamingRecorder] Stopping GGML streaming');
+                await ggmlStreaming.stopStreaming();
+            } else {
+                // console.log('[InlineStreamingRecorder] Stopping non-GGML streaming');
+                props.transcriber.stopStreaming();
+            }
+            streamingStartedRef.current = false;
+        }
+
+        if (processorRef.current) {
+            processorRef.current.disconnect();
+            processorRef.current = null;
+        }
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            streamRef.current = null;
+        }
+        if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+
+        setRecording(false);
+        props.onRecordingStop?.();
+        // console.log('[InlineStreamingRecorder] Recording stopped');
+    };
+
+    const handleToggleRecording = () => {
+        if (recording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    };
+
+    const handleClearTranscription = () => {
+       // Use the onInputChange method to clear transcript and reset state
+       props.transcriber.onInputChange();
+        
+       // Call parent's clear handler if provided
+       if (props.onClearTranscription) {
+           props.onClearTranscription();
+       }
+    };
+
+    return (
+        <div className='flex flex-col justify-center items-center w-full max-w-2xl gap-4'>
+            <button
+                type='button'
+                className={`m-2 inline-flex justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-all duration-200 ${recording
+                    ? "bg-red-500 hover:bg-red-600"
+                    : "bg-green-500 hover:bg-green-600"
+                    }`}
+                onClick={handleToggleRecording}
+            >
+                {recording
+                    ? `Stop Recording (${formatAudioTimestamp(duration)})`
+                    : "Start Recording"}
+            </button>
+
+            {props.enableLiveTranscription && recording && (
+                <div className="text-xs text-purple-600 dark:text-purple-400 animate-pulse">
+                    Live transcription active...
+                </div>
+            )}
+
+            {/* Transcription text display */}
+            {props.enableLiveTranscription && (
+                <div className="w-full">
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Transcription:
+                        </label>
+                        <button
+                            type="button"
+                            onClick={handleClearTranscription}
+                            disabled={!props.transcriber.output?.text}
+                            className="text-xs px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 dark:disabled:bg-gray-700
+                                     text-white disabled:text-gray-500 rounded-md transition-colors disabled:cursor-not-allowed"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                    <textarea
+                        readOnly
+                        value={props.transcriber.output?.text || ''}
+                        placeholder={recording ? "Listening..." : "Start recording to see transcription here..."}
+                        className="w-full min-h-[120px] p-3 border border-gray-300 dark:border-gray-600 rounded-md 
+                                 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                                 focus:ring-2 focus:ring-purple-500 focus:border-transparent
+                                 resize-y font-mono text-sm"
+                        rows={5}
+                    />
+                    {props.transcriber.output?.text && (
+                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {props.transcriber.output.text.split(' ').length} words
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {recordedBlob && (
+                <div className="w-full">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Recording:
+                    </label>
+                    <audio className='w-full' ref={audioRef} controls>
+                        <source
+                            src={URL.createObjectURL(recordedBlob)}
+                            type={recordedBlob.type}
+                        />
+                    </audio>
+                </div>
+            )}
+        </div>
+    );
+}

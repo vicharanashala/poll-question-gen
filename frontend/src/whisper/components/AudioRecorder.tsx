@@ -24,6 +24,7 @@ export default function AudioRecorder(props: {
     onRecordingComplete: (blob: Blob) => void;
     onAudioStream?: (audioBuffer: AudioBuffer) => void;
     enableLiveTranscription?: boolean;
+    transcribeModel?:string;
 }) {
     const [recording, setRecording] = useState(false);
     const [duration, setDuration] = useState(0);
@@ -39,7 +40,6 @@ export default function AudioRecorder(props: {
     const processorRef = useRef<ScriptProcessorNode | null>(null);
     const streamChunksRef = useRef<Float32Array[]>([]);
     const allStreamChunksRef = useRef<Float32Array[]>([]); // Store all chunks for final processing
-
     const startRecording = async () => {
         // Reset recording (if any)
         setRecordedBlob(null);
@@ -176,7 +176,46 @@ export default function AudioRecorder(props: {
         );
         audioBuffer.getChannelData(0).set(combinedArray);
         // Send complete audio to transcriber for final processing
-        props.onAudioStream(audioBuffer);
+        if(props.transcribeModel!="external-api")
+        {
+            props.onAudioStream(audioBuffer);
+        }
+       
+    };
+    const processRemainingChunks = async () => {
+        if (!props.onAudioStream || streamChunksRef.current.length === 0) return;
+        
+        // Only process the remaining unprocessed audio
+        const totalLength = streamChunksRef.current.reduce(
+            (sum, arr) => sum + arr.length,
+            0
+        );
+        
+        // If there's nothing substantial to process, skip it
+        if (totalLength < Constants.SAMPLING_RATE * 0.5) {
+            console.log("Remaining audio too short, skipping final transcription");
+            return;
+        }
+        
+        const combinedArray = new Float32Array(totalLength);
+        let offset = 0;
+        for (const chunk of streamChunksRef.current) {
+            combinedArray.set(chunk, offset);
+            offset += chunk.length;
+        }
+        
+        // Create AudioBuffer from the remaining audio only
+        const audioBuffer = audioContextRef.current!.createBuffer(
+            1,
+            combinedArray.length,
+            Constants.SAMPLING_RATE
+        );
+        audioBuffer.getChannelData(0).set(combinedArray);
+        
+        // Send only the remaining portion to transcriber
+        if (!props.transcribeModel) {
+            props.onAudioStream(audioBuffer);
+        }
     };
 
     const stopRecording = async() => {
@@ -189,7 +228,8 @@ export default function AudioRecorder(props: {
             setRecording(false);
             // Process any remaining chunks before cleanup
             if (props.enableLiveTranscription) {
-                await processFinalChunks();
+               // await processFinalChunks();
+                await processRemainingChunks();
             }
             // Clean up audio processing
             if (processorRef.current) {
@@ -239,7 +279,6 @@ export default function AudioRecorder(props: {
                     ? `Stop Recording (${formatAudioTimestamp(duration)})`
                     : "Start Recording"}
             </button>
-
             {props.enableLiveTranscription && recording && (
                 <div className="text-xs text-purple-600 dark:text-purple-400 animate-pulse">
                     Live transcription active...
