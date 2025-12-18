@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, User, Users2, Plus, X, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,14 +11,12 @@ import api from "@/lib/api/api";
 import { useAuthStore } from '@/lib/store/auth-store';
 import { auth } from "@/lib/firebase";
 import { useTranscriber } from "@/hooks/useTranscriber";
-import { AudioManager } from "@/whisper/components/AudioManager";
 import AudioRecorder from "@/whisper/components/AudioRecorder";
 import Modal from "@/whisper/components/modal/Modal";
 import Transcript from "@/whisper/components/Transcript";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ThemeToggle } from "@/components/theme-toggle";
-import ShowStudentsModal from "./StudentsModal";
 import socket from "@/lib/api/socket";
 
 const copyToClipboard = (text: string) => {
@@ -27,11 +25,6 @@ const copyToClipboard = (text: string) => {
   }).catch(() => {
     toast.error("Failed to copy room code");
   });
-};
-
-type User = {
-  id: string;
-  name: string;
 };
 
 interface APIQuestionOption {
@@ -97,12 +90,12 @@ type GeneratedQuestion = {
 };
 
 export default function TeacherPollRoom() {
-  const [isTranscriptionSettling, setIsTranscriptionSettling] = useState(false);
+  const [_isTranscriptionSettling, _setIsTranscriptionSettling] = useState(false);
 
   const params = useParams({ from: '/teacher/pollroom/$code' });
   const navigate = useNavigate();
   const roomCode: string = params.code as string;
-  const { user, token } = useAuthStore();
+  const { user } = useAuthStore();
 
   // Helper Hooks - defined at the top to avoid temporal dead zone
   const filterQuestionOptions = useCallback((questionData: GeneratedQuestion): GeneratedQuestion => {
@@ -160,7 +153,7 @@ export default function TeacherPollRoom() {
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState(["", "", "", ""]);
   const [correctOptionIndex, setCorrectOptionIndex] = useState<number>(0);
-  const [timer, setTimer] = useState<number>(30);
+  const [timer, _setTimer] = useState<number>(30);
   const [pollResults, setPollResults] = useState<PollResults>({});
   // State for live poll results
   type LivePollResult = {
@@ -182,7 +175,7 @@ export default function TeacherPollRoom() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
   const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
   const [questionCount, setQuestionCount] = useState<number>(3);
@@ -198,7 +191,7 @@ export default function TeacherPollRoom() {
 
   // New state for member names toggle
   const [isGenerateClicked, setIsGenerateClicked] = useState(false);
-  const [audioManagerKey, setAudioManagerKey] = useState(0);
+  const [_audioManagerKey, setAudioManagerKey] = useState(0);
 
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
@@ -211,22 +204,22 @@ export default function TeacherPollRoom() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number>(0);
   const [frequencyData, setFrequencyData] = useState<number[]>([]);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
   const [showAudioOptions, setShowAudioOptions] = useState(false);
   const [useWhisper, setUseWhisper] = useState(false);
   const [useWhisperGGML, setUseWhisperGGML] = useState(false);
-  const [useExternlApi, setExternalApi] = useState(false)
+  const [useExternlApi, _setExternalApi] = useState(false)
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showExternalModal, setShowExternalModal] = useState(false)
-  const [showGGMLRecordModel, setShowGGMLRecordModel] = useState(false);
+  const [_showGGMLRecordModel, setShowGGMLRecordModel] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
 
 
   // UI state for queued question viewer shown after mic stops
-  const [showQueuedViewer, setShowQueuedViewer] = useState(false);
-  const [queuedViewerIndex, setQueuedViewerIndex] = useState(0);
+  const [_showQueuedViewer, setShowQueuedViewer] = useState(false);
+  const [_queuedViewerIndex, setQueuedViewerIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [_isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   // Question card state
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -236,11 +229,11 @@ export default function TeacherPollRoom() {
   const transcriber = useTranscriber();
   const [transcript, setTranscript] = useState<string | null>(null);
   const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
-  const [localVoiceActivity, setLocalVoiceActivity] = useState(false);
+  const [_localVoiceActivity, _setLocalVoiceActivity] = useState(false);
   // const [showStudentsModal, setShowStudentsModal] = useState(false)
   const [students, setStudents] = useState<Array<{ id?: string; name?: string }>>([]);
 
-  const [joinedRoom, setJoinedRoom] = useState(false);
+  const [_joinedRoom, setJoinedRoom] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Collapsed by default on mobile
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -347,17 +340,17 @@ export default function TeacherPollRoom() {
         joinRoom(); // Re-join room on reconnect
       });
 
-      socket.on('disconnect', (reason) => {
+      socket.on('disconnect', (_reason) => {
         // console.log('Socket disconnected:', reason);
         setJoinedRoom(false);
       });
 
-      socket.on('connect_error', (error) => {
+      socket.on('connect_error', (_error) => {
         // Socket connection error
         setJoinedRoom(false);
       });
 
-      socket.on('error', (error) => {
+      socket.on('error', (_error) => {
         // Socket error
       });
     };
@@ -706,7 +699,7 @@ export default function TeacherPollRoom() {
         const IS_FROM_ONEND = true;
         handleRecordingToggle(IS_FROM_ONEND);
       };
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (_event: any) => {
         // Recognition error
       };
 
@@ -1306,7 +1299,7 @@ export default function TeacherPollRoom() {
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-800/50 dark:border-gray-600 dark:text-white text-xs sm:text-base bg-white dark:bg-gray-800 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-800/50 dark:border-gray-600 dark:text-white text-xs sm:text-base bg-white flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
           aria-label="AI Model"
         >
           <span className="text-left truncate">{selectedModelLabel}</span>
@@ -1362,20 +1355,6 @@ export default function TeacherPollRoom() {
     }
   };
 
-  const deleteGeneratedQuestion = (index: number) => {
-    const updated = generatedQuestions.filter((_, i) => i !== index);
-    setGeneratedQuestions(updated);
-    if (editingQuestionIndex === index) {
-      setEditingQuestionIndex(null);
-    } else if (editingQuestionIndex !== null && editingQuestionIndex > index) {
-      setEditingQuestionIndex(editingQuestionIndex - 1);
-    }
-    if (updated.length === 0) {
-      setShowPreview(false);
-    }
-    toast.success("Question deleted");
-  };
-
   // Implementation is handled by the useCallback version above
 
   const selectGeneratedQuestion = useCallback((questionData: GeneratedQuestion) => {
@@ -1386,19 +1365,6 @@ export default function TeacherPollRoom() {
     setOptions(filteredQuestion.options);
     setCorrectOptionIndex(filteredQuestion.correctOptionIndex);
   }, [filterQuestionOptions, setQuestion, setOptions, setCorrectOptionIndex]);
-
-  const editGeneratedQuestion = (index: number, field: string, value: string | number) => {
-    const updated = [...generatedQuestions];
-    if (field === 'question') {
-      updated[index].question = value as string;
-    } else if (field === 'correctOptionIndex') {
-      updated[index].correctOptionIndex = value as number;
-    } else if (field.startsWith('option-')) {
-      const optionIndex = parseInt(field.split('-')[1]);
-      updated[index].options[optionIndex] = value as string;
-    }
-    setGeneratedQuestions(updated);
-  };
 
   const clearGenAIData = () => {
     setGeneratedQuestions([]);
@@ -2488,7 +2454,7 @@ export default function TeacherPollRoom() {
                         )}
                         */}
                         <Transcript
-                          transcribedData={''}
+                          transcribedData={undefined}
                           liveTranscription={(useWhisper || useWhisperGGML) ? ('') : displayTranscript}
                           isRecording={(useWhisper || useWhisperGGML) ? isLiveRecordingActive : (isRecording || isListening)}
                         />
@@ -3268,7 +3234,7 @@ export default function TeacherPollRoom() {
                                             {isShowingNames && data.users.length > 0 ? (
                                               <div className="ml-4 pl-2 border-l-2 border-purple-200 dark:border-purple-700">
                                                 <div className="flex flex-wrap gap-1 mt-1">
-                                                  {data.users.map((user, userIndex) => (
+                                                  {data.users.map((user: any, userIndex: number) => (
                                                     <span
                                                       key={userIndex}
                                                       className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700"
