@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu, ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1670,6 +1670,15 @@ export default function TeacherPollRoom() {
             {/* Header */}
             <div className="fixed top-0 left-0 w-full h-16 bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm px-4 py-2 flex items-center justify-between z-50">
               <div className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="mr-2"
+                  onClick={() => navigate({ to: '/teacher/manage-rooms' })}
+                  title="Back to Manage Rooms"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"

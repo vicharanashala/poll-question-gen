@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Zap, Users, Menu, Info, History, LogOut, Clock, CheckCircle, Circle, Trophy, X, AlertCircle, BookOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { Zap, Users, Info, History, LogOut, Clock, CheckCircle, Circle, Trophy, X, AlertCircle, BookOpen, ChevronDown, ChevronUp, ArrowLeft } from "lucide-react";
 import { useAuth } from "@/lib/hooks/use-auth";
 import api from "@/lib/api/api";
 import socket from "@/lib/api/socket";
@@ -279,11 +279,22 @@ export default function StudentPollRoom() {
       <div className="relative z-10 max-w-7xl mx-auto p-6">
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
-            <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-full border border-purple-200/50 dark:border-purple-700/50">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => navigate({ to: '/student/home' })}
+                title="Back to Home"
+                className="mr-2"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-full border border-purple-200/50 dark:border-purple-700/50">
               <Zap className="w-5 h-5 text-purple-600 dark:text-purple-400" />
               <span className="text-lg font-semibold text-purple-700 dark:text-purple-300">
                 Live Poll Session
               </span>
+              </div>
             </div>
 
             {/* {joinedRoom && (
