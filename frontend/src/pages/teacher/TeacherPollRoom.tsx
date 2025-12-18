@@ -1748,7 +1748,9 @@ export default function TeacherPollRoom() {
               </div>
 
               <div className="flex items-center gap-2">
-                <ThemeToggle className="hidden md:block" />
+                <div className="hidden md:block">
+                  <ThemeToggle />
+                </div>
                 <Button
                   onClick={() => copyToClipboard(roomCode)}
                   variant="outline"
