@@ -82,7 +82,7 @@ export default function StudentPollRoom() {
   useEffect(() => {
     if (!roomCode) return;
     const joinRoom = () => {
-      socket.emit('join-room', roomCode,email);
+      socket.emit('join-room', roomCode, email);
       setJoinedRoom(true);
       toast.success("Joined room!");
     };
@@ -197,7 +197,7 @@ export default function StudentPollRoom() {
   };
 
   const exitRoom = () => {
-    socket.emit("leave-room", roomCode,email);
+    socket.emit("leave-room", roomCode, email);
     setJoinedRoom(false);
     setLivePolls([]);
     setAnsweredPolls({});
