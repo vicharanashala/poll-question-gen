@@ -3,6 +3,7 @@ import { LIVE_QUIZ_TYPES } from './types.js';
 import { PollRoomController } from './controllers/PollRoomController.js';
 import { PollService } from './services/PollService.js';
 import { RoomService } from './services/RoomService.js';
+import { ScoringService } from './services/ScoringService.js';
 import { pollSocket } from './utils/PollSocket.js';
 import { DashboardService } from './services/DashboardService.js';
 import {DashboardController} from './controllers/DashboardController.js';
@@ -18,6 +19,7 @@ export const livequizzesContainerModule = new ContainerModule((options) => {
   // Services
   options.bind(LIVE_QUIZ_TYPES.PollService).to(PollService).inSingletonScope();
   options.bind(LIVE_QUIZ_TYPES.RoomService).to(RoomService).inSingletonScope();
+  options.bind(LIVE_QUIZ_TYPES.ScoringService).to(ScoringService).inSingletonScope();
   options.bind(DashboardService).toSelf().inSingletonScope();
 
   // GenAI / media services

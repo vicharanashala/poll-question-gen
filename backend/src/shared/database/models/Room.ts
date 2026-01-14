@@ -3,7 +3,9 @@ import mongoose from 'mongoose';
 const AnswerSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   answerIndex: { type: Number, required: true },
-  answeredAt: { type: Date, default: Date.now }
+  answeredAt: { type: Date, default: Date.now },
+  responseTime: { type: Number }, // Time taken to answer in milliseconds
+  pointsEarned: { type: Number, default: 0 } // Points earned for this answer
 });
 
 const PollSchema = new mongoose.Schema({
@@ -11,8 +13,10 @@ const PollSchema = new mongoose.Schema({
   question: { type: String, required: true },
   options: [{ type: String }],
   correctOptionIndex: { type: Number, default: -1 },
-  timer: { type: Number, default: 30 },
+  timer: { type: Number, default: 30 }, // Timer in seconds
+  maxPoints: { type: Number, default: 100 }, // Maximum points for correct answer
   createdAt: { type: Date, default: Date.now },
+  releasedAt: { type: Date }, // When the poll was released to students
   answers: [AnswerSchema]
 });
 

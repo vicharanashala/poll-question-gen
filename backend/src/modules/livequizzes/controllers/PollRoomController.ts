@@ -86,7 +86,7 @@ export class PollRoomController {
   @Post('/:code/polls')
   async createPollInRoom(
     @Param('code') roomCode: string,
-    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number }
+    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number; maxPoints?: number }
   ) {
     const room = await this.roomService.getRoomByCode(roomCode);
     if (!room) throw new Error('Invalid room');
@@ -96,7 +96,8 @@ export class PollRoomController {
         question: body.question,
         options: body.options,
         correctOptionIndex: body.correctOptionIndex,
-        timer: body.timer
+        timer: body.timer,
+        maxPoints: body.maxPoints
       }
     );
 
@@ -259,6 +260,41 @@ async getYoutubeAudio(@Req() req: Request, @Res() res: Response) {
     } finally {
       await this.cleanupService.cleanup(tempPaths);
     }
+  }
+
+  // 🔹 Get Leaderboard for Room
+  @Get('/:code/leaderboard')
+  async getLeaderboard(@Param('code') roomCode: string) {
+    const room = await this.roomService.getRoomByCode(roomCode);
+    if (!room) {
+      throw new NotFoundError('Room not found');
+    }
+
+    const leaderboard = await this.pollService.getLeaderboard(roomCode);
+    return {
+      success: true,
+      roomCode,
+      leaderboard
+    };
+  }
+
+  // 🔹 Get User Score for Room
+  @Get('/:code/score/:userId')
+  async getUserScore(
+    @Param('code') roomCode: string,
+    @Param('userId') userId: string
+  ) {
+    const room = await this.roomService.getRoomByCode(roomCode);
+    if (!room) {
+      throw new NotFoundError('Room not found');
+    }
+
+    const score = await this.pollService.getUserScore(roomCode, userId);
+    return {
+      success: true,
+      roomCode,
+      score
+    };
   }
   
 }
