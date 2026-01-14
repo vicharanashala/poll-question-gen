@@ -86,20 +86,64 @@ export class PollRoomController {
   @Post('/:code/polls')
   async createPollInRoom(
     @Param('code') roomCode: string,
-    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number }
+    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number; source?: 'manual' | 'auto' }
   ) {
     const room = await this.roomService.getRoomByCode(roomCode);
     if (!room) throw new Error('Invalid room');
+
+    // Verify that only the teacher can create manual questions
+    if (body.source === 'manual' && body.creatorId !== room.teacherId) {
+      throw new BadRequestError('Only the teacher can create manual questions');
+    }
+
     return await this.pollService.createPoll(
       roomCode,
       {
         question: body.question,
         options: body.options,
         correctOptionIndex: body.correctOptionIndex,
-        timer: body.timer
+        timer: body.timer,
+        source: body.source ?? 'manual',
+        createdBy: body.creatorId
       }
     );
+  }
 
+  // 🔹 Switch Question Generation Mode
+  @Post('/:code/question-mode')
+  async setQuestionMode(
+    @Param('code') roomCode: string,
+    @Body() body: { mode: 'manual' | 'auto' | 'paused'; teacherId: string }
+  ) {
+    const updatedRoom = await this.roomService.setQuestionMode(roomCode, body.mode, body.teacherId);
+    
+    // Emit mode change to all clients in the room
+    pollSocket.emitToRoom(roomCode, 'question-mode-changed', {
+      roomCode,
+      mode: body.mode,
+      timestamp: new Date()
+    });
+
+    return {
+      success: true,
+      roomCode,
+      questionMode: body.mode,
+      message: `Question mode set to ${body.mode}`
+    };
+  }
+
+  // 🔹 Get Current Question Mode
+  @Get('/:code/question-mode')
+  async getQuestionMode(@Param('code') roomCode: string) {
+    const mode = await this.roomService.getQuestionMode(roomCode);
+    if (!mode) {
+      throw new NotFoundError('Room not found');
+    }
+    return {
+      success: true,
+      roomCode,
+      questionMode: mode
+    };
   }
 
   //@Authorized(['teacher'])

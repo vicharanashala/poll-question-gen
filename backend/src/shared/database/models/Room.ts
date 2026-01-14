@@ -13,6 +13,8 @@ const PollSchema = new mongoose.Schema({
   correctOptionIndex: { type: Number, default: -1 },
   timer: { type: Number, default: 30 },
   createdAt: { type: Date, default: Date.now },
+  source: { type: String, enum: ['manual', 'auto'], default: 'manual' }, // Question source
+  createdBy: { type: String }, // User ID who created the question
   answers: [AnswerSchema]
 });
 
@@ -24,6 +26,7 @@ const RoomSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   endedAt: { type: Date }, 
   status: { type: String, enum: ['active', 'ended'], default: 'active' },
+  questionMode: { type: String, enum: ['manual', 'auto', 'paused'], default: 'manual' }, // Question generation mode
   polls: [PollSchema],
   students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 });
