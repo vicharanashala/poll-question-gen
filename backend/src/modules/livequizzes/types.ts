@@ -7,6 +7,7 @@ const TYPES = {
   PollService: Symbol.for('PollService'),
   RoomService: Symbol.for('RoomService'),
   DashboardService: Symbol.for('DashboardService'),
+  ScoringService: Symbol.for('ScoringService'),
 
   // ✅ Add GenAI / media services
   VideoService: Symbol.for('VideoService'),

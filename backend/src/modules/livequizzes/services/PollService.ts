@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Room } from '../../../shared/database/models/Room.js';
 import { pollSocket } from '../utils/PollSocket.js';
 import { UserModel } from '#root/shared/database/models/User.js';
+import { ScoringService } from './ScoringService.js';
 
 interface InMemoryPoll {
   pollId: string;
@@ -13,9 +14,11 @@ interface InMemoryPoll {
   totalResponses: number;
   userResponses: Map<string, number>; // userId: optionIndex
   timer: number;
+  maxPoints: number;
   startTime?: number;
   timeLeft: number;
   roomCode: string;
+  releasedAt?: Date; // When poll was released to students
 }
 
 @injectable()
@@ -23,13 +26,21 @@ export class PollService {
   private pollSocket = pollSocket;
   private activePolls = new Map<string, InMemoryPoll>(); // pollId -> InMemoryPoll
   private pollTimers = new Map<string, NodeJS.Timeout>(); // pollId -> timer
+  private scoringService: ScoringService;
+
+  constructor() {
+    this.scoringService = new ScoringService();
+  }
+
   async createPoll(roomCode: string, data: {
     question: string;
     options: string[];
     correctOptionIndex: number;
     timer?: number;
+    maxPoints?: number;
   }) {
     const pollId = crypto.randomUUID();
+    const releasedAt = new Date();
 
     const poll = {
       _id: pollId,
@@ -37,7 +48,9 @@ export class PollService {
       options: data.options,
       correctOptionIndex: data.correctOptionIndex,
       timer: data.timer ?? 30,
+      maxPoints: data.maxPoints ?? 100,
       createdAt: new Date(),
+      releasedAt,
       answers: []
     };
 
@@ -50,8 +63,10 @@ export class PollService {
       totalResponses: 0,
       userResponses: new Map(),
       timer: data.timer ?? 0, // 0 means no timer
+      maxPoints: data.maxPoints ?? 100,
       timeLeft: data.timer ?? 0,
       roomCode,
+      releasedAt,
     };
 
     await Room.updateOne(
@@ -72,6 +87,23 @@ export class PollService {
     const poll = this.activePolls.get(pollId);
     if (!poll || poll.roomCode !== roomCode) {
       throw new Error('Poll not found or invalid room');
+    }
+
+    const answeredAt = new Date();
+    
+    // Calculate response time and points
+    let responseTime = 0;
+    let pointsEarned = 0;
+    
+    if (poll.releasedAt) {
+      responseTime = this.scoringService.calculateResponseTime(poll.releasedAt, answeredAt);
+      const isCorrect = answerIndex === poll.correctOptionIndex;
+      pointsEarned = this.scoringService.calculatePoints(
+        isCorrect,
+        responseTime,
+        poll.timer,
+        poll.maxPoints
+      );
     }
 
     // Update in-memory response tracking
@@ -95,8 +127,24 @@ export class PollService {
 
     await Room.updateOne(
       { roomCode, "polls._id": pollId },
-      { $push: { "polls.$.answers": { userId, answerIndex, answeredAt: new Date() } } }
+      { 
+        $push: { 
+          "polls.$.answers": { 
+            userId, 
+            answerIndex, 
+            answeredAt,
+            responseTime,
+            pointsEarned
+          } 
+        } 
+      }
     );
+
+    return {
+      pointsEarned,
+      responseTime,
+      isCorrect: answerIndex === poll.correctOptionIndex
+    };
   }
 
   async getPollResults(roomCode: string) {
@@ -138,6 +186,77 @@ export class PollService {
     }
 
     return results;
+  }
+
+  /**
+   * Get leaderboard for a room based on total points earned
+   */
+  async getLeaderboard(roomCode: string) {
+    const room = await Room.findOne({ roomCode });
+    if (!room) return null;
+
+    const userScores = new Map<string, number>();
+
+    // Calculate total points for each user across all polls
+    for (const poll of room.polls) {
+      for (const answer of poll.answers) {
+        const currentScore = userScores.get(answer.userId) || 0;
+        userScores.set(answer.userId, currentScore + (answer.pointsEarned || 0));
+      }
+    }
+
+    // Get user details
+    const allUserIds = Array.from(userScores.keys());
+    const users = await UserModel.find(
+      { firebaseUID: { $in: allUserIds } },
+      { firebaseUID: 1, firstName: 1, lastName: 1 }
+    );
+
+    const userMap = new Map(users.map(user => {
+      const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown User';
+      return [user.firebaseUID, fullName];
+    }));
+
+    // Create leaderboard using scoring service
+    const leaderboard = this.scoringService.getLeaderboard(userScores);
+
+    return leaderboard.map(entry => ({
+      userId: entry.userId,
+      userName: userMap.get(entry.userId) || 'Unknown User',
+      totalPoints: entry.totalPoints,
+      rank: entry.rank
+    }));
+  }
+
+  /**
+   * Get individual user's score for a room
+   */
+  async getUserScore(roomCode: string, userId: string) {
+    const room = await Room.findOne({ roomCode });
+    if (!room) return null;
+
+    let totalPoints = 0;
+    let correctAnswers = 0;
+    let totalAnswers = 0;
+
+    for (const poll of room.polls) {
+      const userAnswer = poll.answers.find(ans => ans.userId === userId);
+      if (userAnswer) {
+        totalAnswers++;
+        totalPoints += userAnswer.pointsEarned || 0;
+        if (userAnswer.answerIndex === poll.correctOptionIndex) {
+          correctAnswers++;
+        }
+      }
+    }
+
+    return {
+      userId,
+      totalPoints,
+      correctAnswers,
+      totalAnswers,
+      accuracy: totalAnswers > 0 ? Math.round((correctAnswers / totalAnswers) * 100) : 0
+    };
   }
 
 
