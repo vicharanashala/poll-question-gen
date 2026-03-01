@@ -232,4 +232,36 @@ export class RoomService {
     const updatedRoom = await Room.findOneAndUpdate({roomCode},{$pull:{students:userObjectId}},{new:true})
     return updatedRoom
   }
+
+  /**
+   * Switch question generation mode for a room
+   * Only the teacher/host can switch modes
+   */
+  async setQuestionMode(roomCode: string, mode: 'manual' | 'auto' | 'paused', teacherId: string): Promise<RoomType | null> {
+    const room = await Room.findOne({ roomCode }).lean();
+    if (!room) {
+      throw new NotFoundError('Room not found');
+    }
+
+    // Verify that the user is the teacher
+    if (room.teacherId !== teacherId) {
+      throw new Error('Only the room host can change question mode');
+    }
+
+    const updatedRoom = await Room.findOneAndUpdate(
+      { roomCode },
+      { questionMode: mode },
+      { new: true }
+    ).lean();
+
+    return updatedRoom;
+  }
+
+  /**
+   * Get current question mode for a room
+   */
+  async getQuestionMode(roomCode: string): Promise<string | null> {
+    const room = await Room.findOne({ roomCode }).lean();
+    return room ? (room.questionMode || 'manual') : null;
+  }
 }

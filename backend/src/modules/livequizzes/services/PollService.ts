@@ -28,6 +28,8 @@ export class PollService {
     options: string[];
     correctOptionIndex: number;
     timer?: number;
+    source?: 'manual' | 'auto';
+    createdBy?: string;
   }) {
     const pollId = crypto.randomUUID();
 
@@ -38,6 +40,8 @@ export class PollService {
       correctOptionIndex: data.correctOptionIndex,
       timer: data.timer ?? 30,
       createdAt: new Date(),
+      source: data.source ?? 'manual',
+      createdBy: data.createdBy,
       answers: []
     };
 
