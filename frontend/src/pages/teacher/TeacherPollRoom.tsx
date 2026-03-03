@@ -874,7 +874,7 @@ export default function TeacherPollRoom() {
     setIsEndingRoom(true);
     try {
       await api.post(`/livequizzes/rooms/${roomCode}/end`, {
-        teacherId: user?.userId,
+        teacherId: user?.uid,
       });
 
       toast.success("Room ended successfully");

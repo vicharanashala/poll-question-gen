@@ -2,7 +2,7 @@ import { injectable } from 'inversify';
 import { Room } from '../../../shared/database/models/Room.js';
 import type { Room as RoomType, Poll, PollAnswer } from '../interfaces/PollRoom.js';
 import { UserModel } from '../../../shared/database/models/User.js';
-import {ObjectId} from 'mongodb'
+import { ObjectId } from 'mongodb'
 import { NotFoundError } from 'routing-controllers';
 
 @injectable()
@@ -27,7 +27,7 @@ export class RoomService {
   }
 
   async getRoomByCode(code: string): Promise<RoomType | null> {
-    return await Room.findOne({ roomCode: code }).populate('students','firstName email').lean()
+    return await Room.findOne({ roomCode: code }).populate('students', 'firstName email').lean()
   }
 
   async getRoomsByTeacher(teacherId: string, status?: 'active' | 'ended'): Promise<RoomType[]> {
@@ -44,7 +44,7 @@ export class RoomService {
       'uid name'
     ).lean();
   }
-  
+
   async getPollAnalysis(roomCode: string) {
     // 1️⃣ Find the room by code
     const room = await this.roomModel.findOne({ roomCode }).lean();
@@ -93,21 +93,21 @@ export class RoomService {
     // 4️⃣ Convert map to array and merge names
     const participants = Array.from(participantsMap.values()).map((p) => {
       const user = users.find(u => u.firebaseUID === p.userId);
-      
+
       // Format time taken - convert seconds to minutes and seconds
       let timeDisplay = "N/A";
       if (p.timeTaken > 0) {
         const totalSeconds = Math.round(p.timeTaken);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-        
+
         if (minutes > 0) {
           timeDisplay = `${minutes}m ${seconds}s`;
         } else {
           timeDisplay = `${seconds}s`;
         }
       }
-      
+
       return {
         name: user?.firstName ?? 'Anonymous',
         score: p.score,
@@ -139,7 +139,7 @@ export class RoomService {
       questions,
     };
   }
-  
+
   async getRoomsByTeacherAndStatus(teacherId: string, status: 'active' | 'ended'): Promise<RoomType[]> {
     return await Room.find({ teacherId, status }).lean();
   }
@@ -154,8 +154,8 @@ export class RoomService {
     return room ? room.status === 'ended' : false;
   }
 
-  async endRoom(code: string): Promise<boolean> {
-    const updated = await Room.findOneAndUpdate({ roomCode: code }, { status: 'ended' }, { new: true }).lean();
+  async endRoom(code: string, teacherId: string): Promise<boolean> {
+    const updated = await Room.findOneAndUpdate({ roomCode: code, teacherId }, { status: 'ended' }, { new: true }).lean();
     return !!updated;
   }
 
@@ -202,34 +202,34 @@ export class RoomService {
   }
 
 
-  async enrollStudent(userId:string,roomCode:string){
-    const room = await Room.findOne({roomCode})
-    if(!room){
+  async enrollStudent(userId: string, roomCode: string) {
+    const room = await Room.findOne({ roomCode })
+    if (!room) {
       throw new NotFoundError("Room is not found")
     }
-    const userObjectId=new ObjectId(userId)
+    const userObjectId = new ObjectId(userId)
     // const existingStudent = await Room.findOne({students:{$in:[userObjectId]}})
     const isAlreadyEnrolled = room.students.some((id) => id.equals(userObjectId))
-    if(isAlreadyEnrolled){
+    if (isAlreadyEnrolled) {
       console.log("User Already enrolled in the course")
       return room
     }
-    const updatedRoom = await Room.findOneAndUpdate({roomCode},{$addToSet:{students:userObjectId}},{new:true})
+    const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $addToSet: { students: userObjectId } }, { new: true })
     return updatedRoom
   }
 
-  async unEnrollStudent(userId:string,roomCode:string){
-    const room = await Room.findOne({roomCode})
-    if(!room){
+  async unEnrollStudent(userId: string, roomCode: string) {
+    const room = await Room.findOne({ roomCode })
+    if (!room) {
       throw new NotFoundError("Room is not found")
     }
-    const userObjectId=new ObjectId(userId)
+    const userObjectId = new ObjectId(userId)
     const isAlreadyEnrolled = room.students.some((id) => id.equals(userObjectId))
-    if(!isAlreadyEnrolled){
+    if (!isAlreadyEnrolled) {
       console.log("User Not enrolled in the course")
       return room
     }
-    const updatedRoom = await Room.findOneAndUpdate({roomCode},{$pull:{students:userObjectId}},{new:true})
+    const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $pull: { students: userObjectId } }, { new: true })
     return updatedRoom
   }
 }

@@ -98,23 +98,23 @@ export default function ManageRoom() {
         return `~${estimatedDuration} mins`;
     };
 
-   /* const getStatusColor = (status: string) => {
-        return status === 'active'
-            ? 'text-green-600 dark:text-green-400'
-            : 'text-gray-600 dark:text-gray-400';
-    };*/
+    /* const getStatusColor = (status: string) => {
+         return status === 'active'
+             ? 'text-green-600 dark:text-green-400'
+             : 'text-gray-600 dark:text-gray-400';
+     };*/
 
     const handleEndRoom = async (roomCode: string, event: React.MouseEvent) => {
         event.stopPropagation();
         setEndingRoom(roomCode);
-        
+
         try {
-            await api.post(`/livequizzes/rooms/${roomCode}/end`);
-            
+            await api.post(`/livequizzes/rooms/${roomCode}/end`, { teacherId: user?.uid });
+
             // Update the room status locally
-            setRooms(prevRooms => 
-                prevRooms.map(room => 
-                    room.roomCode === roomCode 
+            setRooms(prevRooms =>
+                prevRooms.map(room =>
+                    room.roomCode === roomCode
                         ? { ...room, status: 'ended' as const }
                         : room
                 )
@@ -210,8 +210,8 @@ export default function ManageRoom() {
                                     <Badge
                                         variant={room.status === 'active' ? 'default' : 'secondary'}
                                         className={`$${room.status === 'active'
-                                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                                : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
+                                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                            : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'
                                             }`}
                                     >
                                         {room.status === 'active' ? 'Active' : 'Completed'}

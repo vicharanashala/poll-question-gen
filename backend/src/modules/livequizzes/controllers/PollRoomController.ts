@@ -45,7 +45,7 @@ declare module 'express-serve-static-core' {
 const upload = multer({ dest: 'uploads/' });
 
 @injectable()
-@OpenAPI({tags: ['Rooms'],})
+@OpenAPI({ tags: ['Rooms'], })
 @JsonController('/livequizzes/rooms')
 export class PollRoomController {
   constructor(
@@ -79,7 +79,7 @@ export class PollRoomController {
       return { success: false, message: 'Room is ended' };
     }
     return { success: true, room };  // return room data
-  }  
+  }
 
   // 🔹 Create Poll in Room
   //@Authorized(['teacher','admin'])
@@ -134,7 +134,7 @@ export class PollRoomController {
   ) {
     await this.pollService.submitAnswer(roomCode, body.pollId, body.userId, body.answerIndex);
     const updatedResults = await this.pollService.getPollResults(roomCode);
-    pollSocket.emitToRoom(roomCode,'poll-results-updated', updatedResults);
+    pollSocket.emitToRoom(roomCode, 'poll-results-updated', updatedResults);
     return { success: true };
   }
 
@@ -147,49 +147,49 @@ export class PollRoomController {
 
   //@Authorized(['teacher'])
   @Post('/:code/end')
-  async endRoom(@Param('code') code: string) {
-    const success = await this.roomService.endRoom(code);
-    if (!success) throw new Error('Room not found');
+  async endRoom(@Param('code') code: string, @Body() body: { teacherId: string }) {
+    const success = await this.roomService.endRoom(code, body.teacherId);
+    if (!success) throw new Error('Room not found or unauthorized');
     // Emit to all clients in the room
     pollSocket.emitToRoom(code, 'room-ended', {});
     return { success: true, message: 'Room ended successfully' };
   }
 
-@Get('/youtube-audio')
-@HttpCode(200)
-async getYoutubeAudio(@Req() req: Request, @Res() res: Response) {
-  const youtubeUrl = req.query.url as string;
-  const tempPaths: string[] = [];
-  try {
-    if (!youtubeUrl) {
-      return res.status(400).json({ message: 'Missing YouTube URL.' });
+  @Get('/youtube-audio')
+  @HttpCode(200)
+  async getYoutubeAudio(@Req() req: Request, @Res() res: Response) {
+    const youtubeUrl = req.query.url as string;
+    const tempPaths: string[] = [];
+    try {
+      if (!youtubeUrl) {
+        return res.status(400).json({ message: 'Missing YouTube URL.' });
+      }
+      console.log('Received YouTube URL:', youtubeUrl);
+      // 1. Download the YouTube video (MP4 or similar)
+      const videoPath = await this.videoService.downloadVideo(youtubeUrl);
+      tempPaths.push(videoPath);
+
+      // 2. Extract audio from video (MP3 or WAV)
+      const audioPath = await this.audioService.extractAudio(videoPath);
+      tempPaths.push(audioPath);
+
+      // 3. Stream audio file to the client
+      const mimeType = mime.lookup(audioPath) || 'audio/mpeg';
+      const audioBuffer = await fsp.readFile(audioPath);
+
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Length', audioBuffer.length);
+      res.setHeader('Content-Disposition', 'inline');
+
+      console.log("🧪 Audio path:", audioPath);
+      console.log("📦 Audio buffer size:", audioBuffer.length); // << This will likely be 44
+      return res.send(audioBuffer);
+    } catch (error: any) {
+      console.error('Error in /youtube-audio:', error);
+      await this.cleanupService.cleanup(tempPaths);
+      return res.status(500).json({ message: error.message || 'Internal Server Error' });
     }
-    console.log('Received YouTube URL:', youtubeUrl);
-    // 1. Download the YouTube video (MP4 or similar)
-    const videoPath = await this.videoService.downloadVideo(youtubeUrl);
-    tempPaths.push(videoPath);
-
-    // 2. Extract audio from video (MP3 or WAV)
-    const audioPath = await this.audioService.extractAudio(videoPath);
-    tempPaths.push(audioPath);
-
-    // 3. Stream audio file to the client
-    const mimeType = mime.lookup(audioPath) || 'audio/mpeg';
-    const audioBuffer = await fsp.readFile(audioPath); 
-
-    res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Length', audioBuffer.length);
-    res.setHeader('Content-Disposition', 'inline');
-
-    console.log("🧪 Audio path:", audioPath);
-    console.log("📦 Audio buffer size:", audioBuffer.length); // << This will likely be 44
-    return res.send(audioBuffer);
-  } catch (error: any) {
-    console.error('Error in /youtube-audio:', error);
-    await this.cleanupService.cleanup(tempPaths);
-    return res.status(500).json({ message: error.message || 'Internal Server Error' });
   }
-}
 
   // 🔹 AI Question Generation from transcript or YouTube
   //@Authorized(['teacher'])
@@ -237,7 +237,7 @@ async getYoutubeAudio(@Req() req: Request, @Res() res: Response) {
       console.log('Using questionSpec:', safeSpec);
       console.log('[generateQuestions] Transcript length:', transcript.length);
       console.log('[generateQuestions] Transcript preview:', segments);
-     
+
       console.log('[generateQuestions] Number of questions to generate:', numQuestions);
       const generatedQuestions = await this.aiContentService.generateQuestions({
         segments,
@@ -260,5 +260,5 @@ async getYoutubeAudio(@Req() req: Request, @Res() res: Response) {
       await this.cleanupService.cleanup(tempPaths);
     }
   }
-  
+
 }

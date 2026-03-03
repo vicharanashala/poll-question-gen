@@ -174,7 +174,9 @@ describe('PollRoomController Integration Tests', () => {
     });
 
     it('POST /livequizzes/rooms/:code/end - end room', async () => {
-        const res = await request(app).post('/livequizzes/rooms/abc123/end');
+        const res = await request(app)
+            .post('/livequizzes/rooms/abc123/end')
+            .send({ teacherId: 'teach1' });
 
         if (res.status !== 200) {
             console.error('Response status:', res.status);
@@ -183,7 +185,7 @@ describe('PollRoomController Integration Tests', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.success).toBe(true);
-        expect(mockRoomService.endRoom).toHaveBeenCalledWith('abc123');
+        expect(mockRoomService.endRoom).toHaveBeenCalledWith('abc123', 'teach1');
     });
 
     it('POST /livequizzes/rooms/:code/generate-questions - generate questions from YouTube URL', async () => {
