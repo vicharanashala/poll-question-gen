@@ -35,6 +35,7 @@ import MyPolls from '@/pages/student/MyPolls'
 import RoleSelectionPage from '@/pages/roleselect'
 import CohostInvite from '@/pages/teacher/CohostInvite'
 import Badges from '@/pages/student/Badges'
+import AdvancedDashboard from '@/pages/student/AdvancedDashboard'
 
 // Root route with error and notFound handling
 const rootRoute = createRootRoute({
@@ -263,7 +264,7 @@ const teacherSettingsRoute = createRoute({
 const studentDashboardRoute = createRoute({
   getParentRoute: () => studentLayoutRoute,
   path: '/home',
-  component: StudentDashboard,
+  component: AdvancedDashboard,
 });
 
 // Student profile route
