@@ -1,4 +1,4 @@
-import { auth, provider } from '../firebase';
+import { auth, provider, createBackendUser } from '../firebase';
 import {
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -32,6 +32,7 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
     while (attempts < maxAttempts && !backendUser) {
       attempts++;
       const res = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}`, {
+        cache: 'no-cache', // Force browser to skip disk cache after role changes
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -41,55 +42,16 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
       if (res.ok) {
         backendUser = await res.json();
         console.log(`Fetched backend user on attempt ${attempts}:`, backendUser);
-      } else if (res.status === 404 && attempts < maxAttempts) {
-        console.warn(`User not found (attempt ${attempts}). Waiting 5 seconds before retry...`);
-        await delay(5000);
-
-        //   // Create user in backend MongoDB with selected role
-        //   const newUser = {
-        //     firebaseUID: firebaseUser.uid,
-        //     firstName: firebaseUser.displayName?.split(' ')[0] || '',
-        //     lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
-        //     email: firebaseUser.email || '',
-        //     avatar: firebaseUser.photoURL || null,
-        //     role: selectedRole, // ✅ Use the selected role from UI
-
-        //     // Additional profile fields
-        //     phoneNumber: null,
-        //     bio: null,
-        //     institution: null,
-        //     designation: null,
-        //     address: null,
-        //     emergencyContact: null,
-        //     dateOfBirth: null,
-
-        //     createdAt: new Date().toISOString(),
-        //     updatedAt: new Date().toISOString(),
-        //   };
-
-        //   const createRes = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}/profile`, {
-        //     method: 'POST',
-        //     headers: {
-        //       Authorization: `Bearer ${token}`,
-        //       'Content-Type': 'application/json'
-        //     },
-        //     body: JSON.stringify(newUser),
-        //   });
-
-        //   console.log(firebaseUser);
-        //   if (!firebaseUser.uid) {
-        //     console.error('Firebase user UID is missing!');
-        //     throw new Error('Firebase UID missing, cannot create user');
-        //   }
-
-        //   if (createRes.ok) {
-        //     backendUser = await createRes.json();
-        //     console.log('Successfully created backend user:', backendUser);
-        //   } else {
-        //     const errorText = await createRes.text();
-        //     console.error('Failed to create backend user:', errorText);
-        //     throw new Error(`Failed to create user: ${errorText}`);
-        //   }
+      } else if (res.status === 404) {
+        console.warn(`User not found in backend. Creating user now...`);
+        try {
+          backendUser = await createBackendUser(firebaseUser);
+          console.log('Successfully created backend user:', backendUser);
+          break; // Exit the retry loop
+        } catch (e) {
+          console.error('Failed to auto-create backend user:', e);
+          throw new Error('Failed to auto-create user');
+        }
       } else {
         const errorText = await res.text();
         console.error('Failed to fetch backend user:', errorText);

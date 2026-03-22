@@ -27,6 +27,9 @@ class User implements IUser {
   @Expose()
   role: string;
 
+  @Expose()
+  avatar: string | null;
+
   constructor(data: Partial<IUser>) {
     this._id = data._id ? new ObjectId(data._id) : null;
     this.firebaseUID = data.firebaseUID;
@@ -34,6 +37,7 @@ class User implements IUser {
     this.firstName = data.firstName;
     this.lastName = data.lastName;
     this.role = data.role || '';
+    this.avatar = data.avatar || null;
   }
 }
 

@@ -3,9 +3,10 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { User, AtSign, BadgeCheck, Edit2, Save, Calendar, UserCheck, BookOpen, Phone, MapPin, AlertCircle } from "lucide-react";
+import { User, AtSign, BadgeCheck, Edit2, Save, Calendar, UserCheck, BookOpen, Phone, MapPin, AlertCircle, RefreshCw, Camera } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { IUser } from "@/lib/store/auth-store";
+import { updateUserRole } from "@/lib/firebase";
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
@@ -18,6 +19,7 @@ const apiCall = async (endpoint: string, options: RequestInit = {}) => {
   };
 
   const response = await fetch(`${API_URL}${endpoint}`, {
+    cache: 'no-cache',
     ...options,
     headers,
   });
@@ -64,12 +66,13 @@ export const apiService = {
 };
 
 export default function StudentProfile() {
-  const { user: authUser } = useAuthStore();
+  const { user: authUser, setUser: setAuthUser, setUserRole } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<IUser | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
 
   // Form data state
   const [formData, setFormData] = useState({
@@ -82,6 +85,7 @@ export default function StudentProfile() {
     institution: "",
     designation: "",
     bio: "",
+    avatar: "",
   });
 
   // Load user profile data
@@ -106,6 +110,7 @@ export default function StudentProfile() {
           institution: profile.institution || "",
           designation: profile.designation || "",
           bio: profile.bio || "",
+          avatar: profile.avatar || "",
         });
       } catch (e: any) {
         setError(e?.response?.data?.message || e?.message || "Failed to load profile");
@@ -139,6 +144,7 @@ export default function StudentProfile() {
         institution: formData.institution || null,
         designation: formData.designation || null,
         bio: formData.bio || null,
+        avatar: formData.avatar || undefined,
       };
 
       const updated = await apiService.updateUserProfile(user.userId, updateData);
@@ -155,7 +161,18 @@ export default function StudentProfile() {
         institution: updated.institution,
         designation: updated.designation,
         bio: updated.bio,
+        avatar: updated.avatar,
       } : null);
+
+      if (authUser) {
+        setAuthUser({
+          ...authUser,
+          firstName: updated.firstName,
+          lastName: updated.lastName,
+          name: `${updated.firstName} ${updated.lastName}`,
+          avatar: updated.avatar,
+        });
+      }
 
       setIsEditing(false);
       setError(null);
@@ -178,9 +195,25 @@ export default function StudentProfile() {
         institution: user.institution || "",
         designation: user.designation || "",
         bio: user.bio || "",
+        avatar: user.avatar || "",
       });
     }
     setIsEditing(false);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError("Image size should be less than 5MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, avatar: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const calculateAge = (dob: string) => {
@@ -193,6 +226,20 @@ export default function StudentProfile() {
       age--;
     }
     return age;
+  };
+
+  const handleSwitchRole = async () => {
+    if (!authUser?.uid) return;
+    try {
+      setSwitchingRole(true);
+      await updateUserRole(authUser.uid, 'teacher');
+      setAuthUser({ ...authUser, role: 'teacher' });
+      setUserRole('teacher');
+      window.location.href = '/teacher';
+    } catch (e: any) {
+      setError("Failed to switch role");
+      setSwitchingRole(false);
+    }
   };
 
   // Loading state
@@ -239,14 +286,29 @@ export default function StudentProfile() {
           <CardHeader className="flex flex-col items-center gap-3 sm:gap-4 pb-4 sm:pb-6 w-full p-4 sm:p-8">
             <div className="flex justify-end w-full">
               {!isEditing ? (
-                <Button
-                  variant="outline"
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-sm sm:text-base"
-                >
-                  <Edit2 className="h-4 w-4" />
-                  Edit Profile
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={handleSwitchRole}
+                    disabled={switchingRole}
+                    className="flex items-center gap-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-yellow-500 dark:text-black dark:hover:bg-yellow-400 border-indigo-200 dark:border-yellow-500 px-3 sm:px-4 py-1.5 sm:py-2 text-sm sm:text-base"
+                  >
+                    {switchingRole ? (
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-700 dark:border-black"></div>
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Switch to Teacher
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-sm sm:text-base"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    Edit Profile
+                  </Button>
+                </div>
               ) : (
                 <div className="flex gap-2">
                   <Button
@@ -278,12 +340,20 @@ export default function StudentProfile() {
               )}
             </div>
 
-            <Avatar className="h-20 w-20 sm:h-32 sm:w-32 mb-3 sm:mb-4 ring-4 ring-primary/30 shadow-lg">
-              <AvatarImage src={user.avatar || undefined} alt={displayName} />
-              <AvatarFallback className="rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900 dark:to-indigo-900">
-                <User className="h-10 w-10 sm:h-16 sm:w-16 text-blue-600 dark:text-blue-300" />
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative group mx-auto mb-3 sm:mb-4">
+              <Avatar className="h-20 w-20 sm:h-32 sm:w-32 ring-4 ring-primary/30 shadow-lg">
+                <AvatarImage src={(isEditing ? formData.avatar : user.avatar) || undefined} alt={displayName} />
+                <AvatarFallback className="rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900 dark:to-indigo-900">
+                  <User className="h-10 w-10 sm:h-16 sm:w-16 text-blue-600 dark:text-blue-300" />
+                </AvatarFallback>
+              </Avatar>
+              {isEditing && (
+                <label className="absolute bottom-0 right-0 md:bottom-2 md:right-2 w-8 h-8 md:w-10 md:h-10 bg-blue-600 rounded-full flex items-center justify-center cursor-pointer shadow-md hover:bg-blue-700 transition-colors border-2 border-white dark:border-slate-800 z-10">
+                  <Camera className="w-4 h-4 md:w-5 md:h-5 text-white" />
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                </label>
+              )}
+            </div>
 
             <div className="text-center">
               <CardTitle className="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100 flex items-center justify-center gap-2 sm:gap-3 mb-1 sm:mb-2">
