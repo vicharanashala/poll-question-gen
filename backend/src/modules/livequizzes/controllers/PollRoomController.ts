@@ -33,9 +33,10 @@ import mime from 'mime-types';
 import * as fsp from 'fs/promises';
 import { CreateInMemoryPollDto, InMemoryPollResponse, InMemoryPollResult, SubmitInMemoryAnswerDto } from '../validators/LivepollValidator.js';
 import { validate } from 'class-validator';
+import { appConfig } from '../../../config/app.js';
 
 dotenv.config();
-const appOrigins = process.env.APP_ORIGINS;
+const appPublicUrl = appConfig.publicUrl.replace(/\/+$/, '');
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -65,7 +66,7 @@ export class PollRoomController {
     const room = await this.roomService.createRoom(body.name, body.teacherId);
     return {
       ...room,
-      inviteLink: `${appOrigins}/student/pollroom/${room.roomCode}`,
+      inviteLink: `${appPublicUrl}/student/pollroom/${room.roomCode}`,
     };
   }
 

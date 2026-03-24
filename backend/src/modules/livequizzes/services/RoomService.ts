@@ -7,6 +7,7 @@ import { HttpError, NotFoundError } from 'routing-controllers';
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
+import { appConfig } from '../../../config/app.js';
 
 @injectable()
 export class RoomService {
@@ -421,7 +422,8 @@ export class RoomService {
 
     await room.save();
 
-    return `${process.env.APP_ORIGINS}/teacher/cohost-invite/${token}`
+    const inviteBaseUrl = appConfig.publicUrl.replace(/\/+$/, '');
+    return `${inviteBaseUrl}/teacher/cohost-invite/${token}`
 
   }
 
@@ -842,4 +844,5 @@ export class RoomService {
     if (!room) return false;
 
     return room.mutedStudents.some(m => m.studentId === studentId);
-  }
+  } 
+}

@@ -5,9 +5,10 @@ import { UserService } from '#root/modules/users/services/UserService.js';
 import { getFromContainer, NotFoundError } from 'routing-controllers';
 import { UserRepository } from '#root/shared/index.js';
 import { Room } from '#root/shared/database/models/Room.js';
+import { appConfig } from '../../../config/app.js';
 
 dotenv.config();
-const appOrigins = process.env.APP_ORIGINS;
+const appOrigins = appConfig.origins;
 
 class PollSocket {
   private io: Server | null = null;
