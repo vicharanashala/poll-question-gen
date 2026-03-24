@@ -17,6 +17,12 @@ export interface Poll {
   lockedActiveUsers?: string[];
   createdAt: Date;
   answers: PollAnswer[];
+  // PHASE 2: Question Approval Workflow
+  approvalStatus?: 'approved' | 'pending' | 'rejected';
+  approvedBy?: string;
+  requestedBy?: string;
+  rejectionReason?: string;
+  approvedAt?: Date;
 }
 
 export interface Room {

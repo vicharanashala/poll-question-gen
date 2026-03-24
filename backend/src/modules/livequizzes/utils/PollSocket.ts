@@ -211,6 +211,20 @@ class PollSocket {
     }
     this.io.emit(event, data);
   }
+
+  // PHASE 2 & 3: Emit to specific user/socket
+  emitToSocket(userId: string, event: string, data: any) {
+    if (!this.io) {
+      console.error('Socket.IO not initialized');
+      return;
+    }
+    // Find socket IDs for this userId and emit to them
+    this.io.sockets.sockets.forEach((socket) => {
+      if (socket.data.userId === userId) {
+        socket.emit(event, data);
+      }
+    });
+  }
 }
 const userService = getFromContainer(UserService)
 export const pollSocket = new PollSocket(new RoomService(), new UserRepository()

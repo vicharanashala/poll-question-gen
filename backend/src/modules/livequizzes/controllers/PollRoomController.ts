@@ -351,6 +351,58 @@ export class PollRoomController {
     return { success: true, ...resp };
   }
 
+  // PHASE 2: Question Approval Endpoints
+  @Patch('/:code/question-approval-setting')
+  async toggleQuestionApprovalSetting(
+    @Param('code') roomCode: string,
+    @Body() body: { userId: string; required: boolean }
+  ) {
+    const resp = await this.roomService.toggleQuestionApprovalSetting(roomCode, body.userId, body.required);
+    return { success: true, ...resp };
+  }
+
+  @Get('/:code/questions/pending')
+  async getPendingQuestions(@Param('code') roomCode: string) {
+    const resp = await this.roomService.getPendingQuestions(roomCode);
+    return { success: true, pendingQuestions: resp };
+  }
+
+  @Patch('/:code/questions/:pollId/approve')
+  async approvePoll(
+    @Param('code') roomCode: string,
+    @Param('pollId') pollId: string,
+    @Body() body: { userId: string }
+  ) {
+    const resp = await this.pollService.approvePoll(roomCode, pollId, body.userId);
+    return { success: true, ...resp };
+  }
+
+  @Patch('/:code/questions/:pollId/reject')
+  async rejectPoll(
+    @Param('code') roomCode: string,
+    @Param('pollId') pollId: string,
+    @Body() body: { userId: string; reason?: string }
+  ) {
+    const resp = await this.pollService.rejectPoll(roomCode, pollId, body.userId, body.reason);
+    return { success: true, ...resp };
+  }
+
+  // PHASE 3: Student Moderation Endpoints
+  @Patch('/:code/students/:studentId/mute')
+  async toggleStudentMute(
+    @Param('code') roomCode: string,
+    @Param('studentId') studentId: string,
+    @Body() body: { userId: string; isMuted: boolean }
+  ) {
+    let resp;
+    if (body.isMuted) {
+      resp = await this.roomService.muteStudent(roomCode, studentId, body.userId);
+    } else {
+      resp = await this.roomService.unmuteStudent(roomCode, studentId, body.userId);
+    }
+    return { success: true, ...resp };
+  }
+
   //get achievement details
 
   @Get('/achievement/:userId')
