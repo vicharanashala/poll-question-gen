@@ -93,6 +93,11 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Chrome DevTools probes this endpoint on each origin; returning 204 avoids noisy 404/CSP console warnings.
+app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+  res.status(204).end();
+});
+
 if (NODE_ENV === 'production' || NODE_ENV === 'staging') {
   console.log('Setting up Sentry error handling - test for production and staging environment');
   setupSentryErrorHandling(app);
