@@ -23,9 +23,11 @@ interface Room {
     roomCode: string;
     name: string;
     createdAt: string;
+    endedAt?: string;
     status: 'active' | 'ended';
     teacherId: string;
     coHosts?: Cohost[];
+    totalStudents?: number;
     polls: {
         _id: string;
         question: string;
@@ -42,6 +44,12 @@ export default function ManageRoom() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [endingRoom, setEndingRoom] = useState<string | null>(null);
+    const [currentTime, setCurrentTime] = useState(Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(Date.now()), 60000);
+        return () => clearInterval(timer);
+    }, []);
 
     useEffect(() => {
         const fetchRooms = async () => {
@@ -88,21 +96,17 @@ export default function ManageRoom() {
     };
 
     const calculateParticipants = (room: Room) => {
-        const uniqueParticipants = new Set();
-        room.polls.forEach(poll => {
-            poll.answers.forEach(answer => {
-                uniqueParticipants.add(answer.userId);
-            });
-        });
-        return uniqueParticipants.size;
+        return room.totalStudents || 0;
     };
 
     const calculateDuration = (room: Room) => {
-        // This is a placeholder calculation since we don't have duration data
-        // You might want to store actual session duration in your backend
-        const pollCount = room.polls.length;
-        const estimatedDuration = pollCount * 2; // Estimate 2 minutes per poll
-        return `~${estimatedDuration} mins`;
+        const start = new Date(room.createdAt).getTime();
+        const end = room.status === 'ended' && room.endedAt
+            ? new Date(room.endedAt).getTime()
+            : currentTime;
+        const diffMs = Math.max(0, end - start);
+        const diffMins = Math.ceil(diffMs / 60000);
+        return `${Math.max(1, diffMins)} mins`;
     };
 
     /* const getStatusColor = (status: string) => {

@@ -25,6 +25,7 @@ export interface RoomPreview {
   roomCode: string;
   totalPolls?: number;         // present in recentRooms
   totalResponses?: number;     // now present in both recentRooms & activeRooms
+  totalStudents?: number;
   status?: 'active' | 'ended'; // optional, present in recentRooms
   createdAt: string;           // ISO date string
 }
@@ -138,16 +139,16 @@ export default function TeacherDashboard() {
     });
   };
 
- /* const getStatusColor = (status: 'active' | 'ended' | undefined): string => {
-    switch (status) {
-      case 'active':
-        return 'bg-green-500';
-      case 'ended':
-        return 'bg-red-500';
-      default:
-        return 'bg-gray-500';
-    }
-  };*/
+  /* const getStatusColor = (status: 'active' | 'ended' | undefined): string => {
+     switch (status) {
+       case 'active':
+         return 'bg-green-500';
+       case 'ended':
+         return 'bg-red-500';
+       default:
+         return 'bg-gray-500';
+     }
+   };*/
 
   return (
     <div className="w-full">

@@ -34,7 +34,7 @@ class PollSocket {
       socket.on('join-room', async (roomCode: string, email: string) => {
         try {
           const isActive = await this.roomService.isRoomValid(roomCode);
-          if (email) {
+          if (typeof email === 'string' && email.trim() !== '') {
             const user = await this.userRepo.findByEmail(email)
             console.log('user:', user)
             const userId = user?._id;
@@ -43,7 +43,7 @@ class PollSocket {
           }
           if (isActive) {
             socket.join(roomCode);
-            socket.data.email =email
+            socket.data.email = email
             if (!this.activeConnections.has(socket.id)) {
               this.activeConnections.set(socket.id, []);
             }
@@ -57,7 +57,7 @@ class PollSocket {
             const room = await this.roomService.getRoomByCode(roomCode)
             // socket.emit('room-data',room)
             this.emitToRoom(roomCode, 'room-updated', room)
-            console.log('room:',room)
+            console.log('room:', room)
             console.log(`Socket ${socket.id} joined active room: ${roomCode}`);
             console.log(`Active connections: ${this.activeConnections.size}`);
           } else {
@@ -151,50 +151,50 @@ class PollSocket {
       socket.on('update-room-control', ({ roomCode, mode }) => {
         try {
           console.log(`Room ${roomCode} control updated to: ${mode} by socket ${socket.id}`);
-          
+
           socket.to(roomCode).emit('room-control-updated', { mode });
         } catch (err) {
           console.error("update-room-control error", err);
         }
       });
 
-      socket.on('cohost-leave',async (roomCode:string,cohostId:string) => {
+      socket.on('cohost-leave', async (roomCode: string, cohostId: string) => {
         const room = await Room.findOne({ roomCode });
         const teacherId = room.teacherId
-            if (!room) {
-              throw new NotFoundError("Room is not found")
-            }
-            room.coHosts.forEach(c => {
-              if (c.userId === cohostId) {
-                c.isActive = false;
-              }
-            });
-            await room.save();
-            // Get updated cohost list
-            const activeCohosts = await this.roomService.getRoomCohosts(teacherId, roomCode);
-            this.emitToRoom(roomCode, 'cohost-left', {
-              removedUserId: cohostId,
-              activeCohosts: activeCohosts
-            });
+        if (!room) {
+          throw new NotFoundError("Room is not found")
+        }
+        room.coHosts.forEach(c => {
+          if (c.userId === cohostId) {
+            c.isActive = false;
+          }
+        });
+        await room.save();
+        // Get updated cohost list
+        const activeCohosts = await this.roomService.getRoomCohosts(teacherId, roomCode);
+        this.emitToRoom(roomCode, 'cohost-left', {
+          removedUserId: cohostId,
+          activeCohosts: activeCohosts
+        });
       })
 
-socket.on('disconnect', () => {
-  const rooms = this.activeConnections.get(socket.id) || [];
-  const firebaseUID = socket.data.userId;
-  for (const roomCode of rooms) {
-    if (firebaseUID) {
-      this.activeUsersPerRoom.get(roomCode)?.delete(firebaseUID);
-    }
-  }
-  this.activeConnections.delete(socket.id);
-  console.log(`Socket ${socket.id} disconnected. Active connections: ${this.activeConnections.size}`);
-});
+      socket.on('disconnect', () => {
+        const rooms = this.activeConnections.get(socket.id) || [];
+        const firebaseUID = socket.data.userId;
+        for (const roomCode of rooms) {
+          if (firebaseUID) {
+            this.activeUsersPerRoom.get(roomCode)?.delete(firebaseUID);
+          }
+        }
+        this.activeConnections.delete(socket.id);
+        console.log(`Socket ${socket.id} disconnected. Active connections: ${this.activeConnections.size}`);
+      });
     });
   }
 
-getActiveUsersInRoom(roomCode: string): string[] {
-  return Array.from(this.activeUsersPerRoom.get(roomCode) ?? []);
-}
+  getActiveUsersInRoom(roomCode: string): string[] {
+    return Array.from(this.activeUsersPerRoom.get(roomCode) ?? []);
+  }
 
   emitToRoom(roomCode: string, event: string, data: any) {
     if (this.io) {

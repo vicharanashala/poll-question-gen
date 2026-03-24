@@ -26,11 +26,12 @@ export class RoomService {
       polls: []
     }).save();
 
-    return newRoom.toObject();  // return plain object
+    return this.mapRoom(newRoom.toObject());  // return plain object
   }
 
   async getRoomByCode(code: string): Promise<RoomType | null> {
-    return await Room.findOne({ roomCode: code }).populate('students', 'firstName email').lean()
+    const room = await Room.findOne({ roomCode: code }).populate('students', 'firstName email').lean();
+    return room ? this.mapRoom(room) : null;
   }
 
   async getRoomsByTeacher(teacherId: string, status?: 'active' | 'ended'): Promise<RoomType[]> {
@@ -38,7 +39,8 @@ export class RoomService {
     if (status) {
       query.status = status;
     }
-    return await Room.find(query).sort({ createdAt: -1 }).lean();
+    const rooms = await Room.find(query).sort({ createdAt: -1 }).lean();
+    return rooms.map(room => this.mapRoom(room));
   }
 
   async getUsersByIds(userIds: string[]) {
@@ -61,10 +63,27 @@ export class RoomService {
       timeTaken: number;
     }>();
 
+    // 1.1️⃣ Initialize map with all enrolled students (fetching their Firebase UIDs)
+    if (room.students && room.students.length > 0) {
+      const enrolledUsers = await this.userModel.find({ _id: { $in: room.students } }, 'firebaseUID').lean();
+      for (const user of enrolledUsers) {
+        if (user.firebaseUID) {
+          participantsMap.set(user.firebaseUID, {
+            userId: user.firebaseUID,
+            correct: 0,
+            wrong: 0,
+            score: 0,
+            timeTaken: 0,
+          });
+        }
+      }
+    }
+
     // 2️⃣ Process each poll and answers
     for (const poll of room.polls) {
       for (const answer of poll.answers) {
         if (!participantsMap.has(answer.userId)) {
+          // This case might still happen if a student answered but isn't in 'students' (unlikely but safe)
           participantsMap.set(answer.userId, {
             userId: answer.userId,
             correct: 0,
@@ -144,7 +163,8 @@ export class RoomService {
   }
 
   async getRoomsByTeacherAndStatus(teacherId: string, status: 'active' | 'ended'): Promise<RoomType[]> {
-    return await Room.find({ teacherId, status }).lean();
+    const rooms = await Room.find({ teacherId, status }).lean();
+    return rooms.map(room => this.mapRoom(room));
   }
 
   async isRoomValid(code: string): Promise<boolean> {
@@ -158,7 +178,7 @@ export class RoomService {
   }
 
   async endRoom(code: string, teacherId: string): Promise<boolean> {
-    const updated = await Room.findOneAndUpdate({ roomCode: code, teacherId }, { status: 'ended' }, { new: true }).lean();
+    const updated = await Room.findOneAndUpdate({ roomCode: code, teacherId }, { status: 'ended', endedAt: new Date() }, { new: true }).lean();
     pollSocket?.emitToRoom(code, 'room-ended', {
       message: 'Room has ended'
     });
@@ -171,15 +191,18 @@ export class RoomService {
   }
 
   async getAllRooms(): Promise<RoomType[]> {
-    return await Room.find().lean();
+    const rooms = await Room.find().lean();
+    return rooms.map(room => this.mapRoom(room));
   }
 
   async getActiveRooms(): Promise<RoomType[]> {
-    return await Room.find({ status: 'active' }).lean();
+    const rooms = await Room.find({ status: 'active' }).lean();
+    return rooms.map(room => this.mapRoom(room));
   }
 
   async getEndedRooms(): Promise<RoomType[]> {
-    return await Room.find({ status: 'ended' }).lean();
+    const rooms = await Room.find({ status: 'ended' }).lean();
+    return rooms.map(room => this.mapRoom(room));
   }
   /**
    * Map Mongoose Room Document to plain RoomType matching interface
@@ -190,7 +213,11 @@ export class RoomService {
       name: roomDoc.name,
       teacherId: roomDoc.teacherId,
       createdAt: roomDoc.createdAt,
+      endedAt: roomDoc.endedAt,
       status: roomDoc.status,
+      // Safely handle populated objects (s._id) or raw strings
+      totalStudents: new Set(roomDoc.students?.map((s: any) => s._id ? s._id.toString() : s.toString()) || []).size,
+      coHosts: roomDoc.coHosts,
       controls: roomDoc.controls || { micBlocked: false, pollRestricted: false },
       polls: (roomDoc.polls || []).map((p: any): Poll => ({
         _id: p._id.toString(),  // convert ObjectId to string if needed
@@ -227,6 +254,7 @@ export class RoomService {
 
 
   async unEnrollStudent(userId: string, roomCode: string) {
+    if (!userId) return;
     const room = await Room.findOne({ roomCode })
     if (!room) {
       throw new NotFoundError("Room is not found")
@@ -457,7 +485,6 @@ export class RoomService {
     const rooms = await Room.aggregate([
       {
         $match: {
-          status: "active",
           coHosts: {
             $elemMatch: {
               userId: userId,
@@ -491,6 +518,15 @@ export class RoomService {
         $unwind: {
           path: "$teacher",
           preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $addFields: {
+          totalStudents: {
+            $size: {
+              $setUnion: [{ $ifNull: ["$students", []] }, []]
+            }
+          }
         }
       },
       {
