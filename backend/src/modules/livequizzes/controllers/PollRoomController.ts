@@ -22,6 +22,7 @@ import { PollService } from '../services/PollService.js';
 import { LIVE_QUIZ_TYPES } from '../types.js';
 //import { TranscriptionService } from '#root/modules/genai/services/TranscriptionService.js';
 import { AIContentService } from '#root/modules/genai/services/AIContentService.js';
+import { RAGAIContentService } from '#root/modules/genai/services/RAGAIContentService.js';
 import { VideoService } from '#root/modules/genai/services/VideoService.js';
 import { AudioService } from '#root/modules/genai/services/AudioService.js';
 import { CleanupService } from '#root/modules/genai/services/CleanupService.js';
@@ -54,6 +55,7 @@ export class PollRoomController {
     @inject(LIVE_QUIZ_TYPES.AudioService) private audioService: AudioService,
     //@inject(LIVE_QUIZ_TYPES.TranscriptionService) private transcriptionService: TranscriptionService,
     @inject(LIVE_QUIZ_TYPES.AIContentService) private aiContentService: AIContentService,
+    @inject(LIVE_QUIZ_TYPES.RAGAIContentService) private ragAiContentService: RAGAIContentService,
     @inject(LIVE_QUIZ_TYPES.CleanupService) private cleanupService: CleanupService,
     @inject(LIVE_QUIZ_TYPES.RoomService) private roomService: RoomService,
     @inject(LIVE_QUIZ_TYPES.PollService) private pollService: PollService,
@@ -195,7 +197,7 @@ export class PollRoomController {
 
   // 🔹 AI Question Generation from transcript or YouTube
   //@Authorized(['teacher'])
-  @Post('/:code/generate-questions')
+  /*@Post('/:code/generate-questions')
   @HttpCode(200)
   async generateQuestionsFromTranscript(
     @Req() req: Request,
@@ -261,7 +263,91 @@ export class PollRoomController {
     } finally {
       await this.cleanupService.cleanup(tempPaths);
     }
+  }*/
+
+  @Post('/:code/generate-questions')
+  @HttpCode(200)
+  async generateQuestionsFromTranscript(
+    @Req() req: Request,
+    @Res() res: Response
+  ) {
+    const tempPaths: string[] = [];
+
+    await new Promise<void>((resolve, reject) => {
+      upload.single('file')(req, res, (err) => (err ? reject(err) : resolve()));
+    });
+
+    try {
+      const { transcript, questionSpec, model, questionCount } = req.body;
+
+      if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
+        return res.status(400).json({ message: 'Transcript is required and must be a non-empty string.' });
+      }
+
+      const SEGMENTATION_THRESHOLD = parseInt(
+        process.env.TRANSCRIPT_SEGMENTATION_THRESHOLD || '6000',
+        10
+      );
+
+      const defaultModel = 'llama3.1';
+      const selectedModel = model?.trim() || defaultModel;
+
+      // Parse questionCount with default value
+      const numQuestions = questionCount ? parseInt(questionCount, 10) : 2;
+
+      let segments: Record<string, string>;
+
+      if (transcript.length <= SEGMENTATION_THRESHOLD) {
+        console.log('[generateQuestions] Small transcript detected. Using full transcript without segmentation.');
+        console.log('Transcript:', transcript);
+        segments = { full: transcript };
+      } else {
+        console.log('[generateQuestions] Transcript is long; running segmentation...');
+        segments = await this.aiContentService.segmentTranscript(transcript, selectedModel);
+      }
+
+      // ✅ Safe default questionSpec with custom count
+      let safeSpec: QuestionSpec[] = [{ SOL: numQuestions }];
+
+      if (questionSpec && typeof questionSpec === 'object' && !Array.isArray(questionSpec)) {
+        safeSpec = [questionSpec];
+      } else if (Array.isArray(questionSpec) && typeof questionSpec[0] === 'object') {
+        safeSpec = questionSpec;
+      } else {
+        console.warn(`Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`);
+      }
+
+      console.log('Using questionSpec:', safeSpec);
+      console.log('[generateQuestions] Transcript length:', transcript.length);
+      console.log('[generateQuestions] Transcript preview:', segments);
+      console.log('[generateQuestions] Number of questions to generate:', numQuestions);
+      console.log('[generateQuestions] Selected model:', selectedModel);
+
+      // ✅ Call RAG service
+      const generatedQuestions = await this.ragAiContentService.generateQuestions({
+        segments,
+        globalQuestionSpecification: safeSpec,
+        model: selectedModel,
+      });
+
+      return res.json({
+        message: 'Questions generated successfully from transcript.',
+        transcriptPreview: transcript.substring(0, 200) + '...',
+        segmentsCount: Object.keys(segments).length,
+        totalQuestions: generatedQuestions.length,
+        requestedQuestions: numQuestions,
+        questions: generatedQuestions,
+      });
+    } catch (err: any) {
+      console.error('Error generating questions:', err);
+      return res.status(err.status || 500).json({
+        message: err.message || 'Internal Server Error',
+      });
+    } finally {
+      await this.cleanupService.cleanup(tempPaths);
+    }
   }
+  
 
   // Recording lock endpoints
   @Post('/:code/recording/start')
