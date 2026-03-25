@@ -281,7 +281,9 @@ export class PollRoomController {
       const { transcript, questionSpec, model, questionCount } = req.body;
 
       if (!transcript || typeof transcript !== 'string' || !transcript.trim()) {
-        return res.status(400).json({ message: 'Transcript is required and must be a non-empty string.' });
+        return res.status(400).json({
+          message: 'Transcript is required and must be a non-empty string.',
+        });
       }
 
       const SEGMENTATION_THRESHOLD = parseInt(
@@ -295,35 +297,101 @@ export class PollRoomController {
       // Parse questionCount with default value
       const numQuestions = questionCount ? parseInt(questionCount, 10) : 2;
 
+      // -----------------------------
+      // Local transcript segmentation
+      // -----------------------------
+      const segmentTranscriptLocally = (
+        text: string,
+        chunkSize = SEGMENTATION_THRESHOLD
+      ): Record<string, string> => {
+        const cleaned = text.trim();
+
+        if (cleaned.length <= chunkSize) {
+          return { full: cleaned };
+        }
+
+        const segments: Record<string, string> = {};
+        let index = 0;
+        let start = 0;
+
+        while (start < cleaned.length) {
+          let end = start + chunkSize;
+
+          // Try to break at a sentence boundary or whitespace
+          if (end < cleaned.length) {
+            const lastPeriod = cleaned.lastIndexOf('.', end);
+            const lastNewline = cleaned.lastIndexOf('\n', end);
+            const lastSpace = cleaned.lastIndexOf(' ', end);
+
+            const bestBreak = Math.max(lastPeriod, lastNewline, lastSpace);
+
+            if (bestBreak > start) {
+              end = bestBreak + 1;
+            }
+          }
+
+          const chunk = cleaned.slice(start, end).trim();
+
+          if (chunk) {
+            segments[`segment_${index + 1}`] = chunk;
+            index++;
+          }
+
+          start = end;
+        }
+
+        return segments;
+      };
+
       let segments: Record<string, string>;
 
       if (transcript.length <= SEGMENTATION_THRESHOLD) {
-        console.log('[generateQuestions] Small transcript detected. Using full transcript without segmentation.');
-        console.log('Transcript:', transcript);
-        segments = { full: transcript };
+        console.log(
+          '[generateQuestions] Small transcript detected. Using full transcript without segmentation.'
+        );
+        segments = { full: transcript.trim() };
       } else {
-        console.log('[generateQuestions] Transcript is long; running segmentation...');
-        segments = await this.aiContentService.segmentTranscript(transcript, selectedModel);
+        console.log(
+          '[generateQuestions] Transcript is long; using local segmentation...'
+        );
+        segments = segmentTranscriptLocally(transcript, SEGMENTATION_THRESHOLD);
       }
 
-      // ✅ Safe default questionSpec with custom count
+      // -----------------------------
+      // Safe default questionSpec
+      // -----------------------------
       let safeSpec: QuestionSpec[] = [{ SOL: numQuestions }];
 
-      if (questionSpec && typeof questionSpec === 'object' && !Array.isArray(questionSpec)) {
+      if (
+        questionSpec &&
+        typeof questionSpec === 'object' &&
+        !Array.isArray(questionSpec)
+      ) {
         safeSpec = [questionSpec];
-      } else if (Array.isArray(questionSpec) && typeof questionSpec[0] === 'object') {
+      } else if (
+        Array.isArray(questionSpec) &&
+        questionSpec.length > 0 &&
+        typeof questionSpec[0] === 'object'
+      ) {
         safeSpec = questionSpec;
       } else {
-        console.warn(`Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`);
+        console.warn(
+          `Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`
+        );
       }
 
       console.log('Using questionSpec:', safeSpec);
       console.log('[generateQuestions] Transcript length:', transcript.length);
-      console.log('[generateQuestions] Transcript preview:', segments);
-      console.log('[generateQuestions] Number of questions to generate:', numQuestions);
+      console.log('[generateQuestions] Segments preview:', segments);
+      console.log(
+        '[generateQuestions] Number of questions to generate:',
+        numQuestions
+      );
       console.log('[generateQuestions] Selected model:', selectedModel);
 
-      // ✅ Call RAG service
+      // -----------------------------
+      // Call RAG service
+      // -----------------------------
       const generatedQuestions = await this.ragAiContentService.generateQuestions({
         segments,
         globalQuestionSpecification: safeSpec,

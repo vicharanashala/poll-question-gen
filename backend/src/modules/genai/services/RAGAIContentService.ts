@@ -133,46 +133,62 @@ export class RAGAIContentService {
   }
 
   private createQuestionPrompt(
-    questionType: string,
-    count: number,
-    transcriptContent: string,
-    retrievedContext: string
-  ): string {
-    return `You are an AI question generator.
+  questionType: string,
+  count: number,
+  transcriptContent: string,
+  retrievedContext: string
+): string {
+  const base = `You are an AI question generator.
 
-Use the following retrieved context to ensure technical accuracy:
-${retrievedContext}
+  Use the following retrieved context to ensure technical accuracy:
+  ${retrievedContext}
 
-Current Transcript Segment:
-${transcriptContent}
+  Based on the transcript below, generate EXACTLY ${count} question(s) of type ${questionType}.
+  For each question:
+  - Provide exactly 4 options only.
+  - Mark the correct option.
 
-Generate EXACTLY ${count} ${questionType} questions based on the content.
+  IMPORTANT: Generate exactly ${count} questions, no more, no less.
 
-IMPORTANT:
-Return ONLY valid JSON.
-Do not include explanations.
-Do not include markdown code fences.
-Do not write introductory text like "Here are the questions".
-The response must start with [ and end with ].
+  You must output JSON **exactly** in this shape, no nesting, no markdown:
+  [
+    {
+      "questionText": "...",
+      "options": [
+        { "text": "...", "correct": true, "explanation": "..." },
+        { "text": "...", "correct": false, "explanation": "..." }
+      ],
+      "solution": "...",
+      "isParameterized": false,
+      "timeLimitSeconds": 60,
+      "points": 5
+    }
+  ]
+  Do not wrap questionText inside another 'question' object. Output must be raw JSON.
 
-Return an ARRAY of OBJECTS only.
+  Important:
+  - Output only JSON, no markdown, no extra text.
+  - Each question must have at least 4 options.
+  - Only one option can have "correct": true for SOL.
+  - Fill all fields.
+  - questionText must be clear and relevant to transcript.
+  - explanation field must explain why the option is correct/incorrect.
+  - Generate EXACTLY ${count} questions.
 
-Each object MUST follow this format:
-[
-  {
-    "questionText": "Your question here",
-    "options": [
-      { "text": "Option 1", "correct": false },
-      { "text": "Option 2", "correct": true },
-      { "text": "Option 3", "correct": false },
-      { "text": "Option 4", "correct": false }
-    ]
-  }
-]
+  Transcript:
+  ${transcriptContent}
 
-Never return an array of plain strings.
-Never return only topic names.
-Every item must be an object with at least "questionText".`;
+  `;
+
+    const instructions: Record<string, string> = {
+      SOL: `Generate ${count} single-correct MCQ with exactly 4 options and only 1 correct option.`,
+      SML: `Generate ${count} multiple-correct MCQ with exactly 4 options and 2-3 correct options.`,
+      OTL: `Generate ${count} ordering questions with options arranged for sequencing.`,
+      NAT: `Generate ${count} numeric answer questions. No MCQ unless explicitly needed.`,
+      DES: `Generate ${count} descriptive questions with a detailed solution field.`,
+    };
+
+    return base + '\n' + (instructions[questionType] || '');
   }
 
   private safeParseQuestions(text: string): any {
