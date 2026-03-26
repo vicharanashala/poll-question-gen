@@ -2,7 +2,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Bar } from "recharts";
 import { useState, useEffect } from "react";
-import { BookOpen, TrendingUp, Calendar, Trophy, Clock, CheckCircle, BarChart2, AlertCircle, ShieldCheck, ArrowRightCircle } from "lucide-react";
+import { BookOpen, TrendingUp, Calendar, Trophy, Clock, CheckCircle, BarChart2, AlertCircle, ShieldCheck, ArrowRightCircle, Target, Award } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useNavigate } from "@tanstack/react-router";
 import api from "@/lib/api/api";
@@ -100,19 +100,19 @@ export default function StudentDashboard() {
   };
 
   const fetchAchievementProgress = async () => {
-      if (!user?.uid) return;
-  
-      try {
-        const res = await api.get(`/students/dashboard/achievement/${user.uid}/progress`);
-        setAchievementProgress({
-          earned: res.data?.earned || 0,
-          total: res.data?.total || 0,
-          percent: res.data?.percent || 0,
-        });
-      } catch (e) {
-        console.error("Failed to load achievement progress:", e);
-      }
-    };
+    if (!user?.uid) return;
+
+    try {
+      const res = await api.get(`/students/dashboard/achievement/${user.uid}/progress`);
+      setAchievementProgress({
+        earned: res.data?.earned || 0,
+        total: res.data?.total || 0,
+        percent: res.data?.percent || 0,
+      });
+    } catch (e) {
+      console.error("Failed to load achievement progress:", e);
+    }
+  };
 
   useEffect(() => {
     if (user?.uid) {
@@ -145,7 +145,7 @@ export default function StudentDashboard() {
         } else {
           setLocalActiveRoom(null);
         }
-        
+
         fetchDashboardData();
       }
     };
@@ -242,75 +242,84 @@ export default function StudentDashboard() {
         {/* Top Row: Welcome Banner and Poll Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Welcome Banner */}
-          <Card className="lg:col-span-2 bg-gradient-to-r from-blue-600 to-blue-800 text-white relative overflow-hidden shadow-lg dark:shadow-2xl border-0">
-            <CardContent className="flex flex-col sm:flex-row items-center justify-between p-4 sm:p-8 min-h-[200px] sm:h-64">
-              {/* Left: Text (50%) */}
-              <div className="w-full sm:w-1/2 flex flex-col justify-center text-center sm:text-left mb-4 sm:mb-0">
-                <h2 className="text-xl sm:text-2xl font-bold mb-2 drop-shadow-sm">
-                  Welcome Back! <span className="capitalize">{user?.firstName || 'Student'}</span>
+          <Card className="lg:col-span-2 bg-gradient-to-r from-blue-600 to-indigo-700 text-white relative overflow-hidden shadow-lg dark:shadow-2xl border-0">
+            {/* Background design elements */}
+            <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-white opacity-10 rounded-full blur-2xl"></div>
+            <div className="absolute bottom-0 right-1/4 -mb-10 w-32 h-32 bg-indigo-400 opacity-20 rounded-full blur-xl"></div>
+
+            <CardContent className="flex flex-col sm:flex-row items-center justify-between p-6 sm:p-8 min-h-[200px] sm:h-64 relative z-10">
+              {/* Left: Text */}
+              <div className="w-full sm:w-1/2 flex flex-col justify-center text-center sm:text-left mb-6 sm:mb-0">
+                <h2 className="text-2xl sm:text-3xl font-extrabold mb-1 drop-shadow-sm tracking-tight text-white/95">
+                  Welcome Back, <span className="capitalize text-white">{user?.firstName || 'Student'}!</span>
                 </h2>
-                <p className="mb-4 text-base sm:text-lg font-semibold opacity-90 drop-shadow-sm">
-                  Your Study, Your Say—Live!
+                <p className="mb-6 text-sm sm:text-base font-medium opacity-80 drop-shadow-sm text-blue-50">
+                  Ready to test your knowledge? Jump into a live room and start learning!
                 </p>
                 <Button
-                  className="bg-white/95 hover:bg-white text-blue-600 font-bold shadow-md w-fit transition-all duration-200 hover:scale-105 mx-auto sm:mx-0"
+                  className="bg-white hover:bg-slate-50 text-blue-700 font-bold shadow-xl border border-transparent hover:border-blue-100 w-fit transition-all duration-300 transform hover:scale-105 mx-auto sm:mx-0 rounded-full px-6 py-5 flex items-center gap-2 group"
                   onClick={() => {
                     navigate({ to: '/student/pollroom' });
                   }}
                   data-tour="join-room-btn"
                 >
                   Join Poll Room
+                  <ArrowRightCircle className="w-5 h-5 text-blue-600 group-hover:translate-x-1 transition-transform" />
                 </Button>
               </div>
-              {/* Right: Image placeholder */}
-              <div className="w-full sm:w-1/2 flex items-center justify-center">
-                <div className="w-32 h-32 sm:w-48 sm:h-48 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm relative overflow-hidden">
-                  <BarChart2 className="w-16 h-16 sm:w-24 sm:h-24 text-white/80" />
+
+              {/* Right: Graphic */}
+              <div className="w-full sm:w-1/2 flex items-center justify-center relative">
+                <div className="absolute w-32 h-32 bg-white/10 rounded-full blur-xl animate-pulse"></div>
+                <div className="w-32 h-32 sm:w-44 sm:h-44 bg-white/10 border border-white/20 rounded-full flex flex-col items-center justify-center backdrop-blur-md relative overflow-hidden transform hover:rotate-6 transition-all duration-500 shadow-2xl">
+                  <BarChart2 className="w-12 h-12 sm:w-16 sm:h-16 text-white drop-shadow-lg mb-2" />
+                  <span className="text-white/80 font-semibold text-sm tracking-wide">YOUR STATS</span>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Poll Stats Summary */}
-          <Card className="flex flex-col justify-between p-4 sm:p-6 shadow-lg dark:shadow-2xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700" data-tour="poll-stats">
-            <CardContent className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BarChart2 className="h-5 w-5 text-blue-600" />
-                  <span className="font-medium text-sm sm:text-base">Total Polls</span>
+          {/* Poll Stats Summary - Restructured to grid blocks */}
+          <div className="flex flex-col h-full space-y-3 sm:space-y-4" data-tour="poll-stats">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 flex-1">
+              {/* Total Polls Widget */}
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center group hover:border-blue-200 dark:hover:border-blue-700 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <BarChart2 className="w-6 h-6" />
                 </div>
-                <span className="font-bold text-lg text-blue-600">{pollStats?.total || 0}</span>
+                <div className="text-3xl font-extrabold text-slate-800 dark:text-slate-100 tracking-tight">{pollStats?.total || 0}</div>
+                <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mt-1">Total Polls</div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-green-500 dark:text-green-400" />
-                  <span className="font-semibold text-gray-700 dark:text-gray-300 text-sm sm:text-base">Polls Taken</span>
+
+              {/* Earned Points Widget */}
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/10 rounded-2xl p-4 shadow-sm border border-amber-100 dark:border-amber-800/30 flex flex-col items-center justify-center text-center group hover:border-amber-200 dark:hover:border-amber-700/50 transition-all">
+                <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Trophy className="w-6 h-6" />
                 </div>
-                <span className="text-blue-600 font-bold text-lg">{pollStats?.taken || 0}</span>
+                <div className="text-3xl font-extrabold text-amber-700 dark:text-amber-500 tracking-tight">{pollStats?.earnedPoints || 0}</div>
+                <div className="text-xs font-semibold text-amber-600/80 dark:text-amber-500/80 uppercase tracking-wider mt-1">Earned Points</div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-red-500 dark:text-red-400" />
-                  <span className="font-semibold text-gray-700 dark:text-gray-300 text-sm sm:text-base">Polls Absent</span>
-                </div>
-                <span className="text-blue-600 font-bold text-lg">{pollStats?.absent || 0}</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 h-24">
+              {/* Mini Stats */}
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-2 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-colors">
+                <CheckCircle className="w-5 h-5 text-emerald-500 mb-1" />
+                <div className="font-bold text-lg text-slate-800 dark:text-slate-100">{pollStats?.taken || 0}</div>
+                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Taken</div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-orange-500 dark:text-orange-400" />
-                  <span className="font-semibold text-gray-700 dark:text-gray-300 text-sm sm:text-base">Polls Unattempted</span>
-                </div>
-                <span className="text-blue-600 font-bold text-lg">{pollStats?.unattempted || 0}</span>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-2 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center hover:bg-rose-50/50 dark:hover:bg-rose-900/10 transition-colors">
+                <Clock className="w-5 h-5 text-rose-500 mb-1" />
+                <div className="font-bold text-lg text-slate-800 dark:text-slate-100">{pollStats?.absent || 0}</div>
+                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Absent</div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Trophy className="h-4 w-4 text-yellow-500 dark:text-yellow-400" />
-                  <span className="font-semibold text-gray-700 dark:text-gray-300 text-sm sm:text-base">Earned Points</span>
-                </div>
-                <span className="text-blue-600 font-bold text-lg">{pollStats?.earnedPoints || 0}</span>
+              <div className="bg-white dark:bg-slate-800 rounded-xl p-2 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center text-center hover:bg-orange-50/50 dark:hover:bg-orange-900/10 transition-colors">
+                <AlertCircle className="w-5 h-5 text-orange-500 mb-1" />
+                <div className="font-bold text-lg text-slate-800 dark:text-slate-100">{pollStats?.unattempted || 0}</div>
+                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Missed</div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {/* Middle Row: Poll Results, Poll Details, Active Polls, Upcoming Polls */}
@@ -331,29 +340,35 @@ export default function StudentDashboard() {
                   .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                   .slice(0, 4)
                   .map((poll, idx) => (
-                  <div
-                    key={`${poll.name}-${idx}`}
-                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-lg bg-blue-50 dark:bg-slate-700/50 border border-blue-100 dark:border-slate-600 hover:bg-blue-100 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    <div className="flex flex-col mb-2 sm:mb-0">
-                      <div className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base">{poll.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        Date: {new Date(poll.date).toLocaleDateString()}
+                    <div
+                      key={`${poll.name}-${idx}`}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 rounded-xl bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-700 hover:shadow-md transition-all group"
+                    >
+                      <div className="flex items-center gap-3 mb-3 sm:mb-0">
+                        <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500 shrink-0 group-hover:scale-110 transition-transform">
+                          <CheckCircle className="w-5 h-5" />
+                        </div>
+                        <div className="flex flex-col">
+                          <div className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base">{poll.name}</div>
+                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                            {new Date(poll.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center px-3 py-1 rounded-md bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-semibold text-sm sm:text-base">
-                          <span className="text-base sm:text-lg">{poll.points}</span>
-                          <span className="mx-1 text-blue-400 dark:text-blue-500">/</span>
-                          <span className="text-xs sm:text-sm opacity-80">{poll.maxPoints}</span>
+                      <div className="flex items-center gap-3 sm:gap-4 pl-12 sm:pl-0">
+                        <div className="flex items-center px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
+                          <span className="text-base sm:text-lg font-bold text-slate-800 dark:text-slate-100">{poll.points}</span>
+                          <span className="mx-1 text-slate-400">/</span>
+                          <span className="text-xs sm:text-sm font-medium text-slate-500">{poll.maxPoints}</span>
                         </div>
 
-                        <div className="text-gray-500 dark:text-gray-400 text-xs sm:text-sm">
-                          ⏱ {pollDetails[idx]?.timer || "N/A"}s
+                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium bg-slate-50 dark:bg-slate-900/50 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <Clock className="w-4 h-4 text-slate-400" />
+                          {pollDetails[idx]?.timer || "N/A"}s
                         </div>
                       </div>
-                  </div>
-                ))
+                    </div>
+                  ))
               ) : (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   <Trophy className="h-12 w-12 mx-auto mb-2 opacity-50" />
@@ -375,20 +390,25 @@ export default function StudentDashboard() {
               {/* Show local active room from localStorage if it exists */}
               {localActiveRoom && (
                 <div
-                  className="flex items-center justify-between p-3 rounded-lg bg-green-50 dark:bg-green-900/40 border border-green-100 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-800 transition-colors cursor-pointer"
+                  className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/10 border-2 border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 hover:shadow-lg transition-all cursor-pointer"
                   onClick={() => navigate({ to: `/student/pollroom/${localActiveRoom}` })}
                 >
-                  <div>
-                    <div className="font-semibold text-green-800 dark:text-green-300 text-sm sm:text-base">Room {localActiveRoom}</div>
-                    <div className="text-xs text-green-600 dark:text-green-400">Click to rejoin</div>
+                  <div className="absolute top-0 right-0 -mt-2 -mr-2 w-16 h-16 bg-emerald-400/20 blur-xl rounded-full"></div>
+                  <div className="relative z-10 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-800/50 flex items-center justify-center">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse relative">
+                        <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75"></div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-emerald-900 dark:text-emerald-100 text-sm sm:text-base group-hover:text-emerald-700 transition-colors">Room {localActiveRoom}</div>
+                      <div className="text-xs font-semibold text-emerald-600/80 dark:text-emerald-400 mt-0.5">Click to rejoin session</div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                    <span className="text-xs text-green-600 dark:text-green-400">Active</span>
-                  </div>
+                  <ArrowRightCircle className="w-5 h-5 text-emerald-500 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all font-bold" />
                 </div>
               )}
-              
+
               {/* Show backend active rooms */}
               {roomWiseScores && roomWiseScores.filter(r => r.status === 'active').length > 0 ? (
                 roomWiseScores
@@ -398,11 +418,19 @@ export default function StudentDashboard() {
                   .map((room, idx) => (
                     <div
                       key={`${room.roomCode}-${idx}`}
-                      className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-900/40 border border-blue-100 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors cursor-pointer"
+                      className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-white dark:bg-slate-800 border-2 border-blue-100 dark:border-blue-800 hover:border-blue-400 hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
                     >
-                      <div className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base truncate">{room.roomName}</div>
-                      <div className="text-xs text-green-600 dark:text-green-400 flex-shrink-0">Active</div>
+                      <div className="relative z-10 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base truncate group-hover:text-blue-600 transition-colors">{room.roomName}</div>
+                          <div className="text-xs font-semibold text-blue-600/80 dark:text-blue-400 mt-0.5">Open recently</div>
+                        </div>
+                      </div>
+                      <ArrowRightCircle className="w-5 h-5 text-blue-500 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all font-bold shrink-0" />
                     </div>
                   ))
               ) : !localActiveRoom ? (
@@ -435,12 +463,16 @@ export default function StudentDashboard() {
                 upcomingPolls.map((poll, idx) => (
                   <div
                     key={`${poll.name}-${idx}`}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/40 border border-blue-100 dark:border-blue-700"
+                    className="flex items-center gap-3 p-3 rounded-xl bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-700 transition-colors group"
                   >
-                    <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></span>
+                    <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-500 shrink-0 group-hover:rotate-12 transition-transform">
+                      <Calendar className="w-4 h-4" />
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base truncate">{poll.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{poll.time}</div>
+                      <div className="font-bold text-slate-800 dark:text-slate-100 text-sm sm:text-base truncate">{poll.name}</div>
+                      <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {poll.time}
+                      </div>
                     </div>
                   </div>
                 ))
@@ -515,44 +547,77 @@ export default function StudentDashboard() {
             </CardHeader>
             <CardContent className="space-y-4">
               {roomWiseScores && roomWiseScores.length > 0 ? (
-                roomWiseScores.map((room, idx) => (
-                  <div key={room.roomCode || idx} className="p-3 sm:p-4 rounded-lg bg-blue-50 dark:bg-blue-900/40 border border-blue-100 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-2">
-                      <h3 className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base truncate">{room.roomName}</h3>
-                      <div className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                        {room.score}/{room.maxPossiblePoints} <span className="text-sm text-gray-500 dark:text-gray-400">({room.averageScore})</span>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Polls Taken:</span>
-                        <span className="font-semibold text-blue-600 dark:text-blue-400 ml-2">
-                          {room.taken || room.attendedPolls || 0}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-600 dark:text-gray-400">Total Polls:</span>
-                        <span className="font-semibold text-blue-600 dark:text-blue-400 ml-2">{room.totalPolls || 0}</span>
-                      </div>
-                    </div>
-                    <div className="mt-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">Progress:</span>
-                        <div className="flex-1 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                          <div
-                            className="bg-blue-500 dark:bg-blue-400 h-2 rounded-full transition-all duration-300"
-                            style={{
-                              width: `${room.totalPolls > 0 ? ((room.taken || room.attendedPolls || 0) / room.totalPolls) * 100 : 0}%`
-                            }}
-                          />
+                <div className="grid gap-4">
+                  {roomWiseScores.map((room, idx) => (
+                    <div key={room.roomCode || idx} className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all flex flex-col gap-4">
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2 border-b border-slate-100 dark:border-slate-700 pb-3">
+                        <div>
+                          <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                              <BookOpen className="w-4 h-4" />
+                            </span>
+                            {room.roomName}
+                          </h3>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+                            <span className="inline-block w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+                            Room Code: <span className="font-medium tracking-wide">{room.roomCode}</span>
+                          </div>
                         </div>
-                        <span className="font-semibold text-blue-600 dark:text-blue-400 text-xs">
-                          {room.totalPolls > 0 ? Math.round(((room.taken || room.attendedPolls || 0) / room.totalPolls) * 100) : 0}%
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-baseline gap-1 bg-green-50 dark:bg-green-900/20 px-3 py-1.5 rounded-full border border-green-100 dark:border-green-800">
+                            <Award className="w-4 h-4 text-green-600 dark:text-green-400" />
+                            <span className="text-lg font-bold text-green-700 dark:text-green-400">
+                              {room.score}
+                            </span>
+                            <span className="text-sm font-medium text-green-600/70 dark:text-green-500">
+                              / {room.maxPossiblePoints} pts
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Attendance Stats */}
+                        <div className="space-y-1.5 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Participation</span>
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                              {room.totalPolls > 0 ? Math.round(((room.taken || room.attendedPolls || 0) / room.totalPolls) * 100) : 0}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
+                            <div
+                              className="bg-indigo-500 dark:bg-indigo-400 h-1.5 rounded-full transition-all duration-500"
+                              style={{ width: `${room.totalPolls > 0 ? ((room.taken || room.attendedPolls || 0) / room.totalPolls) * 100 : 0}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 pt-1 text-right">
+                            {room.taken || room.attendedPolls || 0} of {room.totalPolls} polls
+                          </div>
+                        </div>
+
+                        {/* Performance Stats */}
+                        <div className="space-y-1.5 p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold flex items-center gap-1"><Target className="w-3 h-3" /> Accuracy</span>
+                            <span className="font-bold text-blue-600 dark:text-blue-400">
+                              {room.averageScore || '0%'}
+                            </span>
+                          </div>
+                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5">
+                            <div
+                              className="bg-blue-500 dark:bg-blue-400 h-1.5 rounded-full transition-all duration-500"
+                              style={{ width: `${parseInt(room.averageScore) || 0}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 pt-1 text-right">
+                            Avg. score
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               ) : (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   <BookOpen className="h-12 w-12 mx-auto mb-2 opacity-50" />
@@ -572,39 +637,45 @@ export default function StudentDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                <div className="text-sm font-semibold text-green-800 dark:text-green-300">Average Score</div>
-                <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="p-5 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 rounded-xl border-2 border-green-100 dark:border-green-800/30 flex flex-col items-center text-center group hover:border-green-300 dark:hover:border-green-700 transition-colors">
+                <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-800/50 flex flex-col items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Target className="w-6 h-6 text-green-600 dark:text-green-400" />
+                </div>
+                <div className="text-sm font-bold text-green-800 dark:text-green-300 uppercase tracking-widest mb-1">Average Score</div>
+                <div className="text-3xl font-black text-green-600 dark:text-green-400 mb-2 drop-shadow-sm">
                   {performanceSummary?.avgScore || '0%'}
                 </div>
-                <div className="text-xs text-green-600 dark:text-green-400">
+                <div className="text-xs font-semibold px-3 py-1 bg-green-100 dark:bg-green-800/40 rounded-full text-green-700 dark:text-green-300">
                   {(() => {
                     const score = parseInt(performanceSummary?.avgScore || '0');
-                    if (score >= 80) return 'Excellent performance';
-                    if (score >= 60) return 'Good performance';
-                    return 'Keep improving';
+                    if (score >= 80) return 'Excellent performance 🚀';
+                    if (score >= 60) return 'Good performance 👍';
+                    return 'Keep improving 💪';
                   })()}
                 </div>
               </div>
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                <div className="text-sm font-semibold text-blue-800 dark:text-blue-300">Participation Rate</div>
-                <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">
+              <div className="p-5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-xl border-2 border-blue-100 dark:border-blue-800/30 flex flex-col items-center text-center group hover:border-blue-300 dark:hover:border-blue-700 transition-colors">
+                <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-800/50 flex flex-col items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <CheckCircle className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="text-sm font-bold text-blue-800 dark:text-blue-300 uppercase tracking-widest mb-1">Participation Rate</div>
+                <div className="text-3xl font-black text-blue-600 dark:text-blue-400 mb-2 drop-shadow-sm">
                   {performanceSummary?.participationRate || '0%'}
                 </div>
-                <div className="text-xs text-blue-600 dark:text-blue-400">
-                  {pollStats?.taken || 0} out of {pollStats?.total || 0} polls
+                <div className="text-xs font-semibold px-3 py-1 bg-blue-100 dark:bg-blue-800/40 rounded-full text-blue-700 dark:text-blue-300">
+                  Attempted {pollStats?.taken || 0} out of {pollStats?.total || 0} polls
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="mb-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl border-0 shadow-xl shadow-indigo-500/10">
-         <CardHeader>
+          <CardHeader>
             <CardTitle className="text-blue-800 dark:text-blue-200 font-bold flex items-center justify-between gap-2 text-sm sm:text-base">
               <span className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              Achievements
+                <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                Achievements
               </span>
               <button
                 type="button"
@@ -620,24 +691,24 @@ export default function StudentDashboard() {
               </button>
             </CardTitle>
           </CardHeader>
-                  <CardContent className="pt-6">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-bold text-indigo-600 dark:text-indigo-300">
-                        {achievementProgress.earned}/{achievementProgress.total}
-                      </span>
-                    </div>
-                    <div className="relative h-3 rounded-full bg-linear-to-r from-slate-200 to-slate-300 dark:from-gray-700 dark:to-gray-600 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-linear-to-r from-indigo-500 via-blue-500 to-emerald-500 transition-all duration-700"
-                        style={{ width: `${achievementProgress.percent}%` }}
-                      />
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-gray-500 dark:text-gray-400">Progress</span>
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-300">{achievementProgress.percent}% complete</span>
-                    </div>
-                  </CardContent>
-                </Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-bold text-indigo-600 dark:text-indigo-300">
+                {achievementProgress.earned}/{achievementProgress.total}
+              </span>
+            </div>
+            <div className="relative h-3 rounded-full bg-linear-to-r from-slate-200 to-slate-300 dark:from-gray-700 dark:to-gray-600 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-linear-to-r from-indigo-500 via-blue-500 to-emerald-500 transition-all duration-700"
+                style={{ width: `${achievementProgress.percent}%` }}
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <span className="text-gray-500 dark:text-gray-400">Progress</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-300">{achievementProgress.percent}% complete</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
