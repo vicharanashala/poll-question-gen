@@ -387,7 +387,7 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
+  const [selectedModel, setSelectedModel] = useState("llama3.1");
   const [questionCount, setQuestionCount] = useState<number>(3);
 
   // Queue for auto-generated questions while live recording is ongoing.
@@ -1746,7 +1746,7 @@ export default function TeacherPollRoom() {
 
     const models = [
       { value: "gemma3", label: "Gemma 3" },
-      { value: "llama3.1", label: "Llama 3.1" },
+      { value: "llama3.1", label: "Llama 3.1 ( RAG Based )" },
       { value: "gpt-4", label: "GPT-4" },
       { value: "claude-3", label: "Claude 3" },
       { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
