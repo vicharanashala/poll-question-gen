@@ -178,8 +178,13 @@ export default function TeacherPollRoom() {
   useEffect(() => {
     const fetchRoomDetails = async () => {
       try {
-        if (!roomCode) return;
-        const res = await api.get(`/livequizzes/rooms/${roomCode}`);
+        if (!roomCode || !currentUser?.uid) return;
+        const res = await api.get(`/livequizzes/rooms/${roomCode}`, {
+          params: {
+            userId: currentUser.uid,
+            role: 'teacher',
+          },
+        });
 
         if (res.data.success && res.data.room?.controls) {
           const { micBlocked, pollRestricted } = res.data.room.controls;
@@ -195,14 +200,19 @@ export default function TeacherPollRoom() {
           } else {
             setRoomControlMode('full');
           }
+        } else if (!res.data.success) {
+          toast.error(res.data.message || 'You do not have access to this room');
+          navigate({ to: '/teacher/manage-rooms' });
         }
       } catch (error) {
         console.error("Error fetching room details:", error);
+        toast.error('Unable to load this room');
+        navigate({ to: '/teacher/manage-rooms' });
       }
     };
 
     fetchRoomDetails();
-  }, [roomCode]);
+  }, [roomCode, currentUser?.uid, navigate]);
 
   // 2. Remove Cohost API 
   const handleRemoveCohost = async (cohostId: string) => {
@@ -363,7 +373,7 @@ export default function TeacherPollRoom() {
   const [options, setOptions] = useState(["", "", "", ""]);
   const [correctOptionIndex, setCorrectOptionIndex] = useState<number>(0);
   const [timer, _setTimer] = useState<number>(30);
-  const [maxPoints, setMaxPoints] = useState<number>(20);
+  const [maxPoints, setMaxPoints] = useState<number | ''>(20);
   const [pollResults, setPollResults] = useState<PollResults>({});
   // State for live poll results
   type LivePollResult = {
@@ -503,9 +513,10 @@ export default function TeacherPollRoom() {
 
     // Join room function
     const joinRoom = () => {
-      socket.emit('join-room', roomCode, (response: any) => {
+      socket.emit('join-room', { roomCode, user: currentUser?.uid }, (response: any) => {
         if (response?.status === 'error') {
           // Error joining room
+          console.log('Error joining room:', response);
         } else {
           setJoinedRoom(true);
         }
@@ -1354,8 +1365,8 @@ export default function TeacherPollRoom() {
         creatorId: currentUser?.uid,
         // timer: Number(timer),
         // creatorId: currentUser?.userId,
-        timer: Number(questionTimers[currentQuestionIndex]?.initialTime ?? timer),
-        maxPoints: Number(maxPoints),
+        timer: Number(questionTimers[currentQuestionIndex]?.initialTime || timer || 30),
+        maxPoints: Number(maxPoints || 20),
         correctOptionIndex
       });
 
@@ -1940,7 +1951,7 @@ export default function TeacherPollRoom() {
   const [questionTimers, setQuestionTimers] = useState<Record<number, {
     timeLeft: number;
     isActive: boolean;
-    initialTime: number; // Store initial time for each question
+    initialTime: number | ''; // Store initial time for each question
     isLaunched: boolean; // Mark as launched to disable edit
   }>>({});
   const [currentPollResponses, setCurrentPollResponses] = useState(0);
@@ -3695,14 +3706,14 @@ export default function TeacherPollRoom() {
                                                   value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
                                                   min={5}
                                                   onChange={(e) => {
-                                                    const newTime = Number(e.target.value);
+                                                    const newTime = e.target.value === '' ? '' : Number(e.target.value);
                                                     setQuestionTimers(prev => ({
                                                       ...prev,
                                                       [currentQuestionIndex]: {
                                                         ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
                                                         initialTime: newTime,
                                                         timeLeft: prev[currentQuestionIndex]?.isActive
-                                                          ? newTime
+                                                          ? Number(newTime)
                                                           : (prev[currentQuestionIndex]?.timeLeft || 0)
                                                       }
                                                     }));
@@ -3730,7 +3741,7 @@ export default function TeacherPollRoom() {
                                               type="number"
                                               value={maxPoints}
                                               min={1}
-                                              onChange={(e) => setMaxPoints(Number(e.target.value) || 20)}
+                                              onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
                                               className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
                                               aria-label="Maximum points for this generated poll"
                                               disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
@@ -3810,9 +3821,9 @@ export default function TeacherPollRoom() {
                             Generated Questions (from AI)
                           </h4>
 
-                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md">
+                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md p-2.5">
                             <div className="overflow-y-auto pr-2 flex-1">
-                              <div className="space-y-4">
+                              <div className="space-y-4 mr-3">
                                 {generatedQuestions.map((q, idx) => (
                                   <div
                                     key={idx}
@@ -3825,7 +3836,7 @@ export default function TeacherPollRoom() {
                                           AI Generated
                                         </span>
                                       </div>
-                                      <Button
+                                      {/* <Button
                                         size="sm"
                                         variant="outline"
                                         className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -3833,7 +3844,7 @@ export default function TeacherPollRoom() {
                                       >
                                         <Check className="w-3 h-3 mr-1" />
                                         Use This
-                                      </Button>
+                                      </Button> */}
                                     </div>
 
                                     {/* Question Text */}
@@ -3868,7 +3879,7 @@ export default function TeacherPollRoom() {
                                       </div>
                                     </div>
 
-                                    <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
+                                    <div className="absolute -right-4.5 top-1/2 transform -translate-y-1/2 flex flex-col gap-1">
                                       <Button
                                         variant="ghost"
                                         size="icon"
@@ -3956,16 +3967,16 @@ export default function TeacherPollRoom() {
                           <Input
                             type="number"
                             placeholder="e.g. 30"
-                            value={questionTimers[currentQuestionIndex]?.initialTime ? questionTimers[currentQuestionIndex]?.initialTime : 30}
+                            value={questionTimers[currentQuestionIndex]?.initialTime !== undefined ? questionTimers[currentQuestionIndex]?.initialTime : 30}
                             min={5}
                             onChange={(e) => {
-                              const newTime = Number(e.target.value);
+                              const newTime = e.target.value === '' ? '' : Number(e.target.value);
                               setQuestionTimers(prev => ({
                                 ...prev,
                                 [currentQuestionIndex]: {
                                   ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30 }),
                                   initialTime: newTime,
-                                  timeLeft: prev[currentQuestionIndex]?.isActive ? newTime : (prev[currentQuestionIndex]?.timeLeft || newTime)
+                                  timeLeft: prev[currentQuestionIndex]?.isActive ? Number(newTime) : (prev[currentQuestionIndex]?.timeLeft || Number(newTime))
                                 }
                               }));
                             }}
@@ -3986,7 +3997,7 @@ export default function TeacherPollRoom() {
                           type="number"
                           value={maxPoints}
                           min={1}
-                          onChange={(e) => setMaxPoints(Number(e.target.value) || 20)}
+                          onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
                           className="dark:bg-gray-800/50 text-sm w-36"
                           aria-label="Maximum points for this poll"
                         />

@@ -132,10 +132,34 @@ export default function StudentProfile() {
     if (!user?.userId) return;
     setSaving(true);
     try {
+      // Validation for phone numbers
+      const phoneRegex = /^\+?[1-9]\d{1,14}$/; // E.164 standard phone number regex (basic)
+
+      if (formData.phoneNumber && !phoneRegex.test(formData.phoneNumber.trim())) {
+        toast.error("Invalid phone number format. Please enter a valid number.");
+        setSaving(false);
+        return;
+      }
+
+      if (formData.emergencyContact && !phoneRegex.test(formData.emergencyContact.trim())) {
+        toast.error("Invalid emergency contact format. Please enter a valid number.");
+        setSaving(false);
+        return;
+      }
+
+      const trimmedFirstName = formData.firstName.trim();
+      const trimmedLastName = formData.lastName.trim();
+
+      if (!trimmedFirstName || !trimmedLastName) {
+        toast.error("First Name and Last Name are mandatory.");
+        setSaving(false);
+        return;
+      }
+
       // Prepare the data according to UpdateUserProfileBody structure
       const updateData = {
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
+        firstName: trimmedFirstName,
+        lastName: trimmedLastName,
         email: user.email, // Required field, keep existing
         phoneNumber: formData.phoneNumber || null,
         dateOfBirth: formData.dateOfBirth || undefined,
@@ -175,9 +199,9 @@ export default function StudentProfile() {
       }
 
       setIsEditing(false);
-      setError(null);
+      toast.success("Profile updated successfully");
     } catch (e: any) {
-      setError(e?.response?.data?.message || "Failed to save profile");
+      toast.error(e?.response?.data?.message || "Failed to save profile");
     } finally {
       setSaving(false);
     }
@@ -449,6 +473,7 @@ export default function StudentProfile() {
                         className="w-full px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs sm:text-base"
                         value={formData.dateOfBirth}
                         onChange={(e) => handleInputChange('dateOfBirth', e.target.value)}
+                        max={new Date().toISOString().split("T")[0]}
                         title="Select your date of birth"
                         disabled={saving}
                       />
@@ -458,9 +483,9 @@ export default function StudentProfile() {
                     <label htmlFor="address" className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 sm:mb-2">
                       Address
                     </label>
-                    <input
+                    <textarea
                       id="address"
-                      type="text"
+                      rows={3}
                       className="w-full px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs sm:text-base"
                       value={formData.address}
                       onChange={(e) => handleInputChange('address', e.target.value)}
@@ -492,7 +517,7 @@ export default function StudentProfile() {
                       <Phone className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
                       <div>
                         <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 block">Phone</span>
-                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.phoneNumber || "Not specified"}</span>
+                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.phoneNumber?.trim() || "Not specified"}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3">
@@ -521,14 +546,14 @@ export default function StudentProfile() {
                       <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
                       <div>
                         <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 block">Address</span>
-                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.address || "Not specified"}</span>
+                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.address?.trim() || "Not specified"}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3">
                       <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
                       <div>
                         <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 block">Emergency Contact</span>
-                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.emergencyContact || "Not specified"}</span>
+                        <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.emergencyContact?.trim() || "Not specified"}</span>
                       </div>
                     </div>
                   </div>
@@ -584,7 +609,7 @@ export default function StudentProfile() {
                     <textarea
                       id="bio"
                       rows={4}
-                      className="w-full px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs sm:text-base resize-none"
+                      className="w-full px-3 sm:px-4 py-1.5 sm:py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white text-xs sm:text-base"
                       value={formData.bio}
                       onChange={(e) => handleInputChange('bio', e.target.value)}
                       placeholder="Tell us about yourself..."
@@ -598,11 +623,11 @@ export default function StudentProfile() {
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
                     <div>
                       <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 block mb-1">Institution</span>
-                      <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.institution || "Not specified"}</span>
+                      <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.institution?.trim() || "Not specified"}</span>
                     </div>
                     <div>
                       <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 block mb-1">Class/Grade</span>
-                      <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.designation || "Not specified"}</span>
+                      <span className="text-gray-800 dark:text-gray-200 text-xs sm:text-base">{user.designation?.trim() || "Not specified"}</span>
                     </div>
                   </div>
                   {user.bio && (

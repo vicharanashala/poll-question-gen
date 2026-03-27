@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Param,
+  QueryParam,
   Authorized,
   HttpCode,
   Req,
@@ -71,13 +72,27 @@ export class PollRoomController {
 
   //@Authorized()
   @Get('/:code')
-  async getRoom(@Param('code') code: string) {
+  async getRoom(
+    @Param('code') code: string,
+    @QueryParam('userId') userId?: string,
+    @QueryParam('role') role?: string,
+  ) {
     const room = await this.roomService.getRoomByCode(code);
     if (!room) {
       return { success: false, message: 'Room not found' };
     }
     if (room.status !== 'active') {
       return { success: false, message: 'Room is ended' };
+    }
+    if (role === 'teacher') {
+      if (!userId) {
+        return { success: false, message: 'User id is required' };
+      }
+      const hasAccess = room.teacherId === userId ||
+      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive);
+      if (!hasAccess) {
+        return { success: false, message: 'You do not have access to this room' };
+      }
     }
     return { success: true, room };  // return room data
   }

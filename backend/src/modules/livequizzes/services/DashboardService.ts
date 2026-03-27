@@ -165,6 +165,9 @@ export class DashboardService {
         for (const room of rooms) {
             const pollCount = room.polls?.length || 0;
             const responseCount = room.polls?.reduce((sum, poll) => sum + (poll.answers?.length || 0), 0) || 0;
+            const uniqueStudents = new Set(room.students?.map((s: any) => s.toString()) || []);
+            const studentCount = uniqueStudents.size;
+
             totalPolls += pollCount;
             totalResponses += responseCount;
 
@@ -175,6 +178,7 @@ export class DashboardService {
                 status: room.status,
                 totalPolls: pollCount,
                 totalResponses: responseCount,
+                totalStudents: studentCount,
             };
 
             if (room.status === 'active') {
@@ -215,18 +219,18 @@ export class DashboardService {
 
     //get user achievement progress
     async getUserAchievementProgress(userId: string) {
-    const [earnedBadgeIds, totalBadges] = await Promise.all([
-      UserAchievement.distinct('badgeId', { userId }),
-      Badge.countDocuments(),
-    ]);
+        const [earnedBadgeIds, totalBadges] = await Promise.all([
+            UserAchievement.distinct('badgeId', { userId }),
+            Badge.countDocuments(),
+        ]);
 
-    const earned = earnedBadgeIds.length;
-    const percent = totalBadges > 0 ? Math.round((earned / totalBadges) * 100) : 0;
+        const earned = earnedBadgeIds.length;
+        const percent = totalBadges > 0 ? Math.round((earned / totalBadges) * 100) : 0;
 
-    return {
-      earned,
-      total: totalBadges,
-      percent,
-    };
-  }
+        return {
+            earned,
+            total: totalBadges,
+            percent,
+        };
+    }
 }

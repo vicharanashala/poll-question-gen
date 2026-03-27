@@ -25,13 +25,17 @@ export interface Room {
   teacherId: string;
   teacherName?: string;
   createdAt: Date;
+  endedAt?: Date;
   status: 'active' | 'ended';
   polls: Poll[];
+  totalStudents?: number;
+  coHosts?: ActiveCohost[];
   controls?: {
     micBlocked: boolean;
     pollRestricted: boolean;
   };
   joinedStudents?: string[];
+  students?: {firstName: string, email: string}[]
 }
 
 export interface CohostJwtPayload extends JwtPayload {
@@ -46,9 +50,12 @@ export interface GetCohostRoom {
 
 export interface ActiveCohost {
   userId: string;
+  isActive: boolean;
   firstName: string;
   lastName: string;
   email: string;
   addedAt: Date;
+  addedBy: string;
+  isMicMuted: boolean;
 }
 

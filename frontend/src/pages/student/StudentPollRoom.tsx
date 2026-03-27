@@ -90,7 +90,7 @@ export default function StudentPollRoom() {
   useEffect(() => {
     if (!roomCode) return;
     const joinRoom = () => {
-      socket.emit('join-room', roomCode, email);
+      socket.emit('join-room', {roomCode, email});
       setJoinedRoom(true);
       toast.success("Joined room!");
     };
