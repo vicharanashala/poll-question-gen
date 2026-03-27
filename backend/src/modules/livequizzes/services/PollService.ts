@@ -8,6 +8,7 @@ import UserAchievement from '#root/shared/database/models/UserAchievement.js';
 import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
 import { calculateScore } from '../utils/calculateScore.js';
+import { HttpError, NotFoundError } from 'routing-controllers';
 
 interface InMemoryPoll {
   pollId: string;
@@ -41,6 +42,13 @@ export class PollService {
     const pollId = crypto.randomUUID();
     const createdAt = new Date();
     const lockedActiveUsers: string[] = pollSocket.getActiveUsersInRoom(roomCode);
+
+    // PHASE 2: Check if room requires question approval
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    const approvalRequired = room.questionApprovalRequired || false;
+
     const poll = {
       _id: pollId,
       question: data.question,
@@ -50,7 +58,9 @@ export class PollService {
       maxPoints: data.maxPoints ?? 20,
       createdAt,
       lockedActiveUsers,
-      answers: []
+      answers: [],
+      // PHASE 2: Set approval status
+      approvalStatus: approvalRequired ? 'pending' : 'approved'
     };
 
     const livepoll: InMemoryPoll = {
@@ -76,13 +86,30 @@ export class PollService {
 
     this.activePolls.set(pollId, livepoll);
 
-    pollSocket.emitToRoom(roomCode, 'new-poll', poll);
+    // PHASE 2: Emit appropriate event based on approval requirement
+    if (approvalRequired) {
+      pollSocket.emitToRoom(roomCode, 'question-pending-approval', poll);
+    } else {
+      pollSocket.emitToRoom(roomCode, 'new-poll', poll);
+    }
+
     return poll;
   }
 
 
 
   async submitAnswer(roomCode: string, pollId: string, userId: string, answerIndex: number) {
+
+    // PHASE 3: Check if student is muted
+    const room = await Room.findOne({ roomCode });
+    if (!room) {
+      throw new NotFoundError('Room not found');
+    }
+
+    const isMuted = room.mutedStudents.some(m => m.studentId === userId);
+    if (isMuted) {
+      throw new HttpError(403, 'You have been muted and cannot answer polls');
+    }
 
     const poll = this.activePolls.get(pollId);
     if (!poll || poll.roomCode !== roomCode) {
@@ -247,5 +274,80 @@ export class PollService {
 
   return { achievedBadges, unachievedBadges };
 }
+
+  // PHASE 2: Question Approval Methods
+  async approvePoll(
+    roomCode: string,
+    pollId: string,
+    userId: string
+  ): Promise<{ message: string; poll: any }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    const poll = room.polls.find(p => p._id === pollId);
+    if (!poll) throw new NotFoundError("Poll not found");
+
+    if (poll.approvalStatus !== 'pending') {
+      throw new HttpError(400, `Poll is already ${poll.approvalStatus}`);
+    }
+
+    // Update poll approval status
+    poll.approvalStatus = 'approved';
+    poll.approvedBy = userId;
+    poll.approvedAt = new Date();
+
+    await room.save();
+
+    // Emit event to broadcast poll to students
+    pollSocket?.emitToRoom(roomCode, 'question-approved', {
+      pollId,
+      poll
+    });
+
+    // Also emit new-poll so students see it
+    pollSocket?.emitToRoom(roomCode, 'new-poll', poll);
+
+    return {
+      message: 'Poll approved successfully',
+      poll
+    };
+  }
+
+  async rejectPoll(
+    roomCode: string,
+    pollId: string,
+    userId: string,
+    reason?: string
+  ): Promise<{ message: string }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    const pollIndex = room.polls.findIndex(p => p._id === pollId);
+    if (pollIndex === -1) throw new NotFoundError("Poll not found");
+
+    const poll = room.polls[pollIndex];
+    if (poll.approvalStatus !== 'pending') {
+      throw new HttpError(400, `Poll is already ${poll.approvalStatus}`);
+    }
+
+    // Mark as rejected
+    poll.approvalStatus = 'rejected';
+    poll.rejectionReason = reason;
+
+    // Remove from activePolls so it's not shown to students
+    this.activePolls.delete(pollId);
+
+    await room.save();
+
+    // Emit event to notify rejection
+    pollSocket?.emitToRoom(roomCode, 'question-rejected', {
+      pollId,
+      reason: reason || 'No reason provided'
+    });
+
+    return {
+      message: 'Poll rejected successfully'
+    };
+  }
 
 }

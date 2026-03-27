@@ -5,9 +5,10 @@ import { UserService } from '#root/modules/users/services/UserService.js';
 import { getFromContainer, NotFoundError } from 'routing-controllers';
 import { UserRepository } from '#root/shared/index.js';
 import { Room } from '#root/shared/database/models/Room.js';
+import { appConfig } from '../../../config/app.js';
 
 dotenv.config();
-const appOrigins = process.env.APP_ORIGINS;
+const appOrigins = appConfig.origins;
 
 class PollSocket {
   private io: Server | null = null;
@@ -217,6 +218,20 @@ class PollSocket {
       return;
     }
     this.io.emit(event, data);
+  }
+
+  // PHASE 2 & 3: Emit to specific user/socket
+  emitToSocket(userId: string, event: string, data: any) {
+    if (!this.io) {
+      console.error('Socket.IO not initialized');
+      return;
+    }
+    // Find socket IDs for this userId and emit to them
+    this.io.sockets.sockets.forEach((socket) => {
+      if (socket.data.userId === userId) {
+        socket.emit(event, data);
+      }
+    });
   }
 }
 const userService = getFromContainer(UserService)

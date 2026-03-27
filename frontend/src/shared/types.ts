@@ -32,3 +32,24 @@ export interface ModalState {
   cancelText?: string;
 }
 
+// PHASE 2 & 3: Question Approval and Student Moderation Types
+export type ApprovalStatus = 'approved' | 'pending' | 'rejected';
+
+export interface PendingQuestion {
+  _id: string;
+  question: string;
+  options: string[];
+  correctOptionIndex: number;
+  timer: number;
+  maxPoints?: number;
+  createdAt: Date;
+  approvalStatus: ApprovalStatus;
+  requestedBy?: string;
+}
+
+export interface MutedStudent {
+  studentId: string;
+  mutedBy: string;
+  mutedAt: Date;
+}
+

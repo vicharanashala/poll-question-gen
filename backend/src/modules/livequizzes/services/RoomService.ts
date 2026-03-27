@@ -7,6 +7,7 @@ import { HttpError, NotFoundError } from 'routing-controllers';
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
+import { appConfig } from '../../../config/app.js';
 
 @injectable()
 export class RoomService {
@@ -432,7 +433,8 @@ export class RoomService {
 
     await room.save();
 
-    return `${process.env.APP_ORIGINS}/teacher/cohost-invite/${token}`
+    const inviteBaseUrl = appConfig.publicUrl.replace(/\/+$/, '');
+    return `${inviteBaseUrl}/teacher/cohost-invite/${token}`
 
   }
 
@@ -703,4 +705,155 @@ export class RoomService {
       controls: room.controls
     };
   }
+
+  // PHASE 1: Permission Model Enhancement
+  // Utility method to check if user is teacher or active cohost
+  async isUserSpeakerOrModerator(userId: string, roomCode: string): Promise<boolean> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) return false;
+
+    // Check if user is the teacher (host)
+    if (room.teacherId === userId) {
+      return true;
+    }
+
+    // Check if user is an active cohost
+    const isActiveCohost = room.coHosts.some(
+      c => c.userId === userId && c.isActive
+    );
+
+    return isActiveCohost;
+  }
+
+  // Check if user has moderation permissions (teacher or active cohost)
+  async isUserTeacherOrCohost(userId: string, roomCode: string): Promise<boolean> {
+    return this.isUserSpeakerOrModerator(userId, roomCode);
+  }
+
+  // PHASE 2: Question Approval Workflow Methods
+  async toggleQuestionApprovalSetting(
+    roomCode: string,
+    userId: string,
+    required: boolean
+  ): Promise<{ message: string; questionApprovalRequired: boolean }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    // Only teacher/host can change this setting
+    if (room.teacherId !== userId) {
+      throw new HttpError(403, "Only host can change approval settings");
+    }
+
+    room.questionApprovalRequired = required;
+    await room.save();
+
+    pollSocket?.emitToRoom(roomCode, 'approval-setting-changed', {
+      questionApprovalRequired: required
+    });
+
+    return {
+      message: `Question approval ${required ? 'enabled' : 'disabled'}`,
+      questionApprovalRequired: required
+    };
+  }
+
+  async requiresApproval(roomCode: string): Promise<boolean> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+    return room.questionApprovalRequired;
+  }
+
+  async getPendingQuestions(roomCode: string): Promise<Poll[]> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    // Filter polls with pending approval status
+    const pendingPolls = room.polls.filter(poll => poll.approvalStatus === 'pending');
+    return pendingPolls;
+  }
+
+  // PHASE 3: Student Management Methods
+  async muteStudent(
+    roomCode: string,
+    studentId: string,
+    userId: string
+  ): Promise<{ message: string; isMuted: boolean }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    // Check if user has moderation permissions
+    const isAuthorized = await this.isUserTeacherOrCohost(userId, roomCode);
+    if (!isAuthorized) {
+      throw new HttpError(403, "Only host or cohost can mute students");
+    }
+
+    // Check if student is already muted
+    const alreadyMuted = room.mutedStudents.some(m => m.studentId === studentId);
+    if (!alreadyMuted) {
+      room.mutedStudents.push({
+        studentId,
+        mutedBy: userId,
+        mutedAt: new Date()
+      });
+    }
+
+    await room.save();
+
+    // Emit events
+    pollSocket?.emitToRoom(roomCode, 'student-muted', {
+      studentId,
+      mutedBy: userId,
+      mutedAt: new Date()
+    });
+
+    pollSocket?.emitToSocket(studentId, 'you-have-been-muted', {
+      mutedBy: userId
+    });
+
+    return {
+      message: 'Student muted successfully',
+      isMuted: true
+    };
+  }
+
+  async unmuteStudent(
+    roomCode: string,
+    studentId: string,
+    userId: string
+  ): Promise<{ message: string; isMuted: boolean }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+
+    // Check if user has moderation permissions
+    const isAuthorized = await this.isUserTeacherOrCohost(userId, roomCode);
+    if (!isAuthorized) {
+      throw new HttpError(403, "Only host or cohost can unmute students");
+    }
+
+    // Remove from muted students
+    const mutedEntryIndex = room.mutedStudents.findIndex(m => m.studentId === studentId);
+    if (mutedEntryIndex !== -1) {
+      room.mutedStudents.splice(mutedEntryIndex, 1);
+    }
+    await room.save();
+
+    // Emit events
+    pollSocket?.emitToRoom(roomCode, 'student-unmuted', {
+      studentId
+    });
+
+    pollSocket?.emitToSocket(studentId, 'you-have-been-unmuted', {});
+
+    return {
+      message: 'Student unmuted successfully',
+      isMuted: false
+    };
+  }
+
+  async isStudentMuted(roomCode: string, studentId: string): Promise<boolean> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) return false;
+
+    return room.mutedStudents.some(m => m.studentId === studentId);
+  } 
 }

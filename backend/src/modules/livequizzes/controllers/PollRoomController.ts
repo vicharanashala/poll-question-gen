@@ -34,9 +34,10 @@ import mime from 'mime-types';
 import * as fsp from 'fs/promises';
 import { CreateInMemoryPollDto, InMemoryPollResponse, InMemoryPollResult, SubmitInMemoryAnswerDto } from '../validators/LivepollValidator.js';
 import { validate } from 'class-validator';
+import { appConfig } from '../../../config/app.js';
 
 dotenv.config();
-const appOrigins = process.env.APP_ORIGINS;
+const appPublicUrl = appConfig.publicUrl.replace(/\/+$/, '');
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -66,7 +67,7 @@ export class PollRoomController {
     const room = await this.roomService.createRoom(body.name, body.teacherId);
     return {
       ...room,
-      inviteLink: `${appOrigins}/student/pollroom/${room.roomCode}`,
+      inviteLink: `${appPublicUrl}/student/pollroom/${room.roomCode}`,
     };
   }
 
@@ -363,6 +364,58 @@ export class PollRoomController {
       micBlocked: body.micBlocked,
       pollRestricted: body.pollRestricted
     });
+    return { success: true, ...resp };
+  }
+
+  // PHASE 2: Question Approval Endpoints
+  @Patch('/:code/question-approval-setting')
+  async toggleQuestionApprovalSetting(
+    @Param('code') roomCode: string,
+    @Body() body: { userId: string; required: boolean }
+  ) {
+    const resp = await this.roomService.toggleQuestionApprovalSetting(roomCode, body.userId, body.required);
+    return { success: true, ...resp };
+  }
+
+  @Get('/:code/questions/pending')
+  async getPendingQuestions(@Param('code') roomCode: string) {
+    const resp = await this.roomService.getPendingQuestions(roomCode);
+    return { success: true, pendingQuestions: resp };
+  }
+
+  @Patch('/:code/questions/:pollId/approve')
+  async approvePoll(
+    @Param('code') roomCode: string,
+    @Param('pollId') pollId: string,
+    @Body() body: { userId: string }
+  ) {
+    const resp = await this.pollService.approvePoll(roomCode, pollId, body.userId);
+    return { success: true, ...resp };
+  }
+
+  @Patch('/:code/questions/:pollId/reject')
+  async rejectPoll(
+    @Param('code') roomCode: string,
+    @Param('pollId') pollId: string,
+    @Body() body: { userId: string; reason?: string }
+  ) {
+    const resp = await this.pollService.rejectPoll(roomCode, pollId, body.userId, body.reason);
+    return { success: true, ...resp };
+  }
+
+  // PHASE 3: Student Moderation Endpoints
+  @Patch('/:code/students/:studentId/mute')
+  async toggleStudentMute(
+    @Param('code') roomCode: string,
+    @Param('studentId') studentId: string,
+    @Body() body: { userId: string; isMuted: boolean }
+  ) {
+    let resp;
+    if (body.isMuted) {
+      resp = await this.roomService.muteStudent(roomCode, studentId, body.userId);
+    } else {
+      resp = await this.roomService.unmuteStudent(roomCode, studentId, body.userId);
+    }
     return { success: true, ...resp };
   }
 

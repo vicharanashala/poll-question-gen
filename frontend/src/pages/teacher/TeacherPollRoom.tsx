@@ -152,7 +152,7 @@ export default function TeacherPollRoom() {
   }, [inviteLink, inviteLinkExpiresAt, inviteStorageKey, clearInviteLink]);
 
 
-  const [activeSidebarTab, setActiveSidebarTab] = useState<'students' | 'cohosts'>('students');
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'students' | 'cohosts' | 'pending-questions'>('students');
 
   // Real Cohosts State
   const [cohosts, setCohosts] = useState<CohostUser[]>([]);
@@ -466,6 +466,11 @@ export default function TeacherPollRoom() {
   // const [showStudentsModal, setShowStudentsModal] = useState(false)
   const [students, setStudents] = useState<Array<{ id?: string; name?: string }>>([]);
 
+  // PHASE 2 & 3: Question Approval and Student Moderation States
+  const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
+  const [mutedStudents, setMutedStudents] = useState<Set<string>>(new Set());
+  const [questionApprovalRequired, setQuestionApprovalRequired] = useState(false);
+
   const [_joinedRoom, setJoinedRoom] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Collapsed by default on mobile
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -478,6 +483,64 @@ export default function TeacherPollRoom() {
   const [fileName, setFileName] = useState('');
 
   const [roomControlMode, setRoomControlMode] = useState<'full' | 'mic-disabled' | 'poll-disabled'>('full');
+
+  // PHASE 2 & 3: Handlers for question approval and student muting
+  const handleApproveQuestion = async (pollId: string) => {
+    try {
+      const response = await api.patch(
+        `/livequizzes/rooms/${roomCode}/questions/${pollId}/approve`,
+        { userId: currentUser?.uid }
+      );
+      if (response.data.success) {
+        toast.success('Question approved and sent to students');
+        setPendingQuestions(prev => prev.filter(q => q._id !== pollId));
+      }
+    } catch (error) {
+      toast.error('Failed to approve question');
+      console.error(error);
+    }
+  };
+
+  const handleRejectQuestion = async (pollId: string, reason: string) => {
+    try {
+      const response = await api.patch(
+        `/livequizzes/rooms/${roomCode}/questions/${pollId}/reject`,
+        { userId: currentUser?.uid, reason }
+      );
+      if (response.data.success) {
+        toast.success('Question rejected');
+        setPendingQuestions(prev => prev.filter(q => q._id !== pollId));
+      }
+    } catch (error) {
+      toast.error('Failed to reject question');
+      console.error(error);
+    }
+  };
+
+  const handleToggleStudentMute = async (studentId: string, isMuted: boolean) => {
+    try {
+      const response = await api.patch(
+        `/livequizzes/rooms/${roomCode}/students/${studentId}/mute`,
+        { userId: currentUser?.uid, isMuted }
+      );
+      if (response.data.success) {
+        if (isMuted) {
+          setMutedStudents(prev => new Set([...prev, studentId]));
+          toast.success('Student muted');
+        } else {
+          setMutedStudents(prev => {
+            const next = new Set(prev);
+            next.delete(studentId);
+            return next;
+          });
+          toast.success('Student unmuted');
+        }
+      }
+    } catch (error) {
+      toast.error('Failed to update student mute status');
+      console.error(error);
+    }
+  };
 
   // Handler for saving question edits
   const handleSaveQuestionEdit = () => {
@@ -564,6 +627,14 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      // PHASE 2 & 3: Clear new event listeners
+      socket.off('question-pending-approval');
+      socket.off('question-approved');
+      socket.off('question-rejected');
+      socket.off('student-muted');
+      socket.off('student-unmuted');
+      socket.off('you-have-been-muted');
+      socket.off('you-have-been-unmuted');
 
       // Set up new listeners
       socket.on('live-poll-results', handlePollUpdate);
@@ -641,6 +712,43 @@ export default function TeacherPollRoom() {
         }
       });
 
+      // PHASE 2: Question Approval Socket Listeners
+      socket.on('question-pending-approval', (poll) => {
+        setPendingQuestions(prev => [...prev, poll]);
+        toast.info('New question pending approval');
+      });
+
+      socket.on('question-approved', (data) => {
+        setPendingQuestions(prev => prev.filter(q => q._id !== data.pollId));
+        toast.success('Question approved');
+      });
+
+      socket.on('question-rejected', (data) => {
+        setPendingQuestions(prev => prev.filter(q => q._id !== data.pollId));
+        toast.info(`Question rejected: ${data.reason}`);
+      });
+
+      // PHASE 3: Student Moderation Socket Listeners
+      socket.on('student-muted', (data) => {
+        setMutedStudents(prev => new Set([...prev, data.studentId]));
+      });
+
+      socket.on('student-unmuted', (data) => {
+        setMutedStudents(prev => {
+          const next = new Set(prev);
+          next.delete(data.studentId);
+          return next;
+        });
+      });
+
+      socket.on('you-have-been-muted', (data) => {
+        toast.error(`You have been muted by the teacher`);
+      });
+
+      socket.on('you-have-been-unmuted', (data) => {
+        toast.success('You have been unmuted');
+      });
+
       socket.on('connect', () => {
         // console.log('Socket connected with ID:', socket.id);
         joinRoom(); // Re-join room on reconnect
@@ -683,6 +791,14 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      // PHASE 2 & 3: Cleanup new event listeners
+      socket.off('question-pending-approval');
+      socket.off('question-approved');
+      socket.off('question-rejected');
+      socket.off('student-muted');
+      socket.off('student-unmuted');
+      socket.off('you-have-been-muted');
+      socket.off('you-have-been-unmuted');
     };
   }, [roomCode]);
 
@@ -2179,6 +2295,23 @@ export default function TeacherPollRoom() {
                     >
                       Cohosts
                     </button>
+                    {/* PHASE 2: Pending Questions Tab */}
+                    {questionApprovalRequired && (
+                      <button
+                        onClick={() => setActiveSidebarTab('pending-questions')}
+                        className={`flex-1 text-center py-1.5 px-3 rounded-full transition-all duration-300 relative ${activeSidebarTab === 'pending-questions'
+                          ? 'bg-white text-[#9b51e0] shadow-sm'
+                          : 'text-white hover:bg-white/20'
+                          }`}
+                      >
+                        Pending
+                        {pendingQuestions.length > 0 && (
+                          <span className="absolute top-0 right-0 bg-red-500 text-white rounded-full h-5 w-5 flex items-center justify-center text-xs font-bold">
+                            {pendingQuestions.length}
+                          </span>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -2191,6 +2324,8 @@ export default function TeacherPollRoom() {
                     students.length > 0 ? (
                       students.map((student: any, index: number) => {
                         const studentName = student?.firstName;
+                        const studentId = student?._id || student?.id;
+                        const isMuted = mutedStudents.has(studentId);
                         return (
                           <div
                             key={index}
@@ -2204,29 +2339,42 @@ export default function TeacherPollRoom() {
                           >
                             <div className="flex items-center gap-2 min-w-0">
 
-                              <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
+                              <div className={`w-2 h-2 rounded-full ${isMuted ? 'bg-red-500' : 'bg-green-500'} flex-shrink-0`}></div>
 
                               {!isSidebarCollapsed && (
-                                <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                                <span className={`text-sm truncate ${isMuted ? 'text-gray-400 dark:text-gray-600 line-through' : 'text-gray-700 dark:text-gray-300'}`}>
                                   {studentName}
                                 </span>
                               )}
 
                             </div>
                             {!isSidebarCollapsed && (
-                              <Trash2
-                                size={18}
-                                className="
+                              <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                                {/* PHASE 3: Mute Button */}
+                                <button
+                                  onClick={() => handleToggleStudentMute(studentId, !isMuted)}
+                                  className={`${
+                                    isMuted
+                                      ? 'text-red-500 hover:text-red-700'
+                                      : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400'
+                                  } cursor-pointer transition-all hover:scale-110 flex-shrink-0`}
+                                  title={isMuted ? 'Unmute' : 'Mute'}
+                                >
+                                  {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                                </button>
+                                <Trash2
+                                  size={18}
+                                  className="
                   text-red-500
                   cursor-pointer
-                  opacity-0
-                  group-hover:opacity-100
+                  opacity-100
                   transition-all duration-200
                   hover:text-red-700 hover:scale-110
                   flex-shrink-0
                 "
-                                onClick={() => handleRemoveStudent(student.email)}
-                              />
+                                  onClick={() => handleRemoveStudent(student.email)}
+                                />
+                              </div>
                             )}
 
                           </div>
@@ -2299,6 +2447,55 @@ export default function TeacherPollRoom() {
                         <p className="text-sm text-gray-500 dark:text-gray-400 text-center mt-4">
                           {!isSidebarCollapsed && "No co-hosts joined yet"}
                         </p>
+                      </div>
+                    )
+                  )}
+
+                  {/* PHASE 2: PENDING QUESTIONS TAB */}
+                  {activeSidebarTab === 'pending-questions' && (
+                    pendingQuestions.length > 0 ? (
+                      pendingQuestions.map((poll, index) => (
+                        <Card key={index} className="mb-3 p-3 border border-amber-200 dark:border-amber-900">
+                          <div className="space-y-2">
+                            <h4 className="font-medium text-sm text-gray-800 dark:text-gray-200 line-clamp-2">
+                              {poll.question}
+                            </h4>
+                            <div className="space-y-1">
+                              {poll.options && poll.options.map((option: string, idx: number) => (
+                                <div key={idx} className="text-xs text-gray-600 dark:text-gray-400 p-1 bg-gray-100 dark:bg-gray-800 rounded">
+                                  {idx + 1}. {option}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white h-7 text-xs"
+                                onClick={() => handleApproveQuestion(poll._id)}
+                              >
+                                <Check size={14} className="mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white h-7 text-xs"
+                                onClick={() => {
+                                  const reason = prompt('Rejection reason (optional):');
+                                  if (reason !== null) {
+                                    handleRejectQuestion(poll._id, reason);
+                                  }
+                                }}
+                              >
+                                <X size={14} className="mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        </Card>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                        <p className="text-sm">No pending questions</p>
                       </div>
                     )
                   )}
