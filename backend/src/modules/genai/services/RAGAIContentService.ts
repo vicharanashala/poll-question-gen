@@ -4,12 +4,6 @@ import { extractJSONFromMarkdown } from '../utils/extractJSONFromMarkdown.js';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { aiConfig } from '#root/config/ai.js';
 
-// --- Type Definitions ---
-export interface TranscriptSegment {
-  end_time: string;
-  transcript_lines: string[];
-}
-
 export interface GeneratedQuestion {
   segmentId?: string;
   questionType?: string;
