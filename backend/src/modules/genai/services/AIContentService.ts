@@ -44,7 +44,7 @@ export class AIContentService {
   
   private getRequestConfig(): AxiosRequestConfig {
     const config: AxiosRequestConfig = {
-      timeout: 180000, // 3 min request timeout
+      timeout: 600000, // 10 min request timeout for slow local models
     };
     
     try {

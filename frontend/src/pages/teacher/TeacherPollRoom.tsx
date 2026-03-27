@@ -410,6 +410,7 @@ export default function TeacherPollRoom() {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [language, setLanguage] = useState<SupportedLanguage>("en-IN");
   const [autoGenInterval, setAutoGenInterval] = useState<number>(30); // Default 30s
+  const [timeUntilNextGen, setTimeUntilNextGen] = useState<number>(30);
   const [isCustomInterval, setIsCustomInterval] = useState(false);
   const [isIntervalLocked, setIsIntervalLocked] = useState(false);
   const [customIntervalInput, setCustomIntervalInput] = useState<string>("30");
@@ -440,8 +441,9 @@ export default function TeacherPollRoom() {
 
   // UI state for queued question viewer shown after mic stops
   const [_showQueuedViewer, setShowQueuedViewer] = useState(false);
-  const [_queuedViewerIndex, setQueuedViewerIndex] = useState(0);
+  const [queuedViewerIndex, setQueuedViewerIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastGenError, setLastGenError] = useState<string | null>(null);
   const [_isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   // Question card state
@@ -721,6 +723,8 @@ export default function TeacherPollRoom() {
   const processPendingQueue = useCallback(async () => {
     if (processingQueueRef.current) return;
     processingQueueRef.current = true;
+    setIsProcessing(true);
+    setLastGenError(null);
 
 
     while (pendingTextChunksRef.current.length > 0) {
@@ -731,7 +735,7 @@ export default function TeacherPollRoom() {
         formData.append('transcript', chunk);
         if (questionSpec) formData.append('questionSpec', questionSpec);
         formData.append('model', selectedModel);
-        formData.append('questionCount', questionCount.toString());
+        formData.append('questionCount', '1');
 
         const response = await api.post(`/livequizzes/rooms/${roomCode}/generate-questions`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
@@ -761,14 +765,18 @@ export default function TeacherPollRoom() {
         if (filteredQuestions.length > 0) {
           queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
           setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
+          setLastGenError(null);
         }
-      } catch (err) {
-        // Failed to process queued chunk
+      } catch (err: any) {
+        console.error('[processPendingQueue] Chunk processing failed:', err);
+        const errorMsg = err.response?.data?.message || err.message || "Failed to generate questions";
+        setLastGenError(errorMsg);
       }
     }
 
     processingQueueRef.current = false;
-  }, [questionSpec, selectedModel, questionCount, roomCode, filterQuestionOptions]);
+    setIsProcessing(false);
+  }, [questionSpec, selectedModel, roomCode, filterQuestionOptions]);
 
   // Enqueue a text chunk and start processing the queue
   const enqueueTextChunk = useCallback((textChunk: string) => {
@@ -880,7 +888,7 @@ export default function TeacherPollRoom() {
         recognitionRef.current.stop();
       }
 
-      if (audioContextRef.current) {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
       }
 
@@ -1041,12 +1049,14 @@ export default function TeacherPollRoom() {
     if (!isRecording && !isLiveRecordingActive) {
       // Keep it updated so that when recording starts, it's fresh
       lastGenerationTimeRef.current = Date.now();
+      setTimeUntilNextGen(autoGenInterval);
       return;
     }
 
     const intervalId = setInterval(() => {
       const now = Date.now();
       const elapsedSeconds = (now - lastGenerationTimeRef.current) / 1000;
+      setTimeUntilNextGen(Math.max(0, Math.ceil(autoGenInterval - elapsedSeconds)));
 
       if (elapsedSeconds >= autoGenInterval) {
         // Build the current transcript buffer based on active mode
@@ -1744,7 +1754,9 @@ export default function TeacherPollRoom() {
     const [isOpen, setIsOpen] = useState(false);
 
     const models = [
-      { value: "gemma3", label: "Gemma 3" },
+      { value: "gemma3", label: "Gemma 3 (Local)" },
+      { value: "llama3.2:1b", label: "Llama 3.2 1B (Fast, Local)" },
+      { value: "llama3.2:3b", label: "Llama 3.2 3B (Balanced, Local)" },
       { value: "gpt-4", label: "GPT-4" },
       { value: "claude-3", label: "Claude 3" },
       { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
@@ -2580,7 +2592,7 @@ export default function TeacherPollRoom() {
                           <AlertTriangle size={20} />
                           End Room Confirmation
                         </CardTitle>
-                      </CardHeader>r
+                      </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-gray-700 dark:text-gray-300">
                           Are you sure you want to end this room? This action cannot be undone.
@@ -2625,100 +2637,8 @@ export default function TeacherPollRoom() {
                 {/* GenAI Tab */}
                 <div className="flex-1 px-1 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
                   <ScrollArea className="h-full pe-3">
-                    {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
-              <Card className="mb-6 border border-purple-200 dark:border-purple-900/50 bg-gradient-to-br from-purple-50/50 to-white dark:from-gray-900/50 dark:to-gray-900">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                    <Wand2 className="h-5 w-5" />
-                    Generated Questions
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Review and manage your AI-generated questions
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {queuedGeneratedQuestions.map((q, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-4 rounded-lg border transition-all duration-200 ${idx === queuedViewerIndex
-                          ? 'border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 scale-[1.01] shadow-sm'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-purple-200 dark:hover:border-purple-800/70 bg-white dark:bg-gray-800/50'
-                          }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">
-                              Q{idx + 1}: {q.question}
-                            </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {q.options.map((opt, optIdx) => (
-                                <div
-                                  key={optIdx}
-                                  className={`p-2 rounded text-sm ${optIdx === q.correctOptionIndex
-                                    ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
-                                    : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
-                                    }`}
-                                >
-                                  {opt || `Option ${optIdx + 1}`}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-3 text-xs border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
-                              onClick={() => {
-                                setQuestion(q.question);
-                                setOptions(q.options);
-                                setCorrectOptionIndex(q.correctOptionIndex);
-                                toast.success('Question loaded into the form');
-                              }}
-                            >
-                              Use This
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 px-3 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              onClick={() => {
-                                const newQuestions = [...queuedGeneratedQuestions];
-                                newQuestions.splice(idx, 1);
-                                setQueuedGeneratedQuestions(newQuestions);
-                                queuedGeneratedQuestionsRef.current = newQuestions;
-                                toast.success('Question removed');
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    {/* Intentionally empty - questions shown in floating panel */}
 
-                  <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <div className="text-sm text-muted-foreground">
-                      {queuedGeneratedQuestions.length} question{queuedGeneratedQuestions.length !== 1 ? 's' : ''} generated
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      onClick={() => {
-                        setQueuedGeneratedQuestions([]);
-                        queuedGeneratedQuestionsRef.current = [];
-                        toast.success('All questions cleared');
-                      }}
-                    >
-                      Clear All
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )} */}
                     {!showPollModal && !showResultsModal && (
 
                       <div className="space-y-4 sm:space-y-6">
@@ -2729,6 +2649,11 @@ export default function TeacherPollRoom() {
                                 <CardTitle className="flex items-center gap-2 text-base">
                                   <Volume2 className="h-4 w-4 text-purple-500" />
                                   Voice Recorder
+                                  {(isRecording || isLiveRecordingActive) && (
+                                    <span className="text-sm font-normal text-muted-foreground ml-2">
+                                  {isProcessing ? '(Generating...)' : `(Auto-gen in: ${timeUntilNextGen}s)`}
+                                    </span>
+                                  )}
                                 </CardTitle>
 
                                 <div className="flex items-center gap-2">
@@ -3233,29 +3158,6 @@ export default function TeacherPollRoom() {
                                       </Button>
                                     </div>
                                   </div>
-
-                                  {/* File Preview */}
-                                  {textFileContent && (
-                                    <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                                      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                                        <div className="flex justify-between items-center">
-                                          <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                            Preview
-                                          </h4>
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                                            {textFileContent.length} characters
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <div className="p-4 bg-white dark:bg-gray-800 max-h-60 overflow-y-auto">
-                                        <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
-                                          {textFileContent.length > 1000
-                                            ? `${textFileContent.substring(0, 1000)}... [${textFileContent.length - 1000} more characters]`
-                                            : textFileContent}
-                                        </pre>
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               )}
 
@@ -3381,6 +3283,25 @@ export default function TeacherPollRoom() {
                                       />
                                       <p className="text-xs text-muted-foreground">
                                         Specify how many questions to generate (1-20)
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium text-muted-foreground">Auto-Gen Interval (seconds)</label>
+                                      <Input
+                                        type="number"
+                                        placeholder="e.g., 30"
+                                        value={autoGenInterval}
+                                        min={5}
+                                        max={300}
+                                        onChange={(e) => {
+                                          const val = Math.max(5, Number(e.target.value));
+                                          setAutoGenInterval(val);
+                                          setTimeUntilNextGen(val);
+                                        }}
+                                        className="text-xs sm:text-base"
+                                      />
+                                      <p className="text-xs text-muted-foreground">
+                                        How often (in seconds) a question is auto-generated from live speech
                                       </p>
                                     </div>
                                     <div className="space-y-2">
@@ -3776,8 +3697,8 @@ export default function TeacherPollRoom() {
                   </ScrollArea>
                 </div>
 
-                {/* Loading Overlay */}
-                {isProcessing && (
+                {/* Loading Overlay - Removed to prevent UI blocking. Status is shown in right sidebar. */}
+                {/* {isProcessing && (
                   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
                       <div className="flex flex-col items-center space-y-4">
@@ -3789,7 +3710,7 @@ export default function TeacherPollRoom() {
                       </div>
                     </div>
                   </div>
-                )}
+                )} */}
 
                 {/* Create Poll  */}
                 {showPollModal && (
@@ -4347,8 +4268,7 @@ export default function TeacherPollRoom() {
             setShouldProcessTranscript(false);
             setIsTranscriptionSettling(false);
           }}
-          submitText={"Load"}
-          
+                    submitText={"Load"}
           submitEnabled={
             !!(
               audioBlob !== undefined && 
@@ -4361,18 +4281,142 @@ export default function TeacherPollRoom() {
             processAudioBlob();
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
-           // generateQuestions()
-           setIsTranscriptionSettling(false);
-           setShouldProcessTranscript(true);
-           
-           
+            setIsTranscriptionSettling(false);
+            setShouldProcessTranscript(true);
           }}
-        />*/}
-            </div>
+        />
           </div>
+          {/* ── Right AI Results Sidebar ── */}
+          {(isProcessing || queuedGeneratedQuestions.length > 0 || lastGenError) && (
+            <div className="w-80 border-l border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 flex flex-col h-full transition-all duration-300">
+              <div className="p-4 flex flex-col h-full overflow-hidden">
+                {/* Generating indicator */}
+                {isProcessing && (
+                  <div className="bg-white dark:bg-gray-900 border border-purple-300 dark:border-purple-700 rounded-xl shadow-lg px-4 py-3 mb-4 flex items-center gap-3 animate-pulse">
+                    <Loader2 className="h-5 w-5 text-purple-500 animate-spin flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-purple-700 dark:text-purple-300">AI Generating…</p>
+                      <p className="text-xs text-muted-foreground whitespace-nowrap">Processing speech history</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Indicator */}
+                {lastGenError && !isProcessing && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                    <div className="overflow-hidden">
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-400">Generation Failed</p>
+                      <p className="text-[10px] text-red-600 dark:text-red-400 line-clamp-2 leading-tight">
+                        {lastGenError}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="link"
+                        className="h-auto p-0 text-[10px] text-red-500 hover:text-red-600 underline"
+                        onClick={() => setLastGenError(null)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Generated questions list */}
+                {queuedGeneratedQuestions.length > 0 ? (
+                  <div className="bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800 rounded-xl shadow-md overflow-hidden flex flex-col flex-1">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-purple-50 to-white dark:from-purple-900/30 dark:to-gray-900">
+                      <div className="flex items-center gap-2">
+                        <Wand2 className="h-4 w-4 text-purple-500" />
+                        <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">AI Results</span>
+                        <span className="text-xs bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded-full font-medium">
+                          {queuedGeneratedQuestions.length}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => {
+                          setQueuedGeneratedQuestions([]);
+                          queuedGeneratedQuestionsRef.current = [];
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+
+                    {/* Scrollable question list */}
+                    <ScrollArea className="flex-1 overflow-y-auto">
+                      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {queuedGeneratedQuestions.map((q, idx) => (
+                          <div key={idx} className="p-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors">
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 leading-snug">
+                              {q.question}
+                            </p>
+                            <div className="flex flex-col gap-1 mb-3">
+                              {q.options.map((opt, optIdx) => (
+                                <div
+                                  key={optIdx}
+                                  className={`px-2 py-1 rounded text-[10px] sm:text-xs ${
+                                    optIdx === q.correctOptionIndex
+                                      ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
+                                      : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
+                                  }`}
+                                >
+                                  {opt || `Option ${optIdx + 1}`}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="flex-1 h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white"
+                                onClick={() => {
+                                  setQuestion(q.question);
+                                  setOptions(q.options);
+                                  setCorrectOptionIndex(q.correctOptionIndex);
+                                  toast.success('Question loaded to form');
+                                }}
+                              >
+                                Load into form
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                onClick={() => {
+                                  const newQ = [...queuedGeneratedQuestions];
+                                  newQ.splice(idx, 1);
+                                  setQueuedGeneratedQuestions(newQ);
+                                  queuedGeneratedQuestionsRef.current = newQ;
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                ) : (
+                  !lastGenError && (
+                    <div className="flex-1 flex flex-col items-center justify-center opacity-40 text-center px-4">
+                      <Wand2 className="h-8 w-8 mb-2 text-purple-400" />
+                      <p className="text-xs">No questions yet. Keep talking to generate questions automatically.</p>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <ConfirmationModal {...modalProps} />
+    </div>
+    </div>
     </div>
   );
 }
