@@ -30,10 +30,12 @@
   "license": "ISC",
   "packageManager": "pnpm@10.12.1",
   "dependencies": {
+    "@google/genai": "^1.46.0",
     "@scalar/api-reference": "^1.32.1",
     "@scalar/express-api-reference": "^0.8.7",
     "@sentry/node": "^9.40.0",
     "axios": "1.10.0",
+    "body-parser": "^2.2.2",
     "chalk": "^5.4.1",
     "class-transformer": "0.5.1",
     "class-validator": "^0.14.2",

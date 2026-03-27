@@ -105,12 +105,16 @@ app.use(function onError(err, req, res, next) {
   } catch (sentryError) {
     console.error('Failed to capture error with Sentry:', sentryError);
   }
-  
-  res.status(500).json({
-    error: err.message,
-    sentryEventId: eventId || 'unknown',
-    timestamp: new Date().toISOString()
-  });
+
+  if (!res.headersSent) {
+    return res.status(500).json({
+      error: err.message,
+      sentryEventId: eventId || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  next(err);
 });
 
 async function startServer() {
