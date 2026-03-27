@@ -5,13 +5,13 @@
         "moduleResolution": "nodenext",
         "lib": ["ESNext"],
         "outDir": "build",
-        "rootDir": "src", // Changed back to "." to include scripts directory
+        "rootDir": "src",
         "sourceMap": true,
         "strict": false,
         "esModuleInterop": true,
         "sourceRoot": "./src",
         "resolveJsonModule": true,
-        "allowArbitraryExtensions": false,
+
         "incremental": true,
         "paths": {
             "#root/*": ["./*"],
@@ -19,9 +19,9 @@
             "#auth/*": ["./modules/auth/*"],
             "#genai/*": ["./modules/genai/*"],
             "#users/*": ["./modules/users/*"],
-            "#livequizzes/*": ["./modules/livequizzes/*"],
+            "#livequizzes/*": ["./modules/livequizzes/*"]
         },
-        "types": ["node", "express", "routing-controllers", "routing-controllers-openapi"],        
+        "types": ["node", "express"],        
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
         "noEmitOnError": true,

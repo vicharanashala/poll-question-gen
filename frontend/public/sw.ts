@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 // Service Worker for PollGen PWA
 
 const CACHE_NAME = 'pollgen-v1';
@@ -10,7 +12,7 @@ const PRECACHE_URLS = [
 ];
 
 // Install event - cache the application shell
-self.addEventListener('install', (event) => {
+self.addEventListener('install', (event: any) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -21,7 +23,7 @@ self.addEventListener('install', (event) => {
 });
 
 // Activate event - clean up old caches
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', (event: any) => {
   const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -37,7 +39,7 @@ self.addEventListener('activate', (event) => {
 });
 
 // Fetch event - serve from cache, falling back to network
-self.addEventListener('fetch', (event) => {
+self.addEventListener('fetch', (event: any) => {
   // Skip cross-origin requests, like those for Google Analytics
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
@@ -84,8 +86,8 @@ self.addEventListener('fetch', (event) => {
 });
 
 // Listen for messages from the main thread
-self.addEventListener('message', (event) => {
+self.addEventListener('message', (event: any) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+    (self as any).skipWaiting();
   }
 });
