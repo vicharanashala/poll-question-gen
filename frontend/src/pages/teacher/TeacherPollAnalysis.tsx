@@ -1,328 +1,328 @@
-import { useRef, useState, useEffect } from "react";
+
+// interface Participant {
+//   name: string;
+//   score: number;
+//   correct: number;
+//   wrong: number;
+//   timeTaken: string;
+// }
+
+// interface Question {
+//   text: string;
+//   correctCount: number;
+// }
+
+// interface AnalysisData {
+//   id: string;
+//   name: string;
+//   createdAt: string;
+//   duration: string;
+//   participants: Participant[];
+//   questions: Question[];
+// }
+
+// const scoreRanges = [
+//   { label: "90–100", min: 90, max: 100, color: "#10b981" },
+//   { label: "80–89", min: 80, max: 89, color: "#6366f1" },
+//   { label: "70–79", min: 70, max: 79, color: "#f59e0b" },
+//   { label: "60–69", min: 60, max: 69, color: "#ef4444" },
+// ];
+
+// export default function TeacherPollAnalysis() {
+//   const ref = useRef<HTMLDivElement>(null);
+//   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
+
+//   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+//   const [loading, setLoading] = useState(true);
+//   const [error, setError] = useState<string | null>(null);
+//   const [search, setSearch] = useState("");
+
+//   useEffect(() => {
+//     const fetchAnalysisData = async () => {
+//       try {
+//         setLoading(true);
+//         // Note: Update this URL to match your backend base URL
+//         const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
+//         const result = response.data;
+
+//         if (result.success) {
+//           setAnalysisData(result.data);
+//         } else {
+//           throw new Error('Failed to get analysis data');
+//         }
+//       } catch (err) {
+//         if (err instanceof Error) {
+//           setError(err.message);
+//         }
+//         console.error('Error fetching analysis data:', err);
+//       } finally {
+//         setLoading(false);
+//       }
+//     };
+
+//     if (roomId) {
+//       fetchAnalysisData();
+//     }
+//   }, [roomId]);
+
+//   if (loading) {
+//     return (
+//       <div className="flex items-center justify-center min-h-screen">
+//         <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+//         <span className="ml-2 text-lg">Loading analysis data...</span>
+//       </div>
+//     );
+//   }
+
+//   if (error) {
+//     return (
+//       <div className="flex items-center justify-center min-h-screen">
+//         <div className="text-center">
+//           <p className="text-red-600 text-lg mb-4">Error: {error}</p>
+//           <button
+//             onClick={() => window.location.reload()}
+//             className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+//           >
+//             Retry
+//           </button>
+//         </div>
+//       </div>
+//     );
+//   }
+
+//   if (!analysisData) {
+//     return (
+//       <div className="flex items-center justify-center min-h-screen">
+//         <p className="text-gray-600 text-lg">No analysis data available</p>
+//       </div>
+//     );
+//   }
+
+//   const participants = analysisData.participants.sort((a, b) => b.score - a.score);
+//   const top3 = participants.slice(0, 3);
+//   const others = participants.slice(3);
+
+//   const filteredParticipants = [...top3, ...others].filter((p) =>
+//     p.name.toLowerCase().includes(search.toLowerCase())
+//   );
+
+//   const totalCorrect = participants.reduce((s, p) => s + p.correct, 0);
+//   const totalWrong = participants.reduce((s, p) => s + p.wrong, 0);
+//   const pieData = [
+//     { name: "Correct", value: totalCorrect, color: "#34d399" },
+//     { name: "Wrong", value: totalWrong, color: "#f87171" },
+//   ];
+
+//   const scoreRangeData = scoreRanges.map((range) => ({
+//     name: range.label,
+//     count: participants.filter((p) => p.score >= range.min && p.score <= range.max).length,
+//     color: range.color,
+//   }));
+
+//   const downloadExcel = () => {
+//     const data = participants.map((p, index) => ({
+//       Rank: index + 1,
+//       Name: p.name,
+//       Score: p.score,
+//       Correct: p.correct,
+//       Wrong: p.wrong,
+//       "Time Taken": p.timeTaken,
+//     }));
+//     const ws = XLSX.utils.json_to_sheet(data);
+//     const wb = XLSX.utils.book_new();
+//     XLSX.utils.book_append_sheet(wb, ws, "Analysis");
+//     const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]);
+//     saveAs(blob, `${analysisData.name}-analysis.xlsx`);
+//   };
+
+//   // Format date if it's a string
+//   const formatDate = (dateString: string | Date) => {
+//     if (!dateString) return 'N/A';
+//     const date = new Date(dateString);
+//     return date.toLocaleDateString();
+//   };
+
+//   return (
+//     <div
+//       className="p-6 space-y-8 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900"
+//       ref={ref}
+//     >
+//       {/* Room Details */}
+//       <Card className="shadow-lg border border-purple-300 bg-white dark:bg-slate-800">
+//         <CardHeader>
+//           <CardTitle className="text-2xl text-purple-600 dark:text-purple-300">Room: {analysisData.name}</CardTitle>
+//         </CardHeader>
+//         <CardContent className="flex gap-8 flex-wrap text-gray-800 dark:text-gray-200">
+//           <div className="flex gap-2 items-center"><Calendar /> {formatDate(analysisData.createdAt)}</div>
+//           <div className="flex gap-2 items-center"><Clock4 /> Duration: {analysisData.duration}</div>
+//           <div className="flex gap-2 items-center"><Users /> Total Participants: {participants.length}</div>
+//         </CardContent>
+//       </Card>
+
+//       {/* Top Performers */}
+//       <div className="grid md:grid-cols-3 gap-4">
+//         {top3.map((p, i) => {
+//           const Icon = i === 0 ? Crown : Medal;
+//           const badge = ["🥇", "🥈", "🥉"][i];
+//           const bgLight = ["bg-yellow-100", "bg-yellow-200", "bg-yellow-50"];
+//           const bgDark = ["dark:bg-yellow-900", "dark:bg-yellow-800", "dark:bg-yellow-700"];
+//           return (
+//             <Card
+//               key={p.name}
+//               className={`
+//           shadow-lg dark:shadow-yellow-800 border border-yellow-300 
+//           ${bgLight[i]} ${bgDark[i]} 
+//           text-gray-800 dark:text-yellow-100
+//         `}
+//             >
+//               <CardHeader className="flex gap-2 items-center">
+//                 <Icon className="text-yellow-500" />
+//                 <CardTitle className="text-yellow-700 dark:text-yellow-300">{badge} {p.name}</CardTitle>
+//               </CardHeader>
+//               <CardContent className="space-y-1 text-sm">
+//                 <p>Score: {p.score}</p>
+//                 <p>Correct/Wrong: {p.correct}/{p.wrong}</p>
+//                 <p>Time: {p.timeTaken}</p>
+//               </CardContent>
+//             </Card>
+//           );
+//         })}
+//       </div>
+
+
+//       {/* Participant List */}
+//       <Card className="shadow border border-indigo-300 bg-white dark:bg-slate-800">
+//         <CardHeader>
+//           <CardTitle className="text-indigo-700 dark:text-indigo-300">Participant Performance</CardTitle>
+//           <div className="mt-2 flex items-center gap-2">
+//             <Search className="w-4 h-4 text-gray-500" />
+//             <input
+//               type="text"
+//               placeholder="Search by name..."
+//               value={search}
+//               onChange={(e) => setSearch(e.target.value)}
+//               className="p-1 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm bg-white dark:bg-slate-700 dark:text-white"
+//             />
+//           </div>
+//         </CardHeader>
+//         <CardContent className="max-h-96 overflow-y-auto divide-y rounded scrollbar-thin scrollbar-thumb-purple-500">
+//           <div className="grid grid-cols-5 p-2 font-semibold text-purple-700 dark:text-purple-300 text-sm border-b">
+//             <span>Name</span>
+//             <span>Score</span>
+//             <span>Correct</span>
+//             <span>Wrong</span>
+//             <span>Time Taken</span>
+//           </div>
+//           {filteredParticipants.map((p, i) => (
+//             <div
+//               key={i}
+//               className={`grid grid-cols-5 items-center p-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition ${i === 0 ? "bg-yellow-50 dark:bg-yellow-900" : i === 1 ? "bg-slate-100 dark:bg-slate-800" : i === 2 ? "bg-orange-50 dark:bg-orange-900" : ""
+//                 }`}
+//             >
+//               <span>{["🥇", "🥈", "🥉"][i] || ""} {p.name}</span>
+//               <span>{p.score}</span>
+//               <span>{p.correct}</span>
+//               <span>{p.wrong}</span>
+//               <span>{p.timeTaken}</span>
+//             </div>
+//           ))}
+//         </CardContent>
+//       </Card>
+
+//       {/* Pie Chart */}
+//       <Card className="shadow border border-purple-300 bg-white dark:bg-slate-800">
+//         <CardHeader>
+//           <CardTitle className="text-green-600 dark:text-green-400">Overall Answer Accuracy</CardTitle>
+//         </CardHeader>
+//         <CardContent className="flex justify-center">
+//           <PieChart width={300} height={300}>
+//             <Pie
+//               data={pieData}
+//               dataKey="value"
+//               nameKey="name"
+//               outerRadius={100}
+//               label
+//             >
+//               {pieData.map((entry, index) => (
+//                 <Cell key={`cell-${index}`} fill={entry.color} />
+//               ))}
+//             </Pie>
+//             <Tooltip />
+//             <Legend />
+//           </PieChart>
+//         </CardContent>
+//       </Card>
+
+//       {/* Score Distribution */}
+//       <Card className="shadow border border-green-300 bg-white dark:bg-slate-800">
+//         <CardHeader>
+//           <CardTitle className="text-emerald-700 dark:text-emerald-400">Score Distribution</CardTitle>
+//         </CardHeader>
+//         <CardContent className="space-y-2">
+//           {scoreRangeData.map((r, i) => (
+//             <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
+//               <span>{r.name}</span>
+//               <div className="h-3 w-1/2 bg-gray-200 rounded">
+//                 <div
+//                   className="h-3 rounded"
+//                   style={{ width: `${(r.count / participants.length) * 100}%`, backgroundColor: r.color }}
+//                 />
+//               </div>
+//               <span>{r.count}</span>
+//             </div>
+//           ))}
+//         </CardContent>
+//       </Card>
+
+//       {/* Question-Level Analysis */}
+//       <Card className="shadow border border-pink-300 bg-white dark:bg-slate-800">
+//         <CardHeader>
+//           <CardTitle className="text-pink-700 dark:text-pink-300">Question-Level Analysis</CardTitle>
+//         </CardHeader>
+//         <CardContent className="space-y-2">
+//           {analysisData.questions.map((q, i) => (
+//             <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
+//               <span>Q{i + 1}: {q.text.substring(0, 50)}{q.text.length > 50 ? '...' : ''}</span>
+//               <div className="h-2 w-1/2 bg-gray-200 rounded">
+//                 <div
+//                   className="h-2 rounded bg-pink-500"
+//                   style={{ width: `${(q.correctCount / participants.length) * 100}%` }}
+//                 />
+//               </div>
+//               <span>{q.correctCount} correct</span>
+//             </div>
+//           ))}
+//         </CardContent>
+//       </Card>
+
+//       {/* Download Button */}
+//       <div className="text-center mt-4">
+//         <button
+//           onClick={downloadExcel}
+//           className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 transition"
+//         >
+//           Download as Excel
+//         </button>
+//       </div>
+//           <MainApp />
+//     </div>
+//   );
+// }
+
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Calendar, Clock4, Users, Crown, Medal, Search, Loader2, FileSpreadsheet, Hash, Shield } from "lucide-react";
+import {
+  Calendar, Clock4, Users, Crown, Medal, Search, Loader2, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
+  TrendingUp, TrendingDown, AlertCircle,
+  Filter, ChevronDown, Zap, Plus
+} from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import api from "@/lib/api/api";
+import { DashboardData } from "@/shared/types";
 
-interface Participant {
-  name: string;
-  score: number;
-  correct: number;
-  wrong: number;
-  timeTaken: string;
-}
-
-interface Question {
-  text: string;
-  correctCount: number;
-}
-
-interface AnalysisData {
-  id: string;
-  name: string;
-  createdAt: string;
-  duration: string;
-  participants: Participant[];
-  questions: Question[];
-}
-
-const scoreRanges = [
-  { label: "90–100", min: 90, max: 100, color: "#10b981" },
-  { label: "80–89", min: 80, max: 89, color: "#6366f1" },
-  { label: "70–79", min: 70, max: 79, color: "#f59e0b" },
-  { label: "60–69", min: 60, max: 69, color: "#ef4444" },
-];
-
-export default function TeacherPollAnalysis() {
-  const ref = useRef<HTMLDivElement>(null);
-  const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
-
-  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    const fetchAnalysisData = async () => {
-      try {
-        setLoading(true);
-        // Note: Update this URL to match your backend base URL
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
-        const result = response.data;
-
-        if (result.success) {
-          setAnalysisData(result.data);
-        } else {
-          throw new Error('Failed to get analysis data');
-        }
-      } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        }
-        console.error('Error fetching analysis data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (roomId) {
-      fetchAnalysisData();
-    }
-  }, [roomId]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-        <span className="ml-2 text-lg">Loading analysis data...</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <p className="text-red-600 text-lg mb-4">Error: {error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!analysisData) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 text-lg">No analysis data available</p>
-      </div>
-    );
-  }
-
-  const participants = analysisData.participants.sort((a, b) => b.score - a.score);
-  const top3 = participants.slice(0, 3);
-  const others = participants.slice(3);
-
-  const filteredParticipants = [...top3, ...others].filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const totalCorrect = participants.reduce((s, p) => s + p.correct, 0);
-  const totalWrong = participants.reduce((s, p) => s + p.wrong, 0);
-  const pieData = [
-    { name: "Correct", value: totalCorrect, color: "#34d399" },
-    { name: "Wrong", value: totalWrong, color: "#f87171" },
-  ];
-
-  const scoreRangeData = scoreRanges.map((range) => ({
-    name: range.label,
-    count: participants.filter((p) => p.score >= range.min && p.score <= range.max).length,
-    color: range.color,
-  }));
-
-  const downloadExcel = () => {
-    const data = participants.map((p, index) => ({
-      Rank: index + 1,
-      Name: p.name,
-      Score: p.score,
-      Correct: p.correct,
-      Wrong: p.wrong,
-      "Time Taken": p.timeTaken,
-    }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Analysis");
-    const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]);
-    saveAs(blob, `${analysisData.name}-analysis.xlsx`);
-  };
-
-  // Format date if it's a string
-  const formatDate = (dateString: string | Date) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    return date.toLocaleDateString();
-  };
-
-  return (
-    <div
-      className="p-6 space-y-8 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900"
-      ref={ref}
-    >
-      {/* Room Details */}
-      <Card className="shadow-lg border border-purple-300 bg-white dark:bg-slate-800">
-        <CardHeader>
-          <CardTitle className="text-2xl text-purple-600 dark:text-purple-300">Room: {analysisData.name}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex gap-8 flex-wrap text-gray-800 dark:text-gray-200">
-          <div className="flex gap-2 items-center"><Calendar /> {formatDate(analysisData.createdAt)}</div>
-          <div className="flex gap-2 items-center"><Clock4 /> Duration: {analysisData.duration}</div>
-          <div className="flex gap-2 items-center"><Users /> Total Participants: {participants.length}</div>
-        </CardContent>
-      </Card>
-
-      {/* Top Performers */}
-      <div className="grid md:grid-cols-3 gap-4">
-        {top3.map((p, i) => {
-          const Icon = i === 0 ? Crown : Medal;
-          const badge = ["🥇", "🥈", "🥉"][i];
-          const bgLight = ["bg-yellow-100", "bg-yellow-200", "bg-yellow-50"];
-          const bgDark = ["dark:bg-yellow-900", "dark:bg-yellow-800", "dark:bg-yellow-700"];
-          return (
-            <Card
-              key={p.name}
-              className={`
-          shadow-lg dark:shadow-yellow-800 border border-yellow-300 
-          ${bgLight[i]} ${bgDark[i]} 
-          text-gray-800 dark:text-yellow-100
-        `}
-            >
-              <CardHeader className="flex gap-2 items-center">
-                <Icon className="text-yellow-500" />
-                <CardTitle className="text-yellow-700 dark:text-yellow-300">{badge} {p.name}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <p>Score: {p.score}</p>
-                <p>Correct/Wrong: {p.correct}/{p.wrong}</p>
-                <p>Time: {p.timeTaken}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-
-      {/* Participant List */}
-      <Card className="shadow border border-indigo-300 bg-white dark:bg-slate-800">
-        <CardHeader>
-          <CardTitle className="text-indigo-700 dark:text-indigo-300">Participant Performance</CardTitle>
-          <div className="mt-2 flex items-center gap-2">
-            <Search className="w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search by name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="p-1 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm bg-white dark:bg-slate-700 dark:text-white"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="max-h-96 overflow-y-auto divide-y rounded scrollbar-thin scrollbar-thumb-purple-500">
-          <div className="grid grid-cols-5 p-2 font-semibold text-purple-700 dark:text-purple-300 text-sm border-b">
-            <span>Name</span>
-            <span>Score</span>
-            <span>Correct</span>
-            <span>Wrong</span>
-            <span>Time Taken</span>
-          </div>
-          {filteredParticipants.map((p, i) => (
-            <div
-              key={i}
-              className={`grid grid-cols-5 items-center p-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition ${i === 0 ? "bg-yellow-50 dark:bg-yellow-900" : i === 1 ? "bg-slate-100 dark:bg-slate-800" : i === 2 ? "bg-orange-50 dark:bg-orange-900" : ""
-                }`}
-            >
-              <span>{["🥇", "🥈", "🥉"][i] || ""} {p.name}</span>
-              <span>{p.score}</span>
-              <span>{p.correct}</span>
-              <span>{p.wrong}</span>
-              <span>{p.timeTaken}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Pie Chart */}
-      <Card className="shadow border border-purple-300 bg-white dark:bg-slate-800">
-        <CardHeader>
-          <CardTitle className="text-green-600 dark:text-green-400">Overall Answer Accuracy</CardTitle>
-        </CardHeader>
-        <CardContent className="flex justify-center">
-          <PieChart width={300} height={300}>
-            <Pie
-              data={pieData}
-              dataKey="value"
-              nameKey="name"
-              outerRadius={100}
-              label
-            >
-              {pieData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
-        </CardContent>
-      </Card>
-
-      {/* Score Distribution */}
-      <Card className="shadow border border-green-300 bg-white dark:bg-slate-800">
-        <CardHeader>
-          <CardTitle className="text-emerald-700 dark:text-emerald-400">Score Distribution</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {scoreRangeData.map((r, i) => (
-            <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-              <span>{r.name}</span>
-              <div className="h-3 w-1/2 bg-gray-200 rounded">
-                <div
-                  className="h-3 rounded"
-                  style={{ width: `${(r.count / participants.length) * 100}%`, backgroundColor: r.color }}
-                />
-              </div>
-              <span>{r.count}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Question-Level Analysis */}
-      <Card className="shadow border border-pink-300 bg-white dark:bg-slate-800">
-        <CardHeader>
-          <CardTitle className="text-pink-700 dark:text-pink-300">Question-Level Analysis</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {analysisData.questions.map((q, i) => (
-            <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-              <span>Q{i + 1}: {q.text.substring(0, 50)}{q.text.length > 50 ? '...' : ''}</span>
-              <div className="h-2 w-1/2 bg-gray-200 rounded">
-                <div
-                  className="h-2 rounded bg-pink-500"
-                  style={{ width: `${(q.correctCount / participants.length) * 100}%` }}
-                />
-              </div>
-              <span>{q.correctCount} correct</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Download Button */}
-      <div className="text-center mt-4">
-        <button
-          onClick={downloadExcel}
-          className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 transition"
-        >
-          Download as Excel
-        </button>
-      </div>
-          <MainApp />
-    </div>
-  );
-}
-
-import { useMemo } from 'react';
-import { 
-   Activity, Award, BarChart2, Clock, Target, 
-  TrendingUp, TrendingDown, AlertCircle, 
-  Filter, ChevronDown, Zap, Plus
-} from 'lucide-react';
 
 // --- MOCK DATA ---
 const ROOMS = [
@@ -517,7 +517,41 @@ const DraggableMenu = ({ activeTab, setActiveTab }) => {
 };
 
 // --- MAIN COMPONENT ---
-export function MainApp() {
+export default function TeacherPollAnalysis() {
+
+  const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
+
+   const [loading, setLoading] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
+
+    useEffect(() => {
+    const fetchAnalysisData = async () => {
+      try {
+        setLoading(true);
+        // Note: Update this URL to match your backend base URL
+        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
+        const result = response.data;
+        console.log('res:',result)
+        if (result.success) {
+          setAnalysisData(result.data.dashboard);
+        } else {
+          throw new Error('Failed to get analysis data');
+        }
+      } catch (err) {
+        if (err instanceof Error) {
+          setError(err.message);
+        }
+        console.error('Error fetching analysis data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (roomId) {
+      fetchAnalysisData();
+    }
+  }, [roomId]);
   const [activeTab, setActiveTab] = useState('overview');
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [selectedRoomId, setSelectedRoomId] = useState(ROOMS[0].id);
@@ -624,7 +658,7 @@ export function MainApp() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Students</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{currentSession.totalStudents}</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalStudents}</h3>
     </div>
     <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3">
       <Users size={24} />
@@ -634,7 +668,7 @@ export function MainApp() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Cohosts</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{currentSession.totalStudents}</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalStudents ?? 0}</h3>
     </div>
     <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3">
       <Shield size={24} />
@@ -644,7 +678,7 @@ export function MainApp() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Questions Asked</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{currentSession.questionsAsked}</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.questionsAsked ?? 0}</h3>
     </div>
     <div className="w-12 h-12 flex-shrink-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 ml-3">
       <BarChart2 size={24} />
@@ -654,7 +688,7 @@ export function MainApp() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Avg. Accuracy</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{currentSession.avgAccuracy}%</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview?.avgAccuracy ?? 0}%</h3>
     </div>
     <div className="w-12 h-12 flex-shrink-0 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400 ml-3">
       <Target size={24} />
@@ -664,7 +698,7 @@ export function MainApp() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Points Distributed</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{currentSession.pointsDistributed.toLocaleString()}</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview?.pointsDistributed ?? 0}</h3>
     </div>
     <div className="w-12 h-12 flex-shrink-0 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400 ml-3">
       <Award size={24} />
@@ -758,6 +792,12 @@ export function MainApp() {
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
                 <div className="flex items-center gap-1">Attempted {sortConfig.key === 'attempted' && <ChevronDown size={14} />}</div>
               </th>
+              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
+                <div className="flex items-center gap-1">UnAttempted {sortConfig.key === 'unAttempted' && <ChevronDown size={14} />}</div>
+              </th>
+              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
+                <div className="flex items-center gap-1">Missed {sortConfig.key === 'missed' && <ChevronDown size={14} />}</div>
+              </th>
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('correct')}>
                 <div className="flex items-center gap-1">Accuracy {sortConfig.key === 'correct' && <ChevronDown size={14} />}</div>
               </th>
@@ -767,14 +807,15 @@ export function MainApp() {
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('points')}>
                 <div className="flex items-center gap-1">Total Points {sortConfig.key === 'points' && <ChevronDown size={14} />}</div>
               </th>
-              <th className="p-4">Badges Earned</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-            {sortedAndFilteredStudents.map(student => (
-              <tr key={student.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
+            {analysisData?.students?.map(student => (
+              <tr key={student.studentId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                 <td className="p-4 font-medium text-slate-800 dark:text-slate-100">{student.name}</td>
-                <td className="p-4">{student.attempted} / {currentSession.questionsAsked}</td>
+                <td className="p-4">{student.attempted} / {analysisData?.overview?.questionsAsked ?? 0}</td>
+                <td className="p-4">{student.unAttempted} / {analysisData?.overview?.questionsAsked ?? 0}</td>
+                <td className="p-4">{student.missed} / {analysisData?.overview?.questionsAsked ?? 0}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-2">
                     <span className="w-10">{Math.round((student.correct/student.attempted)*100)}%</span>
@@ -791,16 +832,6 @@ export function MainApp() {
                 </td>
                 <td className="p-4 text-slate-500 dark:text-slate-400">{student.avgTime}</td>
                 <td className="p-4 font-bold text-indigo-600 dark:text-indigo-400">{student.points.toLocaleString()}</td>
-                <td className="p-4">
-                  <div className="flex gap-1 flex-wrap">
-                    {student.badges.map(b => (
-                      <span key={b} className="inline-flex items-center px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-xs font-medium text-slate-700 dark:text-slate-300">
-                        {b}
-                      </span>
-                    ))}
-                    {student.badges.length === 0 && <span className="text-slate-400 dark:text-slate-600 text-xs">-</span>}
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -811,13 +842,13 @@ export function MainApp() {
 
   const QuestionsTab = () => (
     <div className="space-y-4">
-      {questions.map((q, idx) => (
-        <div key={q.id} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 transition-colors">
+      {analysisData?.questions?.map((q, idx) => (
+        <div key={idx} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 transition-colors">
           <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 mb-4">
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <span className="text-sm font-bold text-slate-400 dark:text-slate-500">Q{idx + 1}</span>
-                {q.difficulty === 'High' && <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">High Difficulty</span>}
+                {q.difficulty === 'Hard' && <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800">High Difficulty</span>}
                 {q.engagement === 'Low' && <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">Low Engagement</span>}
               </div>
               <h4 className="text-lg font-medium text-slate-800 dark:text-white">{q.text}</h4>
@@ -825,7 +856,7 @@ export function MainApp() {
             <div className="flex gap-6 text-sm">
               <div className="text-center">
                 <p className="text-slate-500 dark:text-slate-400 mb-1">Responses</p>
-                <p className="font-bold text-slate-800 dark:text-white">{q.responses} <span className="text-slate-400 dark:text-slate-500 text-xs font-normal">/ {currentSession.totalStudents}</span></p>
+                <p className="font-bold text-slate-800 dark:text-white">{q.responses} <span className="text-slate-400 dark:text-slate-500 text-xs font-normal">/ {analysisData?.overview?.totalStudents ?? 0}</span></p>
               </div>
               <div className="text-center">
                 <p className="text-slate-500 dark:text-slate-400 mb-1">Avg Time</p>
@@ -869,16 +900,17 @@ export function MainApp() {
         <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Read-only view of badges awarded based on session rules.</p>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {ACHIEVEMENTS.map(ach => (
-            <div key={ach.id} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-5 border border-slate-100 dark:border-slate-700 text-center relative overflow-hidden group transition-colors">
+          {analysisData?.achievements?.badges?.map((ach, idx) => (
+            <div key={idx} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-5 border border-slate-100 dark:border-slate-700 text-center relative overflow-hidden group transition-colors">
               <div className="absolute top-0 right-0 w-16 h-16 bg-white dark:bg-slate-800 rounded-bl-full -mr-8 -mt-8 opacity-50 group-hover:scale-110 transition-transform"></div>
               <div className="w-14 h-14 mx-auto bg-white dark:bg-slate-800 rounded-full shadow-sm flex items-center justify-center mb-3 relative z-10 border border-slate-100 dark:border-slate-700">
-                {ach.icon}
+                {/* {ach.icon} */}
+                <Award className="text-yellow-500 w-6 h-6" />
               </div>
               <h4 className="font-bold text-slate-800 dark:text-white">{ach.name}</h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4 h-8">{ach.desc}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4 h-8">{ach.description}</p>
               <div className="inline-block bg-white dark:bg-slate-800 px-3 py-1 rounded-full text-sm font-bold text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-700">
-                {ach.count} Earned
+                {ach.earned} Earned
               </div>
             </div>
           ))}
@@ -886,13 +918,13 @@ export function MainApp() {
       </div>
       
       <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
-        <h3 className="text-md font-bold text-slate-800 dark:text-white mb-4">Recent Awards in {selectedRoom.name}</h3>
+        <h3 className="text-md font-bold text-slate-800 dark:text-white mb-4">Recent Awards in {`${analysisData?.overview.roomCode}-${analysisData?.overview.name}`}</h3>
         <div className="space-y-3">
-          {students.filter(s => s.badges.length > 0).slice(0, 5).map(student => (
-            <div key={student.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
+          {analysisData?.achievements?.students?.slice(0, 5).map((student, idx) => (
+            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
               <span className="font-medium text-slate-700 dark:text-slate-200">{student.name}</span>
               <div className="flex gap-2 flex-wrap">
-                {student.badges.map(b => (
+                {student.earnedBadges.map(b => (
                    <span key={b} className="flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold">
                      <Award size={12} /> {b}
                    </span>
@@ -900,7 +932,7 @@ export function MainApp() {
               </div>
             </div>
           ))}
-          {students.filter(s => s.badges.length > 0).length === 0 && (
+          {analysisData?.achievements?.students?.filter(s => s.earnedBadges.length > 0).length === 0 && (
              <div className="text-sm text-slate-500 dark:text-slate-400">No recent awards in this room.</div>
           )}
         </div>
@@ -917,17 +949,17 @@ export function MainApp() {
           {/* Room Name and Status Display */}
           <div className="flex items-center gap-3 mb-1.5">
             <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-              {selectedRoom?.name}
+              {`${analysisData?.overview.roomCode}-${analysisData?.overview.name}`}
             </h2>
             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 border ${
-              selectedRoom?.status === 'live' 
+              analysisData?.overview.status === 'active' 
                 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800' 
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
             }`}>
-              {selectedRoom?.status === 'live' && (
+              {analysisData?.overview.status === 'active' && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               )}
-              {selectedRoom?.status}
+              {analysisData?.overview.status}
             </span>
           </div>
 
@@ -937,25 +969,25 @@ export function MainApp() {
             <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
               <Hash size={14} className="text-indigo-500" />
               <span className="font-semibold text-slate-700 dark:text-slate-300">
-                {selectedRoom.code}
+                {analysisData?.overview.roomCode}
               </span>
             </div>
             
             {/* Created At */}
             <div className="flex items-center gap-1.5">
               <Calendar size={14} />
-              <span>{selectedRoom.createdAt}</span>
+              <span>{analysisData?.overview?.createdAt}</span>
             </div>
 
             {/* Duration or Running Time */}
             <div className="flex items-center gap-1.5">
-              <Clock size={14} className={selectedRoom.status === 'live' ? 'text-emerald-500' : ''} />
-              {selectedRoom.status === 'live' ? (
+              <Clock size={14} className={analysisData?.overview.status === 'active' ? 'text-emerald-500' : ''} />
+              {analysisData?.overview.status === 'active' ? (
                 <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  Running: {selectedRoom.runningTime}
+                  Running: {Date.now() - new Date(analysisData?.overview.createdAt).getTime()} ms
                 </span>
               ) : (
-                <span>Duration: {selectedRoom.duration}</span>
+                <span>Duration: {analysisData?.overview.endedAt}</span>
               )}
             </div>
           </div>
