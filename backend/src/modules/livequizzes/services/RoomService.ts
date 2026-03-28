@@ -419,6 +419,13 @@ export class RoomService {
             correct: "$stats.correct",
             incorrect: "$stats.incorrect",
             points: "$stats.points",
+            totalTime: {
+            $round: [
+            { $divide: ["$stats.totalTime", 1000] },
+              2
+              ]
+              },
+    
 
             avgTime: {
               $cond: [
@@ -443,9 +450,12 @@ export class RoomService {
                 },
                 "0s"
               ]
-            }
-          }
-        }
+            },
+            
+          },
+          
+        },
+        
       ],
 
       // =========================
@@ -672,10 +682,24 @@ export class RoomService {
       if (!roomResult.length) {
         throw new Error("Room not found");
       }
+      let students = roomResult[0].students;
+      students.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        return a.totalTime - b.totalTime;
+      });
+
+      let rank = 1;
+
+      students.forEach((s, i) => {
+        if (i > 0 && students[i].points !== students[i - 1].points) {
+          rank = i + 1;
+        }
+        s.rank = rank;
+      });
 
       const finalResult = {
         overview: roomResult[0].overview[0], // ✅ flattened
-        students: roomResult[0].students,
+        students,
         questions: roomResult[0].questions,
         achievements: achievementResult[0] || { badges: [], students: [] }
       };

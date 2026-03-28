@@ -66,7 +66,9 @@ export type StudentStats = {
   incorrect: number;
   points: number;
 
-  avgTime: string; // ✅ always present like "2.35s"
+  totalTime: number; // ✅ added (seconds)
+  avgTime: string;
+  rank: number; // ✅ added
 };
 
 // =========================
