@@ -13,6 +13,7 @@ import { saveAs } from "file-saver";
 import api from "@/lib/api/api";
 import { DashboardData } from "@/shared/types";
 import LiveTimer from "@/components/LiveTimer";
+import { formatDate } from "@/utils/formatDate";
 
 
 
@@ -600,7 +601,7 @@ export default function TeacherPollAnalysis() {
             {/* Created At */}
             <div className="flex items-center gap-1.5">
               <Calendar size={14} />
-              <span>{analysisData?.overview?.createdAt}</span>
+              <span>{formatDate(analysisData?.overview?.createdAt ?? '')}</span>
             </div>
 
             {/* Duration or Running Time */}
