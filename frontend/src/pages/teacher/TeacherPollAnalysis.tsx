@@ -1,374 +1,21 @@
-
-// interface Participant {
-//   name: string;
-//   score: number;
-//   correct: number;
-//   wrong: number;
-//   timeTaken: string;
-// }
-
-// interface Question {
-//   text: string;
-//   correctCount: number;
-// }
-
-// interface AnalysisData {
-//   id: string;
-//   name: string;
-//   createdAt: string;
-//   duration: string;
-//   participants: Participant[];
-//   questions: Question[];
-// }
-
-// const scoreRanges = [
-//   { label: "90–100", min: 90, max: 100, color: "#10b981" },
-//   { label: "80–89", min: 80, max: 89, color: "#6366f1" },
-//   { label: "70–79", min: 70, max: 79, color: "#f59e0b" },
-//   { label: "60–69", min: 60, max: 69, color: "#ef4444" },
-// ];
-
-// export default function TeacherPollAnalysis() {
-//   const ref = useRef<HTMLDivElement>(null);
-//   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
-
-//   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-//   const [search, setSearch] = useState("");
-
-//   useEffect(() => {
-//     const fetchAnalysisData = async () => {
-//       try {
-//         setLoading(true);
-//         // Note: Update this URL to match your backend base URL
-//         const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
-//         const result = response.data;
-
-//         if (result.success) {
-//           setAnalysisData(result.data);
-//         } else {
-//           throw new Error('Failed to get analysis data');
-//         }
-//       } catch (err) {
-//         if (err instanceof Error) {
-//           setError(err.message);
-//         }
-//         console.error('Error fetching analysis data:', err);
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-
-//     if (roomId) {
-//       fetchAnalysisData();
-//     }
-//   }, [roomId]);
-
-//   if (loading) {
-//     return (
-//       <div className="flex items-center justify-center min-h-screen">
-//         <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-//         <span className="ml-2 text-lg">Loading analysis data...</span>
-//       </div>
-//     );
-//   }
-
-//   if (error) {
-//     return (
-//       <div className="flex items-center justify-center min-h-screen">
-//         <div className="text-center">
-//           <p className="text-red-600 text-lg mb-4">Error: {error}</p>
-//           <button
-//             onClick={() => window.location.reload()}
-//             className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
-//           >
-//             Retry
-//           </button>
-//         </div>
-//       </div>
-//     );
-//   }
-
-//   if (!analysisData) {
-//     return (
-//       <div className="flex items-center justify-center min-h-screen">
-//         <p className="text-gray-600 text-lg">No analysis data available</p>
-//       </div>
-//     );
-//   }
-
-//   const participants = analysisData.participants.sort((a, b) => b.score - a.score);
-//   const top3 = participants.slice(0, 3);
-//   const others = participants.slice(3);
-
-//   const filteredParticipants = [...top3, ...others].filter((p) =>
-//     p.name.toLowerCase().includes(search.toLowerCase())
-//   );
-
-//   const totalCorrect = participants.reduce((s, p) => s + p.correct, 0);
-//   const totalWrong = participants.reduce((s, p) => s + p.wrong, 0);
-//   const pieData = [
-//     { name: "Correct", value: totalCorrect, color: "#34d399" },
-//     { name: "Wrong", value: totalWrong, color: "#f87171" },
-//   ];
-
-//   const scoreRangeData = scoreRanges.map((range) => ({
-//     name: range.label,
-//     count: participants.filter((p) => p.score >= range.min && p.score <= range.max).length,
-//     color: range.color,
-//   }));
-
-//   const downloadExcel = () => {
-//     const data = participants.map((p, index) => ({
-//       Rank: index + 1,
-//       Name: p.name,
-//       Score: p.score,
-//       Correct: p.correct,
-//       Wrong: p.wrong,
-//       "Time Taken": p.timeTaken,
-//     }));
-//     const ws = XLSX.utils.json_to_sheet(data);
-//     const wb = XLSX.utils.book_new();
-//     XLSX.utils.book_append_sheet(wb, ws, "Analysis");
-//     const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]);
-//     saveAs(blob, `${analysisData.name}-analysis.xlsx`);
-//   };
-
-//   // Format date if it's a string
-//   const formatDate = (dateString: string | Date) => {
-//     if (!dateString) return 'N/A';
-//     const date = new Date(dateString);
-//     return date.toLocaleDateString();
-//   };
-
-//   return (
-//     <div
-//       className="p-6 space-y-8 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900"
-//       ref={ref}
-//     >
-//       {/* Room Details */}
-//       <Card className="shadow-lg border border-purple-300 bg-white dark:bg-slate-800">
-//         <CardHeader>
-//           <CardTitle className="text-2xl text-purple-600 dark:text-purple-300">Room: {analysisData.name}</CardTitle>
-//         </CardHeader>
-//         <CardContent className="flex gap-8 flex-wrap text-gray-800 dark:text-gray-200">
-//           <div className="flex gap-2 items-center"><Calendar /> {formatDate(analysisData.createdAt)}</div>
-//           <div className="flex gap-2 items-center"><Clock4 /> Duration: {analysisData.duration}</div>
-//           <div className="flex gap-2 items-center"><Users /> Total Participants: {participants.length}</div>
-//         </CardContent>
-//       </Card>
-
-//       {/* Top Performers */}
-//       <div className="grid md:grid-cols-3 gap-4">
-//         {top3.map((p, i) => {
-//           const Icon = i === 0 ? Crown : Medal;
-//           const badge = ["🥇", "🥈", "🥉"][i];
-//           const bgLight = ["bg-yellow-100", "bg-yellow-200", "bg-yellow-50"];
-//           const bgDark = ["dark:bg-yellow-900", "dark:bg-yellow-800", "dark:bg-yellow-700"];
-//           return (
-//             <Card
-//               key={p.name}
-//               className={`
-//           shadow-lg dark:shadow-yellow-800 border border-yellow-300 
-//           ${bgLight[i]} ${bgDark[i]} 
-//           text-gray-800 dark:text-yellow-100
-//         `}
-//             >
-//               <CardHeader className="flex gap-2 items-center">
-//                 <Icon className="text-yellow-500" />
-//                 <CardTitle className="text-yellow-700 dark:text-yellow-300">{badge} {p.name}</CardTitle>
-//               </CardHeader>
-//               <CardContent className="space-y-1 text-sm">
-//                 <p>Score: {p.score}</p>
-//                 <p>Correct/Wrong: {p.correct}/{p.wrong}</p>
-//                 <p>Time: {p.timeTaken}</p>
-//               </CardContent>
-//             </Card>
-//           );
-//         })}
-//       </div>
-
-
-//       {/* Participant List */}
-//       <Card className="shadow border border-indigo-300 bg-white dark:bg-slate-800">
-//         <CardHeader>
-//           <CardTitle className="text-indigo-700 dark:text-indigo-300">Participant Performance</CardTitle>
-//           <div className="mt-2 flex items-center gap-2">
-//             <Search className="w-4 h-4 text-gray-500" />
-//             <input
-//               type="text"
-//               placeholder="Search by name..."
-//               value={search}
-//               onChange={(e) => setSearch(e.target.value)}
-//               className="p-1 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm bg-white dark:bg-slate-700 dark:text-white"
-//             />
-//           </div>
-//         </CardHeader>
-//         <CardContent className="max-h-96 overflow-y-auto divide-y rounded scrollbar-thin scrollbar-thumb-purple-500">
-//           <div className="grid grid-cols-5 p-2 font-semibold text-purple-700 dark:text-purple-300 text-sm border-b">
-//             <span>Name</span>
-//             <span>Score</span>
-//             <span>Correct</span>
-//             <span>Wrong</span>
-//             <span>Time Taken</span>
-//           </div>
-//           {filteredParticipants.map((p, i) => (
-//             <div
-//               key={i}
-//               className={`grid grid-cols-5 items-center p-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition ${i === 0 ? "bg-yellow-50 dark:bg-yellow-900" : i === 1 ? "bg-slate-100 dark:bg-slate-800" : i === 2 ? "bg-orange-50 dark:bg-orange-900" : ""
-//                 }`}
-//             >
-//               <span>{["🥇", "🥈", "🥉"][i] || ""} {p.name}</span>
-//               <span>{p.score}</span>
-//               <span>{p.correct}</span>
-//               <span>{p.wrong}</span>
-//               <span>{p.timeTaken}</span>
-//             </div>
-//           ))}
-//         </CardContent>
-//       </Card>
-
-//       {/* Pie Chart */}
-//       <Card className="shadow border border-purple-300 bg-white dark:bg-slate-800">
-//         <CardHeader>
-//           <CardTitle className="text-green-600 dark:text-green-400">Overall Answer Accuracy</CardTitle>
-//         </CardHeader>
-//         <CardContent className="flex justify-center">
-//           <PieChart width={300} height={300}>
-//             <Pie
-//               data={pieData}
-//               dataKey="value"
-//               nameKey="name"
-//               outerRadius={100}
-//               label
-//             >
-//               {pieData.map((entry, index) => (
-//                 <Cell key={`cell-${index}`} fill={entry.color} />
-//               ))}
-//             </Pie>
-//             <Tooltip />
-//             <Legend />
-//           </PieChart>
-//         </CardContent>
-//       </Card>
-
-//       {/* Score Distribution */}
-//       <Card className="shadow border border-green-300 bg-white dark:bg-slate-800">
-//         <CardHeader>
-//           <CardTitle className="text-emerald-700 dark:text-emerald-400">Score Distribution</CardTitle>
-//         </CardHeader>
-//         <CardContent className="space-y-2">
-//           {scoreRangeData.map((r, i) => (
-//             <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-//               <span>{r.name}</span>
-//               <div className="h-3 w-1/2 bg-gray-200 rounded">
-//                 <div
-//                   className="h-3 rounded"
-//                   style={{ width: `${(r.count / participants.length) * 100}%`, backgroundColor: r.color }}
-//                 />
-//               </div>
-//               <span>{r.count}</span>
-//             </div>
-//           ))}
-//         </CardContent>
-//       </Card>
-
-//       {/* Question-Level Analysis */}
-//       <Card className="shadow border border-pink-300 bg-white dark:bg-slate-800">
-//         <CardHeader>
-//           <CardTitle className="text-pink-700 dark:text-pink-300">Question-Level Analysis</CardTitle>
-//         </CardHeader>
-//         <CardContent className="space-y-2">
-//           {analysisData.questions.map((q, i) => (
-//             <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-//               <span>Q{i + 1}: {q.text.substring(0, 50)}{q.text.length > 50 ? '...' : ''}</span>
-//               <div className="h-2 w-1/2 bg-gray-200 rounded">
-//                 <div
-//                   className="h-2 rounded bg-pink-500"
-//                   style={{ width: `${(q.correctCount / participants.length) * 100}%` }}
-//                 />
-//               </div>
-//               <span>{q.correctCount} correct</span>
-//             </div>
-//           ))}
-//         </CardContent>
-//       </Card>
-
-//       {/* Download Button */}
-//       <div className="text-center mt-4">
-//         <button
-//           onClick={downloadExcel}
-//           className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 transition"
-//         >
-//           Download as Excel
-//         </button>
-//       </div>
-//           <MainApp />
-//     </div>
-//   );
-// }
-
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   Calendar, Clock4, Users, Crown, Medal, Search, Loader2, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
   TrendingUp, TrendingDown, AlertCircle,
   Filter, ChevronDown, Zap, Plus
 } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
+
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import api from "@/lib/api/api";
 import { DashboardData } from "@/shared/types";
 
 
-// --- MOCK DATA ---
-const ROOMS = [
-  { id: 'r1', name: 'CS202 - Advanced React', session: 'ses_1092', status: 'live', startTime: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
-  { id: 'r2', name: 'CS101 - Web Fundamentals', session: 'ses_1091', status: 'completed', startTime: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() },
-];
 
-
-const INITIAL_SESSION_DATA = {
-  'r1': { totalStudents: 42, questionsAsked: 12, pointsDistributed: 18450, avgAccuracy: 68 },
-  'r2': { totalStudents: 35, questionsAsked: 15, pointsDistributed: 21200, avgAccuracy: 82 },
-};
-
-const INITIAL_STUDENTS = [
-  // Room 1 Students
-  { id: 's1', roomId: 'r1', name: 'Alex Johnson', attempted: 12, correct: 10, incorrect: 2, points: 2150, avgTime: '12s', badges: ['Speedster', 'Flawless'] },
-  { id: 's2', roomId: 'r1', name: 'Maria Garcia', attempted: 12, correct: 11, incorrect: 1, points: 2400, avgTime: '18s', badges: ['Top Scorer'] },
-  { id: 's3', roomId: 'r1', name: 'James Smith', attempted: 10, correct: 6, incorrect: 4, points: 1100, avgTime: '24s', badges: [] },
-  { id: 's4', roomId: 'r1', name: 'Linda Wong', attempted: 12, correct: 8, incorrect: 4, points: 1650, avgTime: '15s', badges: ['Consistent'] },
-  { id: 's5', roomId: 'r1', name: 'Robert Chen', attempted: 11, correct: 9, incorrect: 2, points: 1890, avgTime: '14s', badges: ['Speedster'] },
-  { id: 's6', roomId: 'r1', name: 'Sarah Davis', attempted: 12, correct: 12, incorrect: 0, points: 2800, avgTime: '11s', badges: ['Top Scorer', 'Speedster', 'Flawless'] },
-  // Room 2 Students
-  { id: 's7', roomId: 'r2', name: 'Michael Brown', attempted: 15, correct: 14, incorrect: 1, points: 3100, avgTime: '10s', badges: ['Top Scorer'] },
-  { id: 's8', roomId: 'r2', name: 'Emily Wilson', attempted: 15, correct: 12, incorrect: 3, points: 2420, avgTime: '14s', badges: ['Consistent'] },
-  { id: 's9', roomId: 'r2', name: 'David Lee', attempted: 12, correct: 5, incorrect: 7, points: 950, avgTime: '28s', badges: [] },
-];
-
-const INITIAL_QUESTIONS = [
-  // Room 1 Questions
-  { id: 'q1', roomId: 'r1', text: 'What is the primary purpose of useMemo?', responses: 42, correctPct: 85, avgTime: '14s', difficulty: 'Low', engagement: 'High', avgPoints: 180 },
-  { id: 'q2', roomId: 'r1', text: 'Explain the difference between context and Redux.', responses: 41, correctPct: 62, avgTime: '28s', difficulty: 'Medium', engagement: 'High', avgPoints: 145 },
-  { id: 'q3', roomId: 'r1', text: 'How does React fiber architecture improve rendering?', responses: 38, correctPct: 35, avgTime: '42s', difficulty: 'High', engagement: 'Low', avgPoints: 90 },
-  // Room 2 Questions
-  { id: 'q4', roomId: 'r2', text: 'What does HTML stand for?', responses: 35, correctPct: 98, avgTime: '5s', difficulty: 'Low', engagement: 'High', avgPoints: 95 },
-  { id: 'q5', roomId: 'r2', text: 'Which CSS property controls text size?', responses: 35, correctPct: 92, avgTime: '8s', difficulty: 'Low', engagement: 'High', avgPoints: 90 },
-];
-
-const ACHIEVEMENTS = [
-  { id: 'a1', name: 'Top Scorer', icon: <Award className="text-yellow-500 w-6 h-6" />, desc: 'Ranked in the top 5% of the session', count: 2 },
-  { id: 'a2', name: 'Speedster', icon: <Zap className="text-blue-500 w-6 h-6" />, desc: 'Answered 5 questions correctly in under 10 seconds', count: 8 },
-  { id: 'a3', name: 'Flawless', icon: <Target className="text-green-500 w-6 h-6" />, desc: '100% accuracy on attempted questions (min 5)', count: 4 },
-  { id: 'a4', name: 'Consistent', icon: <Activity className="text-purple-500 w-6 h-6" />, desc: 'Maintained an answer streak of 8 questions', count: 12 },
-];
 
 // --- CHARTS COMPONENTS ---
-const LineChart = ({ data }) => {
+const LineChart = ({ data }:{data:any}) => {
   const max = Math.max(...data);
   const min = Math.min(...data);
   const range = max - min || 1;
@@ -403,7 +50,7 @@ const LineChart = ({ data }) => {
   );
 };
 
-const BarChart = ({ data }) => {
+const BarChart = ({ data }:{data:any}) => {
   const max = Math.max(...data.map(d => d.value));
   return (
     <div className="w-full h-48 flex items-end justify-around gap-2 mt-4">
@@ -423,7 +70,7 @@ const BarChart = ({ data }) => {
 }
 
 // --- DRAGGABLE MENU COMPONENT ---
-const DraggableMenu = ({ activeTab, setActiveTab }) => {
+const DraggableMenu = ({ activeTab, setActiveTab }:{activeTab:any,setActiveTab:any}) => {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -432,7 +79,7 @@ const DraggableMenu = ({ activeTab, setActiveTab }) => {
   const dragStart = useRef({ x: 0, y: 0 });
   const posStart = useRef({ x: 0, y: 0 });
 
-  const handlePointerDown = (e) => {
+  const handlePointerDown = (e:any) => {
     setIsDragging(true);
     setHasDragged(false);
     dragStart.current = { x: e.clientX, y: e.clientY };
@@ -440,7 +87,7 @@ const DraggableMenu = ({ activeTab, setActiveTab }) => {
     e.target.setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e) => {
+  const handlePointerMove = (e:any) => {
     if (!isDragging) return;
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
@@ -455,7 +102,7 @@ const DraggableMenu = ({ activeTab, setActiveTab }) => {
     });
   };
 
-  const handlePointerUp = (e) => {
+  const handlePointerUp = (e:any) => {
     setIsDragging(false);
     e.target.releasePointerCapture(e.pointerId);
   };
@@ -553,17 +200,7 @@ export default function TeacherPollAnalysis() {
     }
   }, [roomId]);
   const [activeTab, setActiveTab] = useState('overview');
-  const [isLiveMode, setIsLiveMode] = useState(false);
-  const [selectedRoomId, setSelectedRoomId] = useState(ROOMS[0].id);
-  
-  // State for data
-  const [sessionsData, setSessionsData] = useState(INITIAL_SESSION_DATA);
-  const [allStudents, setAllStudents] = useState(INITIAL_STUDENTS);
-  
-  const selectedRoom = ROOMS.find(r => r.id === selectedRoomId);
-  const currentSession = sessionsData[selectedRoomId];
-  const students = allStudents.filter(s => s.roomId === selectedRoomId);
-  const questions = INITIAL_QUESTIONS.filter(q => q.roomId === selectedRoomId);
+
 
   // Engagement graph mock data
   const [engagementData, setEngagementData] = useState([65, 70, 68, 85, 90, 88, 92, 95]);
@@ -572,42 +209,42 @@ export default function TeacherPollAnalysis() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Simulate real-time updates for LIVE rooms
-  useEffect(() => {
-    let interval;
-    if (isLiveMode && selectedRoom.status === 'live') {
-      interval = setInterval(() => {
-        setSessionsData(prev => ({
-          ...prev,
-          [selectedRoomId]: {
-            ...prev[selectedRoomId],
-            pointsDistributed: prev[selectedRoomId].pointsDistributed + Math.floor(Math.random() * 50),
-            avgAccuracy: Math.min(100, Math.max(0, prev[selectedRoomId].avgAccuracy + (Math.random() > 0.5 ? 1 : -1)))
-          }
-        }));
+  // useEffect(() => {
+  //   let interval;
+  //   if (isLiveMode && selectedRoom.status === 'live') {
+  //     interval = setInterval(() => {
+  //       setSessionsData(prev => ({
+  //         ...prev,
+  //         [selectedRoomId]: {
+  //           ...prev[selectedRoomId],
+  //           pointsDistributed: prev[selectedRoomId].pointsDistributed + Math.floor(Math.random() * 50),
+  //           avgAccuracy: Math.min(100, Math.max(0, prev[selectedRoomId].avgAccuracy + (Math.random() > 0.5 ? 1 : -1)))
+  //         }
+  //       }));
         
-        setAllStudents(prev => {
-          const newStudents = [...prev];
-          const roomStudentsIdxs = newStudents.map((s, i) => s.roomId === selectedRoomId ? i : -1).filter(i => i !== -1);
-          if (roomStudentsIdxs.length > 0) {
-            const randomIdx = roomStudentsIdxs[Math.floor(Math.random() * roomStudentsIdxs.length)];
-            newStudents[randomIdx] = {
-              ...newStudents[randomIdx],
-              points: newStudents[randomIdx].points + Math.floor(Math.random() * 20)
-            };
-          }
-          return newStudents;
-        });
+  //       setAllStudents(prev => {
+  //         const newStudents = [...prev];
+  //         const roomStudentsIdxs = newStudents.map((s, i) => s.roomId === selectedRoomId ? i : -1).filter(i => i !== -1);
+  //         if (roomStudentsIdxs.length > 0) {
+  //           const randomIdx = roomStudentsIdxs[Math.floor(Math.random() * roomStudentsIdxs.length)];
+  //           newStudents[randomIdx] = {
+  //             ...newStudents[randomIdx],
+  //             points: newStudents[randomIdx].points + Math.floor(Math.random() * 20)
+  //           };
+  //         }
+  //         return newStudents;
+  //       });
 
-        setEngagementData(prev => {
-          const newData = [...prev.slice(1), Math.min(100, Math.max(40, prev[prev.length-1] + (Math.random() * 10 - 5)))];
-          return newData;
-        });
-      }, 3000);
-    }
-    return () => clearInterval(interval);
-  }, [isLiveMode, selectedRoom.status, selectedRoomId]);
+  //       setEngagementData(prev => {
+  //         const newData = [...prev.slice(1), Math.min(100, Math.max(40, prev[prev.length-1] + (Math.random() * 10 - 5)))];
+  //         return newData;
+  //       });
+  //     }, 3000);
+  //   }
+  //   return () => clearInterval(interval);
+  // }, [isLiveMode, selectedRoom.status, selectedRoomId]);
 
-  const handleSort = (key) => {
+  const handleSort = (key:string) => {
     let direction = 'asc';
     if (sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
@@ -615,17 +252,17 @@ export default function TeacherPollAnalysis() {
     setSortConfig({ key, direction });
   };
 
-  const sortedAndFilteredStudents = useMemo(() => {
-    let filterableStudents = students.filter(s => 
-      s.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  // const sortedAndFilteredStudents = useMemo(() => {
+  //   let filterableStudents = students.filter(s => 
+  //     s.name.toLowerCase().includes(searchQuery.toLowerCase())
+  //   );
 
-    return filterableStudents.sort((a, b) => {
-      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [students, sortConfig, searchQuery]);
+  //   return filterableStudents.sort((a, b) => {
+  //     if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
+  //     if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+  //     return 0;
+  //   });
+  // }, [students, sortConfig, searchQuery]);
 
   // Generate Score Distribution for Bar Chart
   const scoreDistribution = useMemo(() => {
@@ -636,7 +273,7 @@ export default function TeacherPollAnalysis() {
       { label: '2k-3k', value: 0 },
       { label: '> 3k', value: 0 }
     ];
-    students.forEach(s => {
+    analysisData?.students.forEach(s => {
       if (s.points < 500) dist[0].value++;
       else if (s.points < 1000) dist[1].value++;
       else if (s.points < 2000) dist[2].value++;
@@ -644,7 +281,26 @@ export default function TeacherPollAnalysis() {
       else dist[4].value++;
     });
     return dist;
-  }, [students]);
+  }, [analysisData?.students]);
+
+    const downloadExcel = () => {
+    const data = analysisData?.students.map((p, index) => ({
+      Rank: p.rank,
+      Name: p.name,
+      Score: p.points,
+      Attempted: p.attempted,
+      Correct: p.correct,
+      Wrong: p.incorrect,
+      UnAttempted: p.unAttempted,
+      Missed: p.missed,
+      "Time Taken": p.totalTime,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data as any);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Analysis");
+    const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]);
+    saveAs(blob, `${analysisData?.overview.name}-analysis.xlsx`);
+  };
 
 
   // --- TABS COMPONENTS ---
@@ -885,7 +541,7 @@ export default function TeacherPollAnalysis() {
           </div>
         </div>
       ))}
-      {questions.length === 0 && (
+      {analysisData?.questions.length === 0 && (
         <div className="text-center py-12 text-slate-500 dark:text-slate-400">
           No questions found for this room.
         </div>
@@ -987,7 +643,7 @@ export default function TeacherPollAnalysis() {
                   Running: {Date.now() - new Date(analysisData?.overview.createdAt).getTime()} ms
                 </span>
               ) : (
-                <span>Duration: {analysisData?.overview.endedAt}</span>
+                <span>Duration: 0</span>
               )}
             </div>
           </div>
@@ -1008,7 +664,7 @@ export default function TeacherPollAnalysis() {
           <button 
             type="button"
             className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent active:scale-95"
-            onClick={() => alert('Downloading Excel report...')}
+            onClick={downloadExcel}
           >
             <FileSpreadsheet size={18} className="text-emerald-600 dark:text-emerald-400" />
             <span>Export Report</span>
