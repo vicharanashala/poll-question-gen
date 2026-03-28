@@ -139,7 +139,7 @@ export class PollRoomController {
   @Get('/:roomId/analysis')
   async getPollAnalysis(@Param('roomId') roomId: string) {
     // Fetch from service
-    const analysis = await this.roomService.getPollAnalysis(roomId);
+    const analysis = await this.roomService.getRoomAnalysisDashboardData(roomId);
     return { success: true, data: analysis };
   }
 

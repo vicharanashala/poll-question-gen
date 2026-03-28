@@ -7,6 +7,7 @@ import { HttpError, NotFoundError } from 'routing-controllers';
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
+import UserAchievements from '#root/shared/database/models/UserAchievement.js';
 
 @injectable()
 export class RoomService {
@@ -25,7 +26,7 @@ export class RoomService {
       status: 'active',
       polls: []
     }).save();
-
+    
     return this.mapRoom(newRoom.toObject());  // return plain object
   }
 
@@ -149,17 +150,345 @@ export class RoomService {
         a => a.answerIndex === poll.correctOptionIndex
       ).length
     }));
+  }
 
-    return {
-      id: room._id,
-      name: room.name,
-      createdAt: room.createdAt,
-      duration: room.endedAt && room.createdAt
-        ? Math.ceil((room.endedAt.getTime() - room.createdAt.getTime()) / 60000) + ' mins'
-        : 'N/A',
-      participants,
-      questions,
-    };
+  async getRoomAnalysisDashboardData(roomCode: string) {
+
+    try {
+
+      //ROOM ANALYTICS PIPELINE
+      const roomAnalyticsPipeline = [
+        { $match: { roomCode } },
+
+        {
+          $facet: {
+            overview: [
+              {
+                $project: {
+
+                  roomCode: 1,
+                  name: 1,
+                  createdAt: 1,
+                  status: 1,
+
+                  totalStudents: { $size: "$joinedStudents" },
+                  questionsAsked: { $size: "$polls" },
+
+                  pointsDistributed: {
+                    $sum: {
+                      $map: {
+                        input: "$polls",
+                        as: "p",
+                        in: { $ifNull: ["$$p.maxPoints", 0] }
+                      }
+                    }
+                  },
+
+                  earnedPoints: {
+                    $sum: {
+                      $map: {
+                        input: "$polls",
+                        as: "poll",
+                        in: {
+                          $sum: "$$poll.answers.points"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+
+            // ===== STUDENTS =====
+            students: [
+              { $unwind: "$joinedStudents" },
+
+              {
+                $project: {
+                  studentId: "$joinedStudents",
+                  polls: 1
+                }
+              },
+
+              {
+                $addFields: {
+                  stats: {
+                    $reduce: {
+                      input: "$polls",
+                      initialValue: {
+                        attempted: 0,
+                        correct: 0,
+                        incorrect: 0,
+                        points: 0
+                      },
+
+                      in: {
+                        $let: {
+                          vars: {
+                            ans: {
+                              $first: {
+                                $filter: {
+                                  input: "$$this.answers",
+                                  as: "a",
+                                  cond: {
+                                    $eq: ["$$a.userId", "$studentId"]
+                                  }
+                                }
+                              }
+                            }
+                          },
+
+                          in: {
+                            attempted: {
+                              $add: [
+                                "$$value.attempted",
+                                {
+                                  $cond: [
+                                    { $ne: ["$$ans", null] },
+                                    1,
+                                    0
+                                  ]
+                                }
+                              ]
+                            },
+
+                            correct: {
+                              $add: [
+                                "$$value.correct",
+                                {
+                                  $cond: [
+                                    {
+                                      $and: [
+                                        { $ne: ["$$ans", null] },
+                                        {
+                                          $eq: [
+                                            "$$ans.answerIndex",
+                                            "$$this.correctOptionIndex"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    1,
+                                    0
+                                  ]
+                                }
+                              ]
+                            },
+
+                            incorrect: {
+                              $add: [
+                                "$$value.incorrect",
+                                {
+                                  $cond: [
+                                    {
+                                      $and: [
+                                        { $ne: ["$$ans", null] },
+                                        {
+                                          $ne: [
+                                            "$$ans.answerIndex",
+                                            "$$this.correctOptionIndex"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    1,
+                                    0
+                                  ]
+                                }
+                              ]
+                            },
+
+                            points: {
+                              $add: [
+                                "$$value.points",
+                                { $ifNull: ["$$ans.points", 0] }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+
+              {
+                $project: {
+                  _id: 0,
+                  studentId: 1,
+                  attempted: "$stats.attempted",
+                  correct: "$stats.correct",
+                  incorrect: "$stats.incorrect",
+                  points: "$stats.points"
+                }
+              }
+            ],
+
+            // ===== QUESTIONS =====
+            questions: [
+              {
+                $project: {
+                  polls: 1,
+                  totalStudents: { $size: "$joinedStudents" }
+                }
+              },
+
+              { $unwind: "$polls" },
+
+              {
+                $addFields: {
+                  responses: { $size: "$polls.answers" },
+
+                  correctAnswers: {
+                    $size: {
+                      $filter: {
+                        input: "$polls.answers",
+                        as: "a",
+                        cond: {
+                          $eq: [
+                            "$$a.answerIndex",
+                            "$polls.correctOptionIndex"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+
+              {
+                $project: {
+                  _id: 0,
+                  text: "$polls.question",
+                  responses: 1,
+
+                  correctPct: {
+                    $cond: [
+                      { $gt: ["$responses", 0] },
+                      {
+                        $multiply: [
+                          { $divide: ["$correctAnswers", "$responses"] },
+                          100
+                        ]
+                      },
+                      0
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ];
+
+
+      //  ACHIEVEMENT PIPELINE
+      const achievementPipeline = [
+        { $match: { roomCode } },
+
+        {
+          $facet: {
+            badges: [
+              {
+                $group: {
+                  _id: "$badgeId",
+                  earned: { $sum: 1 }
+                }
+              },
+              {
+                $lookup: {
+                  from: "badges",
+                  localField: "_id",
+                  foreignField: "_id",
+                  as: "badge"
+                }
+              },
+              { $unwind: "$badge" },
+              {
+                $project: {
+                  _id: 0,
+                  name: "$badge.name",
+                  earned: 1
+                }
+              }
+            ],
+
+            students: [
+              {
+                $group: {
+                  _id: "$userId",
+                  badgeIds: { $push: "$badgeId" }
+                }
+              },
+              {
+                $lookup: {
+                  from: "badges",
+                  localField: "badgeIds",
+                  foreignField: "_id",
+                  as: "badgeDetails"
+                }
+              },
+              {
+                $lookup: {
+                  from: "users",
+                  localField: "_id",
+                  foreignField: "firebaseUID",
+                  as: "user"
+                }
+              },
+              {
+                $addFields: {
+                  name: {
+                    $trim: {
+                      input: {
+                        $concat: [
+                          { $ifNull: [{ $arrayElemAt: ["$user.firstName", 0] }, ""] },
+                          " ",
+                          { $ifNull: [{ $arrayElemAt: ["$user.lastName", 0] }, ""] }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                $project: {
+                  _id: 0,
+                  name: 1,
+                  earnedBadges: "$badgeDetails.name"
+                }
+              }
+            ]
+          }
+        }
+      ];
+
+
+      const [roomResult, achievementResult] = await Promise.all([
+        Room.aggregate(roomAnalyticsPipeline),
+        UserAchievements.aggregate(achievementPipeline)
+      ]);
+
+
+      if (!roomResult.length) {
+        throw new Error("Room not found");
+      }
+
+      const finalResult = {
+        overview: roomResult[0].overview[0], // ✅ flattened
+        students: roomResult[0].students,
+        questions: roomResult[0].questions,
+        achievements: achievementResult[0] || { badges: [], students: [] }
+      };
+
+      console.log("result:", finalResult);
+
+      return { dashboard: finalResult };
+    } catch (e) {
+      console.error("Dashboard Error:", e);
+      throw new Error("Failed to fetch dashboard data");
+    }
+
   }
 
   async getRoomsByTeacherAndStatus(teacherId: string, status: 'active' | 'ended'): Promise<RoomType[]> {
