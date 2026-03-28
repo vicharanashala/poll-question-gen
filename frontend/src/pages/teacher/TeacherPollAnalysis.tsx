@@ -1,15 +1,16 @@
 import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import {
-  Calendar, Clock4, Users, Crown, Medal, Search, Loader2, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
+  Calendar, Users,  Search, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
   TrendingUp, TrendingDown, AlertCircle,
-  Filter, ChevronDown, Zap, Plus
+  Filter, ChevronDown, Plus
 } from "lucide-react";
 
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import api from "@/lib/api/api";
 import { DashboardData } from "@/shared/types";
+import LiveTimer from "@/components/LiveTimer";
 
 
 
@@ -208,41 +209,6 @@ export default function TeacherPollAnalysis() {
   const [sortConfig, setSortConfig] = useState({ key: 'points', direction: 'desc' });
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Simulate real-time updates for LIVE rooms
-  // useEffect(() => {
-  //   let interval;
-  //   if (isLiveMode && selectedRoom.status === 'live') {
-  //     interval = setInterval(() => {
-  //       setSessionsData(prev => ({
-  //         ...prev,
-  //         [selectedRoomId]: {
-  //           ...prev[selectedRoomId],
-  //           pointsDistributed: prev[selectedRoomId].pointsDistributed + Math.floor(Math.random() * 50),
-  //           avgAccuracy: Math.min(100, Math.max(0, prev[selectedRoomId].avgAccuracy + (Math.random() > 0.5 ? 1 : -1)))
-  //         }
-  //       }));
-        
-  //       setAllStudents(prev => {
-  //         const newStudents = [...prev];
-  //         const roomStudentsIdxs = newStudents.map((s, i) => s.roomId === selectedRoomId ? i : -1).filter(i => i !== -1);
-  //         if (roomStudentsIdxs.length > 0) {
-  //           const randomIdx = roomStudentsIdxs[Math.floor(Math.random() * roomStudentsIdxs.length)];
-  //           newStudents[randomIdx] = {
-  //             ...newStudents[randomIdx],
-  //             points: newStudents[randomIdx].points + Math.floor(Math.random() * 20)
-  //           };
-  //         }
-  //         return newStudents;
-  //       });
-
-  //       setEngagementData(prev => {
-  //         const newData = [...prev.slice(1), Math.min(100, Math.max(40, prev[prev.length-1] + (Math.random() * 10 - 5)))];
-  //         return newData;
-  //       });
-  //     }, 3000);
-  //   }
-  //   return () => clearInterval(interval);
-  // }, [isLiveMode, selectedRoom.status, selectedRoomId]);
 
   const handleSort = (key:string) => {
     let direction = 'asc';
@@ -640,7 +606,7 @@ export default function TeacherPollAnalysis() {
               <Clock size={14} className={analysisData?.overview.status === 'active' ? 'text-emerald-500' : ''} />
               {analysisData?.overview.status === 'active' ? (
                 <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  Running: {Date.now() - new Date(analysisData?.overview.createdAt).getTime()} ms
+                  Running: <LiveTimer className="text-emerald-500 font-semibold" createdAt={analysisData.overview.createdAt}/> s
                 </span>
               ) : (
                 <span>Duration: 0</span>
