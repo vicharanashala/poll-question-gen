@@ -3,7 +3,9 @@ import { useParams } from "@tanstack/react-router";
 import {
   Calendar, Users,  Search, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
   TrendingUp, TrendingDown, AlertCircle,
-  Filter, ChevronDown, Plus
+  Filter, ChevronDown, Plus,
+  Info,
+  Settings2
 } from "lucide-react";
 
 import * as XLSX from "xlsx";
@@ -647,17 +649,69 @@ export default function TeacherPollAnalysis() {
       </div>
 
       {/* SCORING RULES SECTION (AT THE BOTTOM) */}
-      <div className="mt-12 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
-        <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-           Session Scoring Rules
-           <AlertCircle size={14} className="text-slate-400" />
-        </h4>
-        <div className="flex flex-col sm:flex-row gap-6 text-sm text-slate-600 dark:text-slate-300">
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-slate-400"></span><span className="text-slate-500 dark:text-slate-400">Base Points:</span> <span className="font-bold text-slate-800 dark:text-slate-200">100 / q</span></div>
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500"></span><span className="text-slate-500 dark:text-slate-400">Speed Bonus:</span> <span className="font-bold text-emerald-600 dark:text-emerald-400">Up to +50</span></div>
-          <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-500"></span><span className="text-slate-500 dark:text-slate-400">Time Penalty:</span> <span className="font-bold text-red-500 dark:text-red-400">-1 / sec</span></div>
-        </div>
-      </div>
+     <div className="mt-12 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+  <div className="flex items-center justify-between mb-6">
+    <div>
+      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+        <Settings2 size={16} className="text-indigo-500" />
+        Scoring Configuration & Logic
+      </h4>
+      <p className="text-xs text-slate-500 mt-1">How session points are calculated for this assessment</p>
+    </div>
+    <span className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded uppercase">
+      Automated Grading
+    </span>
+  </div>
+
+  <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+    <ul className="list-disc space-y-1 pl-5">
+      <li>Each question has its own maximum points.</li>
+      <li>Points are calculated based on response time.</li>
+      <li>Wrong or unattempted answers receive 0 points.</li>
+    </ul>
+  </div>
+
+  {/* Teacher Reference Table */}
+  <div className="overflow-hidden border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900">
+    <table className="w-full text-left text-xs">
+      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase">
+        <tr>
+          <th className="px-4 py-2 font-bold">Performance Tier</th>
+          <th className="px-4 py-2 font-bold">Response Time</th>
+          <th className="px-4 py-2 font-bold text-right">Points Earned</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-600 dark:text-slate-300">
+        <tr>
+          <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">Correct and Very Fast</td>
+          <td className="px-4 py-3">Near 0s</td>
+          <td className="px-4 py-3 text-right font-bold text-emerald-600">Near maxPoints</td>
+        </tr>
+        <tr>
+          <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">Correct Answer with Average Speed</td>
+          <td className="px-4 py-3">Around the middle of the timer</td>
+          <td className="px-4 py-3 text-right font-bold">Around half of maxPoints</td>
+        </tr>
+        <tr>
+          <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">Correct Just Before Time Runs Out</td>
+          <td className="px-4 py-3">Just before the timer ends</td>
+          <td className="px-4 py-3 text-right font-bold">At least 1 point</td>
+        </tr>
+        <tr className="bg-slate-50/50 dark:bg-slate-800/20">
+          <td className="px-4 py-3 font-medium text-red-500">Wrong Answer or No Answer</td>
+          <td className="px-4 py-3">Incorrect answer or no response</td>
+          <td className="px-4 py-3 text-right font-bold text-red-500">0</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {/* Formula Tooltip */}
+  <p className="mt-4 text-xs text-slate-500 flex items-center gap-1">
+    <Info size={12} />
+    Correct answers earn more points when submitted faster. Wrong or unattempted answers receive 0 points.
+  </p>
+</div>
 
       {/* DRAGGABLE FLOATING MENU (LEAF DESIGN) */}
       <DraggableMenu activeTab={activeTab} setActiveTab={setActiveTab} />
