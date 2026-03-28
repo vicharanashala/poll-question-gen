@@ -373,10 +373,19 @@ ${transcriptContent}
                 }));
               }
 
+              // Ensure exactly 4 options by padding
+              while (options.length < 4) {
+                options.push({ text: 'Option ' + (options.length + 1), correct: false, explanation: '' });
+              }
+              // If no correct option was marked, mark the first one as correct (fallback)
+              if (!options.some(o => o.correct)) {
+                options[0].correct = true;
+              }
+
               allQuestions.push({
                 questionText,
-                options,
-                solution: '', // Optional: create from q.solution or leave empty
+                options: options.slice(0, 4), // extra safety
+                solution: '', 
                 isParameterized: q.question?.isParameterized ?? false,
                 timeLimitSeconds: q.question?.timeLimitSeconds ?? 60,
                 points: q.question?.points ?? 5,

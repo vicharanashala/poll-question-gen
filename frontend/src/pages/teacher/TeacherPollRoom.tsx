@@ -444,6 +444,7 @@ export default function TeacherPollRoom() {
   const [queuedViewerIndex, setQueuedViewerIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastGenError, setLastGenError] = useState<string | null>(null);
+  const [editingSidebarIdx, setEditingSidebarIdx] = useState<number | null>(null);
   const [_isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   // Question card state
@@ -490,13 +491,32 @@ export default function TeacherPollRoom() {
     setGeneratedQuestions(updatedQuestions);
   };
 
-  // Handler for marking an option as correct
+  const handleSidebarQuestionChange = (idx: number, text: string) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[idx].question = text;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
+  const handleSidebarOptionChange = (qIdx: number, oIdx: number, text: string) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[qIdx].options[oIdx] = text;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
+  const handleSidebarCorrectOption = (qIdx: number, oIdx: number) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[qIdx].correctOptionIndex = oIdx;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
   const handleOptionClick = (optionIndex: number) => {
     const updatedQuestions = [...generatedQuestions];
     updatedQuestions[currentQuestionIndex].correctOptionIndex = optionIndex;
     setGeneratedQuestions(updatedQuestions);
   };
-
 
 
   // Socket connection and event management
@@ -4351,51 +4371,112 @@ export default function TeacherPollRoom() {
                     <ScrollArea className="flex-1 overflow-y-auto">
                       <div className="divide-y divide-gray-100 dark:divide-gray-800">
                         {queuedGeneratedQuestions.map((q, idx) => (
-                          <div key={idx} className="p-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors">
-                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 leading-snug">
-                              {q.question}
-                            </p>
-                            <div className="flex flex-col gap-1 mb-3">
-                              {q.options.map((opt, optIdx) => (
-                                <div
-                                  key={optIdx}
-                                  className={`px-2 py-1 rounded text-[10px] sm:text-xs ${
-                                    optIdx === q.correctOptionIndex
-                                      ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
-                                      : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-                                  }`}
-                                >
-                                  {opt || `Option ${optIdx + 1}`}
+                          <div key={idx} className="p-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
+                            {editingSidebarIdx === idx ? (
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Edit Question</span>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-5 px-1.5 text-[10px] text-gray-500 hover:text-purple-600"
+                                    onClick={() => setEditingSidebarIdx(null)}
+                                  >
+                                    Done
+                                  </Button>
                                 </div>
-                              ))}
-                            </div>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                className="flex-1 h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white"
-                                onClick={() => {
-                                  setQuestion(q.question);
-                                  setOptions(q.options);
-                                  setCorrectOptionIndex(q.correctOptionIndex);
-                                  toast.success('Question loaded to form');
-                                }}
-                              >
-                                Load into form
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                                onClick={() => {
-                                  const newQ = [...queuedGeneratedQuestions];
-                                  newQ.splice(idx, 1);
-                                  setQueuedGeneratedQuestions(newQ);
-                                  queuedGeneratedQuestionsRef.current = newQ;
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </Button>
-                            </div>
+                                <textarea
+                                  className="w-full p-2 text-sm border rounded-md bg-white dark:bg-gray-800 border-purple-200 dark:border-purple-800 focus:outline-none focus:ring-1 focus:ring-purple-500 min-h-[60px]"
+                                  value={q.question}
+                                  onChange={(e) => handleSidebarQuestionChange(idx, e.target.value)}
+                                />
+                                <div className="space-y-1 mt-1">
+                                  <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Options (click to mark correct)</p>
+                                  {q.options.map((opt, optIdx) => (
+                                    <div key={optIdx} className="flex gap-1.5 items-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSidebarCorrectOption(idx, optIdx)}
+                                        className={`transition-all duration-200 p-1 rounded-full ${
+                                          optIdx === q.correctOptionIndex
+                                            ? "bg-green-500 text-white shadow-sm"
+                                            : "bg-gray-100 dark:bg-gray-700 text-gray-400 hover:bg-green-100 dark:hover:bg-green-900/40"
+                                        }`}
+                                      >
+                                        <Check className={optIdx === q.correctOptionIndex ? "h-3 w-3" : "h-3 w-3 opacity-0"} />
+                                      </button>
+                                      <Input
+                                        className={`h-7 text-xs px-2 ${
+                                          optIdx === q.correctOptionIndex
+                                            ? "border-green-300 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10"
+                                            : "border-gray-200 dark:border-gray-700"
+                                        }`}
+                                        value={opt}
+                                        placeholder={`Option ${optIdx + 1}`}
+                                        onChange={(e) => handleSidebarOptionChange(idx, optIdx, e.target.value)}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 leading-snug">
+                                  {q.question}
+                                </p>
+                                <div className="flex flex-col gap-1 mb-3">
+                                  {q.options.map((opt, optIdx) => (
+                                    <div
+                                      key={optIdx}
+                                      className={`px-2 py-1 rounded text-[10px] sm:text-xs border transition-colors ${
+                                        optIdx === q.correctOptionIndex
+                                          ? 'bg-green-100 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
+                                          : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400'
+                                      }`}
+                                    >
+                                      {opt || `Option ${optIdx + 1}`}
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="flex-1 h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white shadow-sm"
+                                    onClick={() => {
+                                      setQuestion(q.question);
+                                      setOptions(q.options);
+                                      setCorrectOptionIndex(q.correctOptionIndex);
+                                      toast.success('Question loaded to form');
+                                    }}
+                                  >
+                                    Load into form
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                                    onClick={() => setEditingSidebarIdx(idx)}
+                                    title="Edit Question"
+                                  >
+                                    <Edit3 size={14} />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    onClick={() => {
+                                      const newQ = [...queuedGeneratedQuestions];
+                                      newQ.splice(idx, 1);
+                                      setQueuedGeneratedQuestions(newQ);
+                                      queuedGeneratedQuestionsRef.current = newQ;
+                                    }}
+                                    title="Remove Question"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
