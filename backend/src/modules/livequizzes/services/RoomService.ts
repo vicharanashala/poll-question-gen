@@ -157,229 +157,427 @@ export class RoomService {
     try {
 
       //ROOM ANALYTICS PIPELINE
-      const roomAnalyticsPipeline = [
-        { $match: { roomCode } },
+     const roomAnalyticsPipeline = [
+  { $match: { roomCode } },
 
+  {
+    $facet: {
+      // =========================
+      // 📊 OVERVIEW
+      // =========================
+      overview: [
         {
-          $facet: {
-            overview: [
-              {
-                $project: {
+          $project: {
+            roomCode: 1,
+            name: 1,
+            createdAt: 1,
+            status: 1,
 
-                  roomCode: 1,
-                  name: 1,
-                  createdAt: 1,
-                  status: 1,
+            totalStudents: { $size: "$joinedStudents" },
+            totalCohosts: { $size: { $ifNull: ["$coHosts", []] } },
+            questionsAsked: { $size: "$polls" },
 
-                  totalStudents: { $size: "$joinedStudents" },
-                  questionsAsked: { $size: "$polls" },
-
-                  pointsDistributed: {
-                    $sum: {
-                      $map: {
-                        input: "$polls",
-                        as: "p",
-                        in: { $ifNull: ["$$p.maxPoints", 0] }
-                      }
-                    }
-                  },
-
-                  earnedPoints: {
-                    $sum: {
-                      $map: {
-                        input: "$polls",
-                        as: "poll",
-                        in: {
-                          $sum: "$$poll.answers.points"
-                        }
-                      }
-                    }
-                  }
+            pointsDistributed: {
+              $sum: {
+                $map: {
+                  input: "$polls",
+                  as: "p",
+                  in: { $ifNull: ["$$p.maxPoints", 0] }
                 }
               }
-            ],
+            },
 
-            // ===== STUDENTS =====
-            students: [
-              { $unwind: "$joinedStudents" },
-
-              {
-                $project: {
-                  studentId: "$joinedStudents",
-                  polls: 1
+            earnedPoints: {
+              $sum: {
+                $map: {
+                  input: "$polls",
+                  as: "poll",
+                  in: { $sum: "$$poll.answers.points" }
                 }
-              },
+              }
+            },
 
-              {
-                $addFields: {
-                  stats: {
-                    $reduce: {
-                      input: "$polls",
-                      initialValue: {
-                        attempted: 0,
-                        correct: 0,
-                        incorrect: 0,
-                        points: 0
+            avgAccuracy: {
+              $round: [
+                {
+                  $cond: [
+                    { $gt: [{ $size: "$polls" }, 0] },
+                    {
+                      $divide: [
+                        {
+                          $sum: {
+                            $map: {
+                              input: "$polls",
+                              as: "poll",
+                              in: { $sum: "$$poll.answers.points" }
+                            }
+                          }
+                        },
+                        { $size: "$polls" }
+                      ]
+                    },
+                    0
+                  ]
+                },
+                2
+              ]
+            }
+          }
+        }
+      ],
+
+      // =========================
+      // 👨‍🎓 STUDENTS
+      // =========================
+      students: [
+        { $unwind: "$joinedStudents" },
+
+        {
+          $project: {
+            studentId: "$joinedStudents",
+            polls: 1
+          }
+        },
+
+        {
+          $addFields: {
+            stats: {
+              $reduce: {
+                input: "$polls",
+                initialValue: {
+                  attempted: 0,
+                  unAttempted: 0,
+                  missed: 0,
+                  correct: 0,
+                  incorrect: 0,
+                  points: 0,
+                  totalTime: 0,
+                  answerCount: 0
+                },
+
+                in: {
+                  $let: {
+                    vars: {
+                      ans: {
+                        $first: {
+                          $filter: {
+                            input: "$$this.answers",
+                            as: "a",
+                            cond: { $eq: ["$$a.userId", "$studentId"] }
+                          }
+                        }
                       },
 
-                      in: {
-                        $let: {
-                          vars: {
-                            ans: {
-                              $first: {
-                                $filter: {
-                                  input: "$$this.answers",
-                                  as: "a",
-                                  cond: {
-                                    $eq: ["$$a.userId", "$studentId"]
-                                  }
-                                }
+                      isAnswered: {
+                        $gt: [
+                          {
+                            $size: {
+                              $filter: {
+                                input: "$$this.answers",
+                                as: "a",
+                                cond: { $eq: ["$$a.userId", "$studentId"] }
                               }
                             }
                           },
-
-                          in: {
-                            attempted: {
-                              $add: [
-                                "$$value.attempted",
-                                {
-                                  $cond: [
-                                    { $ne: ["$$ans", null] },
-                                    1,
-                                    0
-                                  ]
-                                }
-                              ]
-                            },
-
-                            correct: {
-                              $add: [
-                                "$$value.correct",
-                                {
-                                  $cond: [
-                                    {
-                                      $and: [
-                                        { $ne: ["$$ans", null] },
-                                        {
-                                          $eq: [
-                                            "$$ans.answerIndex",
-                                            "$$this.correctOptionIndex"
-                                          ]
-                                        }
-                                      ]
-                                    },
-                                    1,
-                                    0
-                                  ]
-                                }
-                              ]
-                            },
-
-                            incorrect: {
-                              $add: [
-                                "$$value.incorrect",
-                                {
-                                  $cond: [
-                                    {
-                                      $and: [
-                                        { $ne: ["$$ans", null] },
-                                        {
-                                          $ne: [
-                                            "$$ans.answerIndex",
-                                            "$$this.correctOptionIndex"
-                                          ]
-                                        }
-                                      ]
-                                    },
-                                    1,
-                                    0
-                                  ]
-                                }
-                              ]
-                            },
-
-                            points: {
-                              $add: [
-                                "$$value.points",
-                                { $ifNull: ["$$ans.points", 0] }
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-
-              {
-                $project: {
-                  _id: 0,
-                  studentId: 1,
-                  attempted: "$stats.attempted",
-                  correct: "$stats.correct",
-                  incorrect: "$stats.incorrect",
-                  points: "$stats.points"
-                }
-              }
-            ],
-
-            // ===== QUESTIONS =====
-            questions: [
-              {
-                $project: {
-                  polls: 1,
-                  totalStudents: { $size: "$joinedStudents" }
-                }
-              },
-
-              { $unwind: "$polls" },
-
-              {
-                $addFields: {
-                  responses: { $size: "$polls.answers" },
-
-                  correctAnswers: {
-                    $size: {
-                      $filter: {
-                        input: "$polls.answers",
-                        as: "a",
-                        cond: {
-                          $eq: [
-                            "$$a.answerIndex",
-                            "$polls.correctOptionIndex"
-                          ]
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-
-              {
-                $project: {
-                  _id: 0,
-                  text: "$polls.question",
-                  responses: 1,
-
-                  correctPct: {
-                    $cond: [
-                      { $gt: ["$responses", 0] },
-                      {
-                        $multiply: [
-                          { $divide: ["$correctAnswers", "$responses"] },
-                          100
+                          0
                         ]
                       },
-                      0
-                    ]
+
+                      isLocked: {
+                        $in: ["$studentId", "$$this.lockedActiveUsers"]
+                      }
+                    },
+
+                    in: {
+                      attempted: {
+                        $add: ["$$value.attempted", { $cond: ["$$isAnswered", 1, 0] }]
+                      },
+
+                      correct: {
+                        $add: [
+                          "$$value.correct",
+                          {
+                            $cond: [
+                              {
+                                $and: [
+                                  "$$isAnswered",
+                                  { $eq: ["$$ans.answerIndex", "$$this.correctOptionIndex"] }
+                                ]
+                              },
+                              1,
+                              0
+                            ]
+                          }
+                        ]
+                      },
+
+                      incorrect: {
+                        $add: [
+                          "$$value.incorrect",
+                          {
+                            $cond: [
+                              {
+                                $and: [
+                                  "$$isAnswered",
+                                  { $ne: ["$$ans.answerIndex", "$$this.correctOptionIndex"] }
+                                ]
+                              },
+                              1,
+                              0
+                            ]
+                          }
+                        ]
+                      },
+
+                      unAttempted: {
+                        $add: [
+                          "$$value.unAttempted",
+                          {
+                            $cond: [
+                              { $and: [{ $not: ["$$isAnswered"] }, "$$isLocked"] },
+                              1,
+                              0
+                            ]
+                          }
+                        ]
+                      },
+
+                      missed: {
+                        $add: [
+                          "$$value.missed",
+                          {
+                            $cond: [
+                              { $and: [{ $not: ["$$isAnswered"] }, { $not: ["$$isLocked"] }] },
+                              1,
+                              0
+                            ]
+                          }
+                        ]
+                      },
+
+                      points: {
+                        $add: ["$$value.points", { $ifNull: ["$$ans.points", 0] }]
+                      },
+
+                      totalTime: {
+                        $add: [
+                          "$$value.totalTime",
+                          {
+                            $cond: [
+                              "$$isAnswered",
+                              { $subtract: ["$$ans.answeredAt", "$$this.createdAt"] },
+                              0
+                            ]
+                          }
+                        ]
+                      },
+
+                      answerCount: {
+                        $add: ["$$value.answerCount", { $cond: ["$$isAnswered", 1, 0] }]
+                      }
+                    }
                   }
                 }
               }
-            ]
+            }
+          }
+        },
+
+        {
+          $lookup: {
+            from: "users",
+            localField: "studentId",
+            foreignField: "firebaseUID",
+            as: "user"
+          }
+        },
+
+        {
+          $addFields: {
+            name: {
+              $trim: {
+                input: {
+                  $concat: [
+                    { $ifNull: [{ $arrayElemAt: ["$user.firstName", 0] }, ""] },
+                    " ",
+                    { $ifNull: [{ $arrayElemAt: ["$user.lastName", 0] }, ""] }
+                  ]
+                }
+              }
+            }
+          }
+        },
+
+        {
+          $project: {
+            _id: 0,
+            studentId: 1,
+            name: 1,
+            attempted: "$stats.attempted",
+            unAttempted: "$stats.unAttempted",
+            missed: "$stats.missed",
+            correct: "$stats.correct",
+            incorrect: "$stats.incorrect",
+            points: "$stats.points",
+
+            avgTime: {
+              $cond: [
+                { $gt: ["$stats.answerCount", 0] },
+                {
+                  $concat: [
+                    {
+                      $toString: {
+                        $round: [
+                          {
+                            $divide: [
+                              "$stats.totalTime",
+                              { $multiply: ["$stats.answerCount", 1000] }
+                            ]
+                          },
+                          2
+                        ]
+                      }
+                    },
+                    "s"
+                  ]
+                },
+                "0s"
+              ]
+            }
           }
         }
-      ];
+      ],
+
+      // =========================
+      // ❓ QUESTIONS
+      // =========================
+      questions: [
+        {
+          $project: {
+            polls: 1,
+            totalStudents: { $size: "$joinedStudents" }
+          }
+        },
+
+        { $unwind: "$polls" },
+
+        {
+          $addFields: {
+            responses: { $size: "$polls.answers" },
+
+            correctAnswers: {
+              $size: {
+                $filter: {
+                  input: "$polls.answers",
+                  as: "a",
+                  cond: { $eq: ["$$a.answerIndex", "$polls.correctOptionIndex"] }
+                }
+              }
+            },
+
+            totalTime: {
+              $sum: {
+                $map: {
+                  input: "$polls.answers",
+                  as: "a",
+                  in: { $subtract: ["$$a.answeredAt", "$polls.createdAt"] }
+                }
+              }
+            },
+
+            totalPoints: {
+              $sum: "$polls.answers.points"
+            }
+          }
+        },
+
+        {
+          $addFields: {
+            correctPct: {
+              $cond: [
+                { $gt: ["$responses", 0] },
+                { $multiply: [{ $divide: ["$correctAnswers", "$responses"] }, 100] },
+                0
+              ]
+            },
+
+            avgTimeSec: {
+              $cond: [
+                { $gt: ["$responses", 0] },
+                { $divide: ["$totalTime", { $multiply: ["$responses", 1000] }] },
+                0
+              ]
+            },
+
+            avgPoints: {
+              $cond: [
+                { $gt: ["$responses", 0] },
+                { $divide: ["$totalPoints", "$responses"] },
+                0
+              ]
+            },
+
+            engagementPct: {
+              $cond: [
+                { $gt: ["$totalStudents", 0] },
+                { $multiply: [{ $divide: ["$responses", "$totalStudents"] }, 100] },
+                0
+              ]
+            }
+          }
+        },
+
+        {
+          $addFields: {
+            difficulty: {
+              $switch: {
+                branches: [
+                  { case: { $gte: ["$correctPct", 80] }, then: "Easy" },
+                  { case: { $gte: ["$correctPct", 50] }, then: "Medium" }
+                ],
+                default: "Hard"
+              }
+            },
+
+            engagement: {
+              $switch: {
+                branches: [
+                  { case: { $gte: ["$engagementPct", 80] }, then: "High" },
+                  { case: { $gte: ["$engagementPct", 50] }, then: "Medium" }
+                ],
+                default: "Low"
+              }
+            }
+          }
+        },
+
+        {
+          $project: {
+            _id: 0,
+            text: "$polls.question",
+            responses: 1,
+
+            correctPct: { $round: ["$correctPct", 2] },
+
+            avgTime: {
+              $concat: [
+                { $toString: { $round: ["$avgTimeSec", 2] } },
+                "s"
+              ]
+            },
+
+            avgPoints: { $round: ["$avgPoints", 2] },
+
+            engagementPct: { $round: ["$engagementPct", 2] },
+
+            difficulty: 1,
+            engagement: 1
+          }
+        }
+      ]
+    }
+  }
+];
 
 
       //  ACHIEVEMENT PIPELINE
@@ -408,6 +606,7 @@ export class RoomService {
                 $project: {
                   _id: 0,
                   name: "$badge.name",
+                  description: "$badge.description",
                   earned: 1
                 }
               }
