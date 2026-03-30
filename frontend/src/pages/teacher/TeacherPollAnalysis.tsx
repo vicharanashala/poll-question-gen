@@ -250,7 +250,7 @@ export default function TeacherPollAnalysis() {
               <Clock size={14} className={analysisData?.overview.status === "active" ? "text-emerald-500" : ""} />
               {analysisData?.overview.status === "active" ? (
                 <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  Running: <LiveTimer className="text-emerald-500 font-semibold" createdAt={analysisData.overview.createdAt} /> s
+                  Running: <LiveTimer className="text-emerald-500 font-semibold" createdAt={analysisData.overview.createdAt} /> 
                 </span>
               ) : (
                 <span>Duration: 0</span>

@@ -41,20 +41,28 @@ const LiveTimer: React.FC<LiveTimerProps> = ({
   }, [createdAt]);
 
   const formattedTime = useMemo(() => {
-    const totalSeconds = Math.floor(elapsed / 1000);
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
+  const totalSeconds = Math.floor(elapsed / 1000);
 
-    const parts = [m, s];
-    if (showHours || h > 0) {
-      parts.unshift(h);
-    }
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
 
-    return parts
-      .map((v) => String(v).padStart(2, '0'))
-      .join(':');
-  }, [elapsed, showHours]);
+  // ✅ After 24 hours → show days + hours only
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+
+  // ✅ Normal format below 24h
+  const parts = [minutes, seconds];
+  if (showHours || hours > 0) {
+    parts.unshift(hours);
+  }
+
+  return parts
+    .map((v) => String(v).padStart(2, '0'))
+    .join(':');
+}, [elapsed, showHours]);
 
   // If no date is provided yet, you might want to show a placeholder or nothing
   if (!createdAt) return <span className={className}>--:--:--</span>;
