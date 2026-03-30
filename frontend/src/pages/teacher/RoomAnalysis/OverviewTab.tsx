@@ -1,7 +1,7 @@
 import { Activity, AlertCircle, Award, BarChart2, Clock, Shield, Target, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { DashboardData } from "@/shared/types";
 import { BarChart, LineChart } from "./Charts";
-import { LineChartPoint } from "./types";
+import { LineChartPoint } from "@/shared/types";
 
 type Props = {
   analysisData: DashboardData | null;
