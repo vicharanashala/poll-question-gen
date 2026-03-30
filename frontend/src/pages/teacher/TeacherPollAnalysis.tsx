@@ -19,36 +19,61 @@ import { formatDate } from "@/utils/formatDate";
 
 
 // --- CHARTS COMPONENTS ---
-const LineChart = ({ data }:{data:any}) => {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
+type LineChartPoint = {
+  label: string;
+  value: number;
+};
+
+const LineChart = ({ data }:{data: LineChartPoint[]}) => {
+  if (!data.length) {
+    return (
+      <div className="w-full h-40 mt-4 flex items-center justify-center rounded-lg border border-dashed border-slate-200 dark:border-slate-700 text-sm text-slate-500 dark:text-slate-400">
+        No engagement data available yet.
+      </div>
+    );
+  }
+
+  const values = data.map((point) => point.value);
+  const max = Math.max(...values);
+  const min = Math.min(...values);
   const range = max - min || 1;
+  const hasSinglePoint = data.length === 1;
+  const linePoints = data
+    .map((point, i) => {
+      const x = hasSinglePoint ? 50 : (i / (data.length - 1)) * 100;
+      const y = 100 - ((point.value - min) / range) * 100;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const areaPoints = hasSinglePoint
+    ? `0,100 50,${100 - ((data[0].value - min) / range) * 100} 100,100`
+    : `0,100 ${linePoints} 100,100`;
   
   return (
     <div className="w-full h-40 flex items-end justify-between gap-1 mt-4 relative">
       <div className="absolute inset-0 flex flex-col justify-between text-xs text-slate-400 dark:text-slate-500 pointer-events-none pb-5">
-        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{max}</span>
-        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{Math.round((max+min)/2)}</span>
-        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{min}</span>
+        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{max}%</span>
+        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{Math.round((max+min)/2)}%</span>
+        <span className="border-b border-slate-100 dark:border-slate-700/50 w-full text-right pr-2">{min}%</span>
       </div>
       <svg className="w-full h-full pb-5 pt-2" preserveAspectRatio="none" viewBox="0 0 100 100">
         <polyline
           fill="none"
           stroke="#3b82f6"
           strokeWidth="2"
-          points={data.map((val, i) => `${(i / (data.length - 1)) * 100},${100 - ((val - min) / range) * 100}`).join(' ')}
+          points={linePoints}
         />
         <polyline
           fill="#3b82f6"
           fillOpacity="0.1"
           stroke="none"
-          points={`0,100 ${data.map((val, i) => `${(i / (data.length - 1)) * 100},${100 - ((val - min) / range) * 100}`).join(' ')} 100,100`}
+          points={areaPoints}
         />
       </svg>
       <div className="absolute bottom-0 w-full flex justify-between text-xs text-slate-400 dark:text-slate-500 px-1">
-        <span>Start</span>
-        <span>Mid</span>
-        <span>Now</span>
+        <span>{data[0].label}</span>
+        <span>{data[Math.floor((data.length - 1) / 2)].label}</span>
+        <span>{data[data.length - 1].label}</span>
       </div>
     </div>
   );
@@ -206,9 +231,6 @@ export default function TeacherPollAnalysis() {
   const [activeTab, setActiveTab] = useState('overview');
 
 
-  // Engagement graph mock data
-  const [engagementData, setEngagementData] = useState([65, 70, 68, 85, 90, 88, 92, 95]);
-
   const [sortConfig, setSortConfig] = useState({ key: 'points', direction: 'desc' });
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -252,6 +274,72 @@ export default function TeacherPollAnalysis() {
     return dist;
   }, [analysisData?.students]);
 
+  const engagementData = useMemo<LineChartPoint[]>(() => {
+    return (analysisData?.questions ?? []).map((question, index) => ({
+      label: `Q${index + 1}`,
+      value: Math.round(question.engagementPct)
+    }));
+  }, [analysisData?.questions]);
+
+  const engagementSummary = useMemo(() => {
+    if (!engagementData.length) {
+      return null;
+    }
+
+    const total = engagementData.reduce((sum, point) => sum + point.value, 0);
+    const average = Math.round(total / engagementData.length);
+    const lowestPoint = engagementData.reduce((lowest, point) =>
+      point.value < lowest.value ? point : lowest
+    );
+
+    return {
+      average,
+      lowestPoint
+    };
+  }, [engagementData]);
+
+  const insightData = useMemo(() => {
+    const questions = analysisData?.questions ?? [];
+    const students = analysisData?.students ?? [];
+    const badges = analysisData?.achievements?.badges ?? [];
+
+    const lowestAccuracyQuestion = questions.length
+      ? questions.reduce((lowest, question) =>
+          question.correctPct < lowest.correctPct ? question : lowest
+        )
+      : null;
+
+    const highestEngagementQuestion = questions.length
+      ? questions.reduce((highest, question) =>
+          question.engagementPct > highest.engagementPct ? question : highest
+        )
+      : null;
+
+    const averageResponseTimeSeconds = students.length
+      ? Math.round(
+          students.reduce((sum, student) => sum + student.totalTime, 0) / students.length
+        )
+      : 0;
+
+    const speedBadge = badges.find((badge) =>
+      badge.name.toLowerCase().includes("speed")
+    );
+
+    const averageQuestionAccuracy = questions.length
+      ? Math.round(
+          questions.reduce((sum, question) => sum + question.correctPct, 0) / questions.length
+        )
+      : 0;
+
+    return {
+      lowestAccuracyQuestion,
+      highestEngagementQuestion,
+      averageResponseTimeSeconds,
+      speedBadgeEarned: speedBadge?.earned ?? 0,
+      averageQuestionAccuracy
+    };
+  }, [analysisData]);
+
     const downloadExcel = () => {
     const data = analysisData?.students.map((p, index) => ({
       Rank: p.rank,
@@ -293,7 +381,7 @@ export default function TeacherPollAnalysis() {
   <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
     <div>
       <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Cohosts</p>
-      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalStudents ?? 0}</h3>
+      <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalCohosts ?? 0}</h3>
     </div>
     <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3">
       <Shield size={24} />
@@ -339,10 +427,26 @@ export default function TeacherPollAnalysis() {
             <Activity size={20} className="text-blue-500 dark:text-blue-400" />
             Session Engagement
           </h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Real-time interaction intensity over the last 30 minutes.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+            Participation rate by question based on how many students submitted a response.
+          </p>
           <div className="flex-1 min-h-[160px]">
             <LineChart data={engagementData} />
           </div>
+          {engagementSummary && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
+                <p className="text-slate-500 dark:text-slate-400">Average engagement</p>
+                <p className="font-bold text-slate-800 dark:text-white">{engagementSummary.average}%</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
+                <p className="text-slate-500 dark:text-slate-400">Lowest participation</p>
+                <p className="font-bold text-slate-800 dark:text-white">
+                  {engagementSummary.lowestPoint.label}: {engagementSummary.lowestPoint.value}%
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col transition-colors">
@@ -360,26 +464,38 @@ export default function TeacherPollAnalysis() {
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors lg:col-span-2">
           <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
             <AlertCircle size={20} className="text-amber-500 dark:text-amber-400" />
-            AI-Powered Insights
+            Session Summary
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
               <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-bold mb-2">
-                <TrendingDown size={18} /> Needs Attention
+                <TrendingDown size={18} /> Accuracy Summary
               </div>
-              <p className="text-sm text-slate-700 dark:text-slate-300">Q3 has only 35% accuracy. Consider reviewing this topic before proceeding.</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {insightData.lowestAccuracyQuestion
+                  ? `Average question accuracy was ${insightData.averageQuestionAccuracy}%, with the lowest-performing question at ${Math.round(insightData.lowestAccuracyQuestion.correctPct)}%.`
+                  : "Accuracy summary will appear once responses are available."}
+              </p>
             </div>
             <div className="p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
               <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold mb-2">
-                <TrendingUp size={18} /> Strong Engagement
+                <TrendingUp size={18} /> Participation Summary
               </div>
-              <p className="text-sm text-slate-700 dark:text-slate-300">95% of students have attempted all live questions in this room.</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {insightData.highestEngagementQuestion
+                  ? `Average engagement was ${engagementSummary?.average ?? 0}%, and the highest-response question reached ${Math.round(insightData.highestEngagementQuestion.engagementPct)}% participation.`
+                  : "Participation summary will appear once students start answering questions."}
+              </p>
             </div>
             <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30">
               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold mb-2">
-                <Clock size={18} /> Speed Analysis
+                <Clock size={18} /> Response Summary
               </div>
-              <p className="text-sm text-slate-700 dark:text-slate-300">Avg response is 18s. Speedster badge awarded to 20% of the class.</p>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {analysisData?.students?.length
+                  ? `Students took about ${insightData.averageResponseTimeSeconds}s on average per submitted answer.${insightData.speedBadgeEarned ? ` ${insightData.speedBadgeEarned} speed badges were awarded.` : ""}`
+                  : "Response summary will appear once students have submitted answers."}
+              </p>
             </div>
           </div>
         </div>
