@@ -1,4 +1,5 @@
-import { LineChartPoint } from "./types";
+import { LineChartPoint } from "@/shared/types";
+
 
 export const LineChart = ({ data }: { data: LineChartPoint[] }) => {
   if (!data.length) {
