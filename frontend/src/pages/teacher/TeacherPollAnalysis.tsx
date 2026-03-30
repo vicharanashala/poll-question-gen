@@ -623,11 +623,6 @@ export default function TeacherPollAnalysis() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Room Selector (Commented out as in original) */}
-          {/* <div className="relative">...</div> */}
-
-          {/* Simulate Live Toggle (Commented out as in original) */}
-          {/* {selectedRoom.status === 'live' && (...)} */}
 
           {/* NEW: Excel Report Button */}
           <button 
