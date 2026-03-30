@@ -152,7 +152,16 @@ export class RoomService {
     }));
   }
 
-  async getRoomAnalysisDashboardData(roomCode: string) {
+  async getRoomAnalysisDashboardData(
+    roomCode: string,
+    options?: {
+      studentSortBy?: string;
+      studentSortOrder?: string;
+      studentSearch?: string;
+      studentAccuracyBand?: string;
+      studentParticipation?: string;
+    }
+  ) {
 
     try {
 
@@ -451,6 +460,42 @@ export class RoomService {
                 "0s"
               ]
             },
+
+            avgTimeSeconds: {
+              $round: [
+                {
+                  $cond: [
+                    { $gt: ["$stats.answerCount", 0] },
+                    {
+                      $divide: [
+                        "$stats.totalTime",
+                        { $multiply: ["$stats.answerCount", 1000] }
+                      ]
+                    },
+                    0
+                  ]
+                },
+                2
+              ]
+            },
+
+            accuracyPct: {
+              $round: [
+                {
+                  $cond: [
+                    { $gt: ["$stats.attempted", 0] },
+                    {
+                      $multiply: [
+                        { $divide: ["$stats.correct", "$stats.attempted"] },
+                        100
+                      ]
+                    },
+                    0
+                  ]
+                },
+                2
+              ]
+            },
             
           },
           
@@ -683,18 +728,73 @@ export class RoomService {
         throw new Error("Room not found");
       }
       let students = roomResult[0].students;
-      students.sort((a, b) => {
+      const rankedStudents = [...students];
+      rankedStudents.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         return a.totalTime - b.totalTime;
       });
 
       let rank = 1;
 
-      students.forEach((s, i) => {
-        if (i > 0 && students[i].points !== students[i - 1].points) {
+      rankedStudents.forEach((s, i) => {
+        if (i > 0 && rankedStudents[i].points !== rankedStudents[i - 1].points) {
           rank = i + 1;
         }
         s.rank = rank;
+      });
+
+      const studentSearch = options?.studentSearch?.trim().toLowerCase();
+      const questionsAsked = roomResult[0].overview[0]?.questionsAsked ?? 0;
+
+      if (studentSearch) {
+        students = students.filter((student) =>
+          student.name.toLowerCase().includes(studentSearch)
+        );
+      }
+
+      if (options?.studentAccuracyBand && options.studentAccuracyBand !== 'all') {
+        students = students.filter((student) => {
+          if (options.studentAccuracyBand === 'high') return student.accuracyPct >= 70;
+          if (options.studentAccuracyBand === 'medium') {
+            return student.accuracyPct >= 40 && student.accuracyPct < 70;
+          }
+          if (options.studentAccuracyBand === 'low') return student.accuracyPct < 40;
+          return true;
+        });
+      }
+
+      if (options?.studentParticipation && options.studentParticipation !== 'all') {
+        students = students.filter((student) => {
+          if (options.studentParticipation === 'complete') {
+            return questionsAsked > 0 && student.attempted === questionsAsked;
+          }
+          if (options.studentParticipation === 'partial') {
+            return student.attempted > 0 && student.attempted < questionsAsked;
+          }
+          if (options.studentParticipation === 'no_attempts') {
+            return student.attempted === 0;
+          }
+          return true;
+        });
+      }
+
+      const sortBy: 'points' | 'accuracyPct' | 'avgTimeSeconds' = options?.studentSortBy === 'accuracy'
+        ? 'accuracyPct'
+        : options?.studentSortBy === 'avgTime'
+          ? 'avgTimeSeconds'
+          : 'points';
+      const sortOrder = options?.studentSortOrder === 'asc' ? 1 : -1;
+
+      students.sort((a, b) => {
+        const aValue = a[sortBy];
+        const bValue = b[sortBy];
+
+        if (aValue !== bValue) {
+          return aValue > bValue ? sortOrder : -sortOrder;
+        }
+
+        if (b.points !== a.points) return b.points - a.points;
+        return a.totalTime - b.totalTime;
       });
 
       const finalResult = {

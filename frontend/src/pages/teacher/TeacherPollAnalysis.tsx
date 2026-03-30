@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, useDeferredValue } from "react";
 import { useParams } from "@tanstack/react-router";
 import {
   Calendar, Users,  Search, FileSpreadsheet, Hash, Shield, Activity, Award, BarChart2, Clock, Target,
@@ -197,15 +197,20 @@ export default function TeacherPollAnalysis() {
 
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
 
-   const [loading, setLoading] = useState(false);
-   const [error, setError] = useState<string | null>(null);
-   const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
+  const [studentSortBy, setStudentSortBy] = useState<'points' | 'avgTime' | 'accuracy'>('points');
+  const [studentSortOrder, setStudentSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [accuracyFilter, setAccuracyFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [participationFilter, setParticipationFilter] = useState<'all' | 'complete' | 'partial' | 'no_attempts'>('all');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
-    useEffect(() => {
+  useEffect(() => {
     const fetchAnalysisData = async () => {
       try {
         setLoading(true);
-        // Note: Update this URL to match your backend base URL
         const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
         const result = response.data;
         console.log('res:',result)
@@ -228,32 +233,44 @@ export default function TeacherPollAnalysis() {
       fetchAnalysisData();
     }
   }, [roomId]);
+
+  useEffect(() => {
+    const fetchFilteredStudents = async () => {
+      try {
+        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`, {
+          params: {
+            studentSortBy,
+            studentSortOrder,
+            studentSearch: deferredSearchQuery,
+            studentAccuracyBand: accuracyFilter,
+            studentParticipation: participationFilter
+          }
+        });
+        const result = response.data;
+
+        if (result.success) {
+          setAnalysisData((prev) => prev ? { ...prev, students: result.data.dashboard.students } : result.data.dashboard);
+        }
+      } catch (err) {
+        console.error('Error fetching filtered students:', err);
+      }
+    };
+
+    if (roomId) {
+      fetchFilteredStudents();
+    }
+  }, [roomId, studentSortBy, studentSortOrder, deferredSearchQuery, accuracyFilter, participationFilter]);
   const [activeTab, setActiveTab] = useState('overview');
 
-
-  const [sortConfig, setSortConfig] = useState({ key: 'points', direction: 'desc' });
-  const [searchQuery, setSearchQuery] = useState('');
-
-
-  const handleSort = (key:string) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
+  const handleStudentSort = (key: 'points' | 'avgTime' | 'accuracy') => {
+    if (studentSortBy === key) {
+      setStudentSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc');
+      return;
     }
-    setSortConfig({ key, direction });
+
+    setStudentSortBy(key);
+    setStudentSortOrder(key === 'avgTime' ? 'asc' : 'desc');
   };
-
-  // const sortedAndFilteredStudents = useMemo(() => {
-  //   let filterableStudents = students.filter(s => 
-  //     s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  //   );
-
-  //   return filterableStudents.sort((a, b) => {
-  //     if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-  //     if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
-  //     return 0;
-  //   });
-  // }, [students, sortConfig, searchQuery]);
 
   // Generate Score Distribution for Bar Chart
   const scoreDistribution = useMemo(() => {
@@ -339,6 +356,14 @@ export default function TeacherPollAnalysis() {
       averageQuestionAccuracy
     };
   }, [analysisData]);
+
+  const getStudentAccuracy = (student: DashboardData["students"][number]) => {
+    if (!student.attempted) {
+      return 0;
+    }
+
+    return Math.round((student.correct / student.attempted) * 100);
+  };
 
     const downloadExcel = () => {
     const data = analysisData?.students.map((p, index) => ({
@@ -507,7 +532,7 @@ export default function TeacherPollAnalysis() {
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col h-auto sm:h-[600px] transition-colors">
       <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h3 className="text-lg font-bold text-slate-800 dark:text-white">Student Performance</h3>
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 w-4 h-4" />
             <input 
@@ -518,35 +543,47 @@ export default function TeacherPollAnalysis() {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors">
-            <Filter size={16} /> <span className="hidden sm:inline">Filter</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-slate-400 dark:text-slate-500" />
+            <select
+              className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200"
+              value={accuracyFilter}
+              onChange={(e) => setAccuracyFilter(e.target.value as 'all' | 'high' | 'medium' | 'low')}
+            >
+              <option value="all">All accuracy</option>
+              <option value="high">High accuracy</option>
+              <option value="medium">Medium accuracy</option>
+              <option value="low">Low accuracy</option>
+            </select>
+            <select
+              className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-700 dark:text-slate-200"
+              value={participationFilter}
+              onChange={(e) => setParticipationFilter(e.target.value as 'all' | 'complete' | 'partial' | 'no_attempts')}
+            >
+              <option value="all">All participation</option>
+              <option value="complete">Completed all</option>
+              <option value="partial">Partial attempts</option>
+              <option value="no_attempts">No attempts</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="overflow-x-auto flex-1">
         <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300 min-w-[700px]">
           <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-700 dark:text-slate-200 font-semibold sticky top-0 z-10 transition-colors">
             <tr>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('name')}>
-                <div className="flex items-center gap-1">Student Name {sortConfig.key === 'name' && <ChevronDown size={14} className={sortConfig.direction === 'asc' ? 'rotate-180' : ''}/>}</div>
+              <th className="p-4">Student Name</th>
+              <th className="p-4">Attempted</th>
+              <th className="p-4">UnAttempted</th>
+              <th className="p-4">Missed</th>
+              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort('accuracy')}>
+                <div className="flex items-center gap-1">Accuracy {studentSortBy === 'accuracy' && <ChevronDown size={14} className={studentSortOrder === 'asc' ? 'rotate-180' : ''} />}</div>
               </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
-                <div className="flex items-center gap-1">Attempted {sortConfig.key === 'attempted' && <ChevronDown size={14} />}</div>
+              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort('avgTime')}>
+                <div className="flex items-center gap-1">Avg Time {studentSortBy === 'avgTime' && <ChevronDown size={14} className={studentSortOrder === 'asc' ? 'rotate-180' : ''} />}</div>
               </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
-                <div className="flex items-center gap-1">UnAttempted {sortConfig.key === 'unAttempted' && <ChevronDown size={14} />}</div>
-              </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('attempted')}>
-                <div className="flex items-center gap-1">Missed {sortConfig.key === 'missed' && <ChevronDown size={14} />}</div>
-              </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('correct')}>
-                <div className="flex items-center gap-1">Accuracy {sortConfig.key === 'correct' && <ChevronDown size={14} />}</div>
-              </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('avgTime')}>
-                <div className="flex items-center gap-1">Avg Time {sortConfig.key === 'avgTime' && <ChevronDown size={14} />}</div>
-              </th>
-              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('points')}>
-                <div className="flex items-center gap-1">Total Points {sortConfig.key === 'points' && <ChevronDown size={14} />}</div>
+              <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort('points')}>
+                <div className="flex items-center gap-1">Total Points {studentSortBy === 'points' && <ChevronDown size={14} className={studentSortOrder === 'asc' ? 'rotate-180' : ''} />}</div>
               </th>
             </tr>
           </thead>
@@ -559,11 +596,11 @@ export default function TeacherPollAnalysis() {
                 <td className="p-4">{student.missed} / {analysisData?.overview?.questionsAsked ?? 0}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-2">
-                    <span className="w-10">{Math.round((student.correct/student.attempted)*100)}%</span>
+                    <span className="w-10">{getStudentAccuracy(student)}%</span>
                     <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full ${student.correct/student.attempted > 0.7 ? 'bg-emerald-500' : student.correct/student.attempted > 0.4 ? 'bg-amber-500' : 'bg-red-500'}`}
-                        style={{ width: `${(student.correct/student.attempted)*100}%` }}
+                        className={`h-full ${getStudentAccuracy(student) > 70 ? 'bg-emerald-500' : getStudentAccuracy(student) > 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${getStudentAccuracy(student)}%` }}
                       ></div>
                     </div>
                   </div>
@@ -575,6 +612,13 @@ export default function TeacherPollAnalysis() {
                 <td className="p-4 font-bold text-indigo-600 dark:text-indigo-400">{student.points.toLocaleString()}</td>
               </tr>
             ))}
+            {analysisData?.students?.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-slate-500 dark:text-slate-400">
+                  No students match the current filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

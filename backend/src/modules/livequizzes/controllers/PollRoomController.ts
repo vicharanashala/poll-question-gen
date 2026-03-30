@@ -137,9 +137,22 @@ export class PollRoomController {
 
   //@Authorized(['teacher'])
   @Get('/:roomId/analysis')
-  async getPollAnalysis(@Param('roomId') roomId: string) {
+  async getPollAnalysis(
+    @Param('roomId') roomId: string,
+    @QueryParam('studentSortBy') studentSortBy?: string,
+    @QueryParam('studentSortOrder') studentSortOrder?: string,
+    @QueryParam('studentSearch') studentSearch?: string,
+    @QueryParam('studentAccuracyBand') studentAccuracyBand?: string,
+    @QueryParam('studentParticipation') studentParticipation?: string
+  ) {
     // Fetch from service
-    const analysis = await this.roomService.getRoomAnalysisDashboardData(roomId);
+    const analysis = await this.roomService.getRoomAnalysisDashboardData(roomId, {
+      studentSortBy,
+      studentSortOrder,
+      studentSearch,
+      studentAccuracyBand,
+      studentParticipation
+    });
     return { success: true, data: analysis };
   }
 
