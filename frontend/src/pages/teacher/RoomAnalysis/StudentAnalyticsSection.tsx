@@ -4,6 +4,7 @@ import { StudentSortBy, StudentSortOrder } from "@/shared/types";
 
 type Props = {
   analysisData: DashboardData | null;
+  isLoading: boolean;
   searchQuery: string;
   setSearchQuery: (value: string) => void;
   accuracyFilter: "all" | "high" | "medium" | "low";
@@ -18,6 +19,7 @@ type Props = {
 
 export const StudentAnalyticsSection = ({
   analysisData,
+  isLoading,
   searchQuery,
   setSearchQuery,
   accuracyFilter,
@@ -88,7 +90,19 @@ export const StudentAnalyticsSection = ({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-          {analysisData?.students?.map((student) => (
+          {isLoading &&
+            Array.from({ length: 5 }).map((_, index) => (
+              <tr key={`loading-${index}`} className="animate-pulse">
+                <td className="p-4"><div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-24 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                <td className="p-4"><div className="h-4 w-20 rounded bg-slate-200 dark:bg-slate-700" /></td>
+              </tr>
+            ))}
+          {!isLoading && analysisData?.students?.map((student) => (
             <tr key={student.studentId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
               <td className="p-4 font-medium text-slate-800 dark:text-slate-100">{student.name}</td>
               <td className="p-4">{student.attempted} / {analysisData?.overview?.questionsAsked ?? 0}</td>
@@ -112,7 +126,7 @@ export const StudentAnalyticsSection = ({
               <td className="p-4 font-bold text-indigo-600 dark:text-indigo-400">{student.points.toLocaleString()}</td>
             </tr>
           ))}
-          {analysisData?.students?.length === 0 && (
+          {!isLoading && analysisData?.students?.length === 0 && (
             <tr>
               <td colSpan={7} className="p-8 text-center text-slate-500 dark:text-slate-400">
                 No students match the current filters.

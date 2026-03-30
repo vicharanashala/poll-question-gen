@@ -11,6 +11,7 @@ import { AchievementsTab } from "./RoomAnalysis/AchievementsTab";
 import { DraggableMenu } from "./RoomAnalysis/DraggableMenu";
 import { OverviewTab } from "./RoomAnalysis/OverviewTab";
 import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
+import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { LineChartPoint, StudentSortBy, StudentSortOrder } from "@/shared/types";
 
@@ -18,6 +19,7 @@ export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
 
   const [loading, setLoading] = useState(false);
+  const [studentLoading, setStudentLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
   const [studentSortBy, setStudentSortBy] = useState<StudentSortBy>("points");
@@ -59,6 +61,7 @@ export default function TeacherPollAnalysis() {
   useEffect(() => {
     const fetchFilteredStudents = async () => {
       try {
+        setStudentLoading(true);
         const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`, {
           params: {
             studentSortBy,
@@ -75,6 +78,8 @@ export default function TeacherPollAnalysis() {
         }
       } catch (err) {
         console.error("Error fetching filtered students:", err);
+      } finally {
+        setStudentLoading(false);
       }
     };
 
@@ -172,6 +177,13 @@ export default function TeacherPollAnalysis() {
     return Math.round((student.correct / student.attempted) * 100);
   };
 
+  const isAnalysisEmpty =
+    !!analysisData &&
+    (analysisData.overview.questionsAsked ?? 0) === 0 &&
+    (analysisData.students?.length ?? 0) === 0 &&
+    (analysisData.questions?.length ?? 0) === 0 &&
+    (analysisData.achievements?.badges?.length ?? 0) === 0;
+
   const downloadExcel = () => {
     const data = analysisData?.students.map((p) => ({
       Rank: p.rank,
@@ -194,6 +206,17 @@ export default function TeacherPollAnalysis() {
 
   return (
     <div className="w-full flex flex-col font-sans relative pb-24 bg-transparent">
+      {loading && !analysisData ? (
+        <LoadingState message="Loading room analysis..." />
+      ) : error && !analysisData ? (
+        <EmptyState title="Could not load analysis" message={error} />
+      ) : isAnalysisEmpty ? (
+        <EmptyState
+          title="No analysis yet"
+          message="This room does not have enough responses yet to generate analytics. Once students start participating, the summaries and tables will appear here."
+        />
+      ) : (
+        <>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8 p-6 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-3 mb-1.5">
@@ -251,8 +274,6 @@ export default function TeacherPollAnalysis() {
       </div>
 
       <div className="w-full">
-        {loading && !analysisData && <div className="text-sm text-slate-500 dark:text-slate-400">Loading analysis...</div>}
-        {error && !analysisData && <div className="text-sm text-red-500">{error}</div>}
         {activeTab === "overview" && (
           <OverviewTab
             analysisData={analysisData}
@@ -265,6 +286,7 @@ export default function TeacherPollAnalysis() {
         {activeTab === "students" && (
           <StudentAnalyticsSection
             analysisData={analysisData}
+            isLoading={studentLoading}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
             accuracyFilter={accuracyFilter}
@@ -282,6 +304,8 @@ export default function TeacherPollAnalysis() {
       </div>
 
       <DraggableMenu activeTab={activeTab} setActiveTab={setActiveTab} />
+        </>
+      )}
     </div>
   );
 }
