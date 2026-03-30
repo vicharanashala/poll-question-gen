@@ -128,3 +128,11 @@ export type DashboardData = {
 export type DashboardResponse = {
   dashboardData: DashboardData;
 };
+
+export type LineChartPoint = {
+  label: string;
+  value: number;
+};
+
+export type StudentSortBy = 'points' | 'avgTime' | 'accuracy';
+export type StudentSortOrder = 'asc' | 'desc';
