@@ -7,7 +7,7 @@ import { evaluateBadges } from '../utils/achievementEngine.js';
 import UserAchievement from '#root/shared/database/models/UserAchievement.js';
 import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
-import { calculateScore } from '../utils/calculateScore.js';
+import { calculateScore, calculateGracePeriod } from '../utils/calculateScore.js';
 
 interface InMemoryPoll {
   pollId: string;
@@ -18,6 +18,7 @@ interface InMemoryPoll {
   totalResponses: number;
   userResponses: Map<string, number>; // userId: optionIndex
   timer: number;
+  gracePeriod?: number;
   startTime?: number;
   timeLeft: number;
   roomCode: string;
@@ -47,6 +48,7 @@ export class PollService {
       options: data.options,
       correctOptionIndex: data.correctOptionIndex,
       timer: data.timer ?? 30,
+      gracePeriod: calculateGracePeriod(data.timer ?? 30),
       maxPoints: data.maxPoints ?? 20,
       createdAt,
       lockedActiveUsers,
@@ -63,6 +65,7 @@ export class PollService {
       userResponses: new Map(),
       timer: data.timer ?? 0, // 0 means no timer
       timeLeft: data.timer ?? 0,
+      gracePeriod: calculateGracePeriod(data.timer ?? 0),
       roomCode,
       createdAt,
       lockedActiveUsers: [...lockedActiveUsers],
@@ -79,8 +82,6 @@ export class PollService {
     pollSocket.emitToRoom(roomCode, 'new-poll', poll);
     return poll;
   }
-
-
 
   async submitAnswer(roomCode: string, pollId: string, userId: string, answerIndex: number) {
 
@@ -120,7 +121,8 @@ export class PollService {
       isCorrect,
       responseTime,
       maxPoints: poll?.maxPoints,
-      timer: poll.timer
+      timer: poll.timer,
+      initialTimeWindow: poll.gracePeriod
     });
 
     await Room.updateOne(
@@ -222,30 +224,31 @@ export class PollService {
       totalResponses: poll.totalResponses,
       timeLeft: poll.timeLeft,
       timer: poll.timer,
+      gracePeriod: poll.gracePeriod,
       correctPercentage,
       userResponses,
       roomCode: poll.roomCode,
     };
   }
 
- async getUserAchievements(userId: string) {
-  const [achievedBadgesRaw, allBadges] = await Promise.all([
-    UserAchievement.find({ userId })
-      .populate("badgeId")
-      .lean(),
-    Badge.find().lean()
-  ]);
+  async getUserAchievements(userId: string) {
+    const [achievedBadgesRaw, allBadges] = await Promise.all([
+      UserAchievement.find({ userId })
+        .populate("badgeId")
+        .lean(),
+      Badge.find().lean()
+    ]);
 
-  const achievedBadges = achievedBadgesRaw.filter((a: any) => a?.badgeId?._id);
-  const achievedBadgeIds = new Set(
-    achievedBadges.map((a: any) => a.badgeId._id.toString())
-  );
+    const achievedBadges = achievedBadgesRaw.filter((a: any) => a?.badgeId?._id);
+    const achievedBadgeIds = new Set(
+      achievedBadges.map((a: any) => a.badgeId._id.toString())
+    );
 
-  const unachievedBadges = allBadges.filter(
-    badge => !achievedBadgeIds.has(badge._id.toString())
-  );
+    const unachievedBadges = allBadges.filter(
+      badge => !achievedBadgeIds.has(badge._id.toString())
+    );
 
-  return { achievedBadges, unachievedBadges };
-}
+    return { achievedBadges, unachievedBadges };
+  }
 
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import socket from "@/lib/api/socket";
 import { useAuthStore } from "@/lib/store/auth-store";
 import type { UserAchievement } from "@/shared/types";
 import { getBadgeTier } from "@/shared/getBadgeTier";
+import {Tooltip,TooltipContent,TooltipProvider,TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 //const Socket_URL = import.meta.env.VITE_SOCKET_URL;
 //const socket = io(Socket_URL);
@@ -28,6 +30,7 @@ type Poll = {
   creatorId: string;
   createdAt: string;
   timer: number;
+  gracePeriod?: number; 
   correctOptionIndex?: number;
   answers?: PollAnswer[];
 };
@@ -268,15 +271,19 @@ export default function StudentPollRoom() {
     navigate({ to: `/student/pollroom` });
   };
 
-  const getTimerColor = (timeLeft: number) => {
-    if (timeLeft > 20) return "text-emerald-500";
-    if (timeLeft > 10) return "text-amber-500";
-    return "text-red-500";
+const getTimerColor = (timeLeft: number, totalTime: number, gracePeriod?: number) => {
+    if (!gracePeriod || gracePeriod === 0 || totalTime === 0) return "text-blue-500";
+    const decayStart = totalTime - gracePeriod; 
+    if (timeLeft > decayStart) return "text-emerald-500"; 
+    if (timeLeft > decayStart / 2) return "text-amber-500"; 
+    return "text-red-500"; 
   };
 
-  const getTimerBg = (timeLeft: number) => {
-    if (timeLeft > 20) return "bg-emerald-500/20";
-    if (timeLeft > 10) return "bg-amber-500/20";
+  const getTimerBg = (timeLeft: number, totalTime: number, gracePeriod?: number) => {
+    if (!gracePeriod || gracePeriod === 0 || totalTime === 0) return "bg-blue-500/20";
+    const decayStart = totalTime - gracePeriod;
+    if (timeLeft > decayStart) return "bg-emerald-500/20";
+    if (timeLeft > decayStart / 2) return "bg-amber-500/20";
     return "bg-red-500/20";
   };
 
@@ -521,26 +528,45 @@ export default function StudentPollRoom() {
                   </div>
                 ) : (
                   activeLivePolls.map((poll) => (
-                    <div
+                  <div
                       key={poll._id}
                       className="group relative p-6 bg-gradient-to-r from-white to-purple-50/50 dark:from-gray-800 dark:to-purple-900/20 rounded-2xl border border-purple-200/50 dark:border-purple-700/50 hover:shadow-xl hover:shadow-purple-500/20 transition-all duration-300"
                     >
-                      <div className="absolute top-0 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-700 rounded-t-2xl overflow-hidden">
+                      <div className="absolute top-0 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-700 rounded-t-2xl overflow-visible">
                         <div
-                          className={`h-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer)} transition-all duration-1000`}
+                          className={`absolute top-0 left-0 h-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)} transition-all duration-1000`}
                           style={{
-                            width: `${((pollTimers[poll._id] ?? poll.timer) / poll.timer) * 100}%`
+                            width: poll.timer > 0 ? `${((pollTimers[poll._id] ?? poll.timer) / poll.timer) * 100}%` : '100%'
                           }}
                         />
+                        
+                        {poll.timer > 0 && poll.gracePeriod && (
+                          <TooltipProvider>
+                            <Tooltip delayDuration={100}>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className="absolute top-0 w-1.5 h-3 -mt-0.5 bg-gray-800 dark:bg-white rounded-full cursor-pointer hover:scale-125 transition-transform z-10"
+                                  style={{
+                                    left: `${((poll.timer - poll.gracePeriod) / poll.timer) * 100}%`,
+                                    boxShadow: "0 0 6px rgba(0,0,0,0.4)"
+                                  }}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="font-bold border-none px-3 py-1.5 text-xs z-50">
+                                 Answer before this mark for maximum points!
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </div>
 
-                      <div className="flex justify-between items-start mb-4">
+                      <div className="flex justify-between items-start mb-4 mt-2">
                         <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 pr-4">
                           {poll.question}
                         </h3>
-                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer)}`}>
-                          <Clock className={`w-4 h-4 ${getTimerColor(pollTimers[poll._id] ?? poll.timer)}`} />
-                          <span className={`text-sm font-medium ${getTimerColor(pollTimers[poll._id] ?? poll.timer)}`}>
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`}>
+                          <Clock className={`w-4 h-4 ${getTimerColor(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`} />
+                          <span className={`text-sm font-medium ${getTimerColor(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`}>
                             {pollTimers[poll._id] ?? poll.timer}s
                           </span>
                         </div>
