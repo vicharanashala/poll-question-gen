@@ -132,6 +132,7 @@ export type DashboardResponse = {
 export type LineChartPoint = {
   label: string;
   value: number;
+  tooltip?: string;
 };
 
 export type StudentSortBy = 'points' | 'avgTime' | 'accuracy';

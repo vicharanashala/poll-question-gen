@@ -122,6 +122,7 @@ export default function TeacherPollAnalysis() {
     return (analysisData?.questions ?? []).map((question, index) => ({
       label: `Q${index + 1}`,
       value: Math.round(question.engagementPct),
+      tooltip: question.text,
     }));
   }, [analysisData?.questions]);
 
