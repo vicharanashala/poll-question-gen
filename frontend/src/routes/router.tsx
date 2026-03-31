@@ -6,7 +6,7 @@ import {
   createMemoryHistory,
   Outlet,
   NotFoundRoute,
-  useNavigate
+  useRouter
 } from '@tanstack/react-router'
 import { useAuthStore } from '@/lib/store/auth-store'
 import { useEffect } from 'react'
@@ -35,6 +35,7 @@ import MyPolls from '@/pages/student/MyPolls'
 import RoleSelectionPage from '@/pages/roleselect'
 import CohostInvite from '@/pages/teacher/CohostInvite'
 import Badges from '@/pages/student/Badges'
+import StudentPollDetails from '@/pages/student/StudentPollDetails'
 
 // Root route with error and notFound handling
 const rootRoute = createRootRoute({
@@ -64,16 +65,29 @@ const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
   component: AuthPage,
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     const { isAuthenticated, user } = useAuthStore.getState();
+    const redirectParam = new URLSearchParams(location.search).get('redirect');
+    const isCohostInviteRedirect = Boolean(
+      redirectParam?.startsWith('/cohost-invite/') ||
+      redirectParam?.startsWith('/teacher/cohost-invite/')
+    );
     // Redirect to appropriate dashboard if already authenticated
     if (isAuthenticated && user?.role) {
-      if (user.role === 'teacher') {
+      if (isCohostInviteRedirect && redirectParam) {
+        const token = redirectParam
+          .replace('/teacher/cohost-invite/', '')
+          .replace('/cohost-invite/', '')
+          .trim();
+        if (token) {
+          throw redirect({ href: `/cohost-invite/${token}` });
+        }
+      } else if (user.role === 'teacher') {
         throw redirect({ to: '/teacher' });
       } else if (user.role === 'student') {
         throw redirect({ to: '/student' });
       }
-    } else if (isAuthenticated && user && !user.role) {
+    } else if (isAuthenticated && user && !user.role && !isCohostInviteRedirect) {
       throw redirect({ to: '/select-role' });
     }
   },
@@ -218,11 +232,27 @@ const teacherPollAnalysisRoute = createRoute({
   component: TeacherPollAnalysis,
 });
 
-// Cohost invite route
+// Cohost invite route (special auth flow)
 const cohostInviteRoute = createRoute({
-  getParentRoute: () => teacherLayoutRoute,
+  getParentRoute: () => rootRoute,
   path: '/cohost-invite/$token',
+  beforeLoad: ({ params }) => {
+    const { isAuthenticated } = useAuthStore.getState();
+    if (!isAuthenticated) {
+      const redirectPath = `/cohost-invite/${params.token}`;
+      throw redirect({ href: `/auth?redirect=${encodeURIComponent(redirectPath)}` });
+    }
+  },
   component: CohostInvite,
+});
+
+const legacyCohostInviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/teacher/cohost-invite/$token',
+  beforeLoad: ({ params }) => {
+    throw redirect({ href: `/cohost-invite/${params.token}` });
+  },
+  component: () => null,
 });
 
 // Teacher poll room route
@@ -293,6 +323,25 @@ const studentPollRoomRoute = createRoute({
   component: StudentPollRoom,
 });
 
+const studentPollDetailsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/student/pollroom/$code/poll/$pollId/$mode',
+  beforeLoad: () => {
+    const { isAuthenticated, user } = useAuthStore.getState();
+    if (!isAuthenticated) {
+      throw redirect({ to: '/auth' });
+    }
+    if (user?.role !== 'student') {
+      if (user?.role === 'teacher') {
+        throw redirect({ to: '/teacher' });
+      } else {
+        throw redirect({ to: '/auth' });
+      }
+    }
+  },
+  component: StudentPollDetails,
+});
+
 // Student join room route
 const studentJoinRoomRoute = createRoute({
   getParentRoute: () => studentLayoutRoute,
@@ -349,10 +398,12 @@ const routeTree = rootRoute.addChildren([
     teacherManageRoomsRoute,
     teacherCohostedRoomsRoute,
     teacherPollAnalysisRoute,
-    cohostInviteRoute,
   ]),
+  cohostInviteRoute,
+  legacyCohostInviteRoute,
   studentLayoutRoute.addChildren([
     studentPollRoomRoute,
+    studentPollDetailsRoute,
     studentJoinRoomRoute,
     studentDashboardRoute,
     studentProfileRoute,
@@ -380,7 +431,7 @@ export const router = new Router({
 // Add a navigation guard for redirecting based on roles
 export const useRedirectBasedOnRole = () => {
   const { user, isAuthenticated } = useAuthStore();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   useEffect(() => {
     if (isAuthenticated && user?.role) {
@@ -388,7 +439,7 @@ export const useRedirectBasedOnRole = () => {
 
       // If the user is at root or auth page and already authenticated, redirect to their role's dashboard
       if (path === '/' || path === '/auth') {
-        navigate({ to: `/${user.role.toLowerCase()}` });
+        router.navigate({ to: `/${user.role.toLowerCase()}` });
       }
 
       // If user is trying to access a different role's route, redirect to their proper route
@@ -396,10 +447,10 @@ export const useRedirectBasedOnRole = () => {
         (path.startsWith('/teacher') && user.role !== 'teacher') ||
         (path.startsWith('/student') && user.role !== 'student')
       ) {
-        navigate({ to: `/${user.role.toLowerCase()}` });
+        router.navigate({ to: `/${user.role.toLowerCase()}` });
       }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, router]);
 };
 
 // Export the types

@@ -8,6 +8,21 @@ import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
 
+const DEV_COHOST_INVITE_SECRET = 'dev-cohost-invite-secret';
+
+const getCohostInviteSecret = (): string => {
+  const configured = process.env.COHOST_INVITE_SECRET || process.env.JWT_SECRET;
+  if (configured && configured.trim().length > 0) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new HttpError(500, 'Cohost invite secret is not configured on server');
+  }
+
+  return DEV_COHOST_INVITE_SECRET;
+};
+
 @injectable()
 export class RoomService {
   private userModel = UserModel;
@@ -30,7 +45,7 @@ export class RoomService {
   }
 
   async getRoomByCode(code: string): Promise<RoomType | null> {
-    const room = await Room.findOne({ roomCode: code }).populate('students', 'firstName email').lean();
+    const room = await Room.findOne({ roomCode: code }).populate('students', 'firstName lastName email').lean();
     return room ? this.mapRoom(room) : null;
   }
 
@@ -188,11 +203,31 @@ export class RoomService {
   }
 
   async endRoom(code: string, teacherId: string): Promise<boolean> {
-    const updated = await Room.findOneAndUpdate({ roomCode: code, teacherId }, { status: 'ended', endedAt: new Date() }, { new: true }).lean();
+    const room = await Room.findOne({ roomCode: code, teacherId });
+    if (!room) {
+      return false;
+    }
+
+    room.status = 'ended';
+    room.endedAt = new Date();
+
+    if (room.coHostInvite) {
+      room.coHostInvite.isActive = false;
+      room.coHostInvite.expiresAt = new Date();
+    }
+
+    if (Array.isArray(room.coHosts)) {
+      room.coHosts.forEach((cohost) => {
+        cohost.isActive = false;
+      });
+    }
+
+    await room.save();
+
     pollSocket?.emitToRoom(code, 'room-ended', {
       message: 'Room has ended'
     });
-    return !!updated;
+    return true;
   }
 
   async canJoinRoom(code: string): Promise<boolean> {
@@ -408,9 +443,19 @@ export class RoomService {
       throw new NotFoundError("Room is not found")
     }
 
+    if (room.status !== 'active') {
+      throw new HttpError(400, "Cannot generate co-host invite for an ended room");
+    }
+
     if (room.teacherId.toString() !== userId) {
       throw new HttpError(403, "Only host can generate invite")
     }
+
+    const cohostInviteSecret = getCohostInviteSecret();
+
+    const appOrigin = (process.env.APP_ORIGINS || 'http://localhost:3000')
+      .split(',')[0]
+      .trim();
 
     const inviteId = uuidv4();
 
@@ -419,7 +464,7 @@ export class RoomService {
         roomId: room.roomCode,
         jti: inviteId
       },
-      process.env.COHOST_INVITE_SECRET,
+      cohostInviteSecret,
       { expiresIn: "30m" }
     );
 
@@ -432,16 +477,18 @@ export class RoomService {
 
     await room.save();
 
-    return `${process.env.APP_ORIGINS}/teacher/cohost-invite/${token}`
+    return `${appOrigin}/cohost-invite/${token}`
 
   }
 
   //join as cohost
   async joinAsCohost(token: string, userId: string): Promise<{ message: string, roomId: string }> {
 
+    const cohostInviteSecret = getCohostInviteSecret();
+
     const decoded = jwt.verify(
       token,
-      process.env.COHOST_INVITE_SECRET
+      cohostInviteSecret
     ) as CohostJwtPayload;
     const room = await Room.findOne({ roomCode: decoded.roomId });
     if (!room || room.status !== "active") {
@@ -463,7 +510,7 @@ export class RoomService {
       firebaseUID:
         userId
     });
-    if (user.role !== "teacher") {
+    if (!user || user.role !== "teacher") {
       throw new HttpError(403, "Only teachers allowed")
     }
 
