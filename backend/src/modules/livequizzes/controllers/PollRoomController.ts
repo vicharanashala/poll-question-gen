@@ -97,6 +97,19 @@ export class PollRoomController {
     return { success: true, room };  // return room data
   }
 
+  @Get('/meta/ai-models')
+  async getAvailableAiModels() {
+    const fallbackModels = ['gemma3', 'deepseek-r1:70b'];
+    const models = await this.aiContentService.getAvailableModels();
+    const unique = Array.from(new Set([...(models || []), ...fallbackModels]));
+
+    return {
+      success: true,
+      models: unique,
+      defaultModel: unique.includes('gemma3') ? 'gemma3' : unique[0] || 'gemma3',
+    };
+  }
+
   // 🔹 Create Poll in Room
   //@Authorized(['teacher','admin'])
   @Post('/:code/polls')
@@ -167,8 +180,7 @@ export class PollRoomController {
   async endRoom(@Param('code') code: string, @Body() body: { teacherId: string }) {
     const success = await this.roomService.endRoom(code, body.teacherId);
     if (!success) throw new Error('Room not found or unauthorized');
-    // Emit to all clients in the room
-    pollSocket.emitToRoom(code, 'room-ended', {});
+    // Room service already emits 'room-ended' to all clients
     return { success: true, message: 'Room ended successfully' };
   }
 
@@ -261,6 +273,12 @@ export class PollRoomController {
         globalQuestionSpecification: safeSpec,
         model: selectedModel,
       });
+
+      if (!generatedQuestions.length) {
+        return res.status(502).json({
+          message: `No questions were generated using model \"${selectedModel}\". Check model availability on AI server and try again.`,
+        });
+      }
 
       return res.json({
         message: 'Questions generated successfully from transcript.',

@@ -1,4 +1,4 @@
-//import { useEffect } from 'react';
+import { useEffect } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from '@/routes/router';
 import { initAuth } from '@/lib/api/auth';
@@ -8,14 +8,10 @@ import { AuthProvider } from '@/context/auth';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 export function App() {
-  // Initialize Firebase auth listener
-  // useEffect(() => {
-  //   const unsubscribe = initAuth();
-  //   return () => unsubscribe();
-  // }, []);
-  if (localStorage.getItem('isAuth') !== 'true' || !localStorage.getItem('isAuth')) {
-      initAuth();
-  }
+  useEffect(() => {
+    const unsubscribe = initAuth();
+    return () => unsubscribe();
+  }, []);
    
 
   return (

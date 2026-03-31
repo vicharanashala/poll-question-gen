@@ -32,6 +32,8 @@ type Poll = {
   answers?: PollAnswer[];
 };
 
+type PollPhase = 'upcoming' | 'active' | 'ended';
+
 type Room = {
   roomCode: string;
   name: string;
@@ -50,6 +52,34 @@ type RoomDetails = {
   room?: Room;
 };
 
+const getActivePollSnapshot = (polls: Poll[], code: string, teacherId: string): {
+  activePolls: Poll[];
+  timers: Record<string, number>;
+} => {
+  const now = Date.now();
+  const timers: Record<string, number> = {};
+
+  const activePolls = polls
+    .map((poll) => {
+      const baseTimer = typeof poll.timer === 'number' && poll.timer > 0 ? poll.timer : 30;
+      const createdAtMs = poll.createdAt ? new Date(poll.createdAt).getTime() : now;
+      const elapsedSeconds = Math.max(0, Math.floor((now - createdAtMs) / 1000));
+      const remaining = Math.max(0, baseTimer - elapsedSeconds);
+
+      timers[poll._id] = remaining;
+
+      return {
+        ...poll,
+        roomCode: poll.roomCode || code,
+        creatorId: poll.creatorId || teacherId,
+        timer: baseTimer,
+      };
+    })
+    .filter((poll) => timers[poll._id] > 0);
+
+  return { activePolls, timers };
+};
+
 
 
 export default function StudentPollRoom() {
@@ -65,14 +95,14 @@ export default function StudentPollRoom() {
   const [answeredPolls, setAnsweredPolls] = useState<Record<string, number>>({});
   const [activeMenu, setActiveMenu] = useState<"room" | "history" | null>(null);
   const [pollTimers, setPollTimers] = useState<Record<string, number>>({});
-  const [selectedOptions, setSelectedOptions] = useState<Record<string, number | null>>({});
-  const [isAnimating, setIsAnimating] = useState(false);
   const [showAllPolls, setShowAllPolls] = useState(false);
   const [showRoomDetails, setShowRoomDetails] = useState(false);
   const [newBadgePopup, setNewBadgePopup] = useState<UserAchievement | null>(null);
   const [badgePopupQueue, setBadgePopupQueue] = useState<UserAchievement[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
   const email = useAuthStore((state) => state.user?.email)
+  const answeredStorageKey = `answeredPolls_${roomCode}_${user?.uid || 'anonymous'}`;
+  const hostDisplayLabel = `${roomDetails?.room?.teacherName?.trim() || roomDetails?.teacherName?.trim() || 'Host'} (Host)`;
   useEffect(() => {
   socket.on("room-data", (room) => {
     setRoomDetails(room);
@@ -140,7 +170,7 @@ export default function StudentPollRoom() {
     }
 
     loadRoomDetails(roomCode);
-    const savedAnswers = localStorage.getItem(`answeredPolls_${roomCode}`);
+    const savedAnswers = localStorage.getItem(answeredStorageKey);
     if (savedAnswers) setAnsweredPolls(JSON.parse(savedAnswers));
     localStorage.setItem("activeRoomCode", roomCode);
     localStorage.setItem("joinedRoom", "true");
@@ -153,7 +183,7 @@ export default function StudentPollRoom() {
       socket.off('live-poll-results');  
       socket.off('badge-earned');
     };
-  }, [roomCode, navigate, user?.uid]);
+  }, [roomCode, navigate, user?.uid, answeredStorageKey]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -179,9 +209,9 @@ export default function StudentPollRoom() {
 
   useEffect(() => {
     if (roomCode) {
-      localStorage.setItem(`answeredPolls_${roomCode}`, JSON.stringify(answeredPolls));
+      localStorage.setItem(answeredStorageKey, JSON.stringify(answeredPolls));
     }
-  }, [answeredPolls, roomCode]);
+  }, [answeredPolls, roomCode, answeredStorageKey]);
 
   useEffect(() => {
 
@@ -206,12 +236,28 @@ export default function StudentPollRoom() {
       const res = await api.get(`/livequizzes/rooms/${code}`);
       if (res.data?.room) {
         setRoomDetails(res.data);
-        setAllRoomPolls(res.data.room.polls || []);
+        const roomPolls: Poll[] = res.data.room.polls || [];
+        setAllRoomPolls(roomPolls);
+
+        const { activePolls, timers } = getActivePollSnapshot(
+          roomPolls,
+          code,
+          res.data.room.teacherId
+        );
+
+        setLivePolls(activePolls);
+        setPollTimers(timers);
       }
     } catch (e) {
       console.error("Failed to load room details:", e);
     }
   };
+
+  const hasUserAnsweredPoll = useCallback((poll: Poll) => {
+    if (!user?.uid) return false;
+    if (answeredPolls[poll._id] !== undefined) return true;
+    return !!poll.answers?.some((answer) => answer.userId === user.uid);
+  }, [answeredPolls, user?.uid]);
 
 
   useEffect(() => {
@@ -232,22 +278,6 @@ export default function StudentPollRoom() {
     };
   }, [newBadgePopup]);
 
-  const submitAnswer = async (pollId: string, answerIndex: number) => {
-    setIsAnimating(true);
-    try {
-      await api.post(`/livequizzes/rooms/${roomCode}/polls/answer`, {
-        pollId, userId: user?.uid, answerIndex
-      });
-      setTimeout(() => {
-        setAnsweredPolls(prev => ({ ...prev, [pollId]: answerIndex }));
-        setIsAnimating(false);
-        toast.success("Vote submitted!");
-      }, 300);
-    } catch {
-      setIsAnimating(false);
-      toast.error("Failed to submit vote");
-    }
-  };
   const cleanupRoom = () => {
 
   setJoinedRoom(false);
@@ -279,6 +309,31 @@ export default function StudentPollRoom() {
     if (timeLeft > 10) return "bg-amber-500/20";
     return "bg-red-500/20";
   };
+
+  const getPollTiming = (poll: Poll): { phase: PollPhase; startMs: number; endMs: number; timeLeft: number } => {
+    const now = Date.now();
+    const startMs = poll.createdAt ? new Date(poll.createdAt).getTime() : now;
+    const durationSec = typeof poll.timer === 'number' && poll.timer > 0 ? poll.timer : 30;
+    const endMs = startMs + durationSec * 1000;
+
+    if (now < startMs) {
+      return { phase: 'upcoming', startMs, endMs, timeLeft: Math.ceil((startMs - now) / 1000) };
+    }
+
+    if (now < endMs) {
+      return { phase: 'active', startMs, endMs, timeLeft: Math.ceil((endMs - now) / 1000) };
+    }
+
+    return { phase: 'ended', startMs, endMs, timeLeft: 0 };
+  };
+
+  const formatDateTime = (ms: number) =>
+    new Date(ms).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
   const getPollAnswerStatus = (poll: Poll) => {
     if (!user?.uid) return 'unanswered';
@@ -322,8 +377,44 @@ export default function StudentPollRoom() {
     }
   };
 
-  const activeLivePolls = livePolls.filter(p => answeredPolls[p._id] === undefined);
-  const answeredLivePolls = livePolls.filter(p => answeredPolls[p._id] !== undefined);
+  const sortedRoomPolls = [...allRoomPolls].sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  );
+  const activeLivePolls = sortedRoomPolls.filter((p) => {
+    const timing = getPollTiming(p);
+    return timing.phase === 'active' && !hasUserAnsweredPoll(p);
+  });
+  const activePollIds = new Set(activeLivePolls.map(p => p._id));
+  const attemptedPolls = sortedRoomPolls.filter(p => hasUserAnsweredPoll(p));
+  const endedPolls = sortedRoomPolls.filter((p) => getPollTiming(p).phase === 'ended');
+  const latestPolls = sortedRoomPolls.filter((p) => !hasUserAnsweredPoll(p));
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+  const endedPollGroups: Record<'Today' | 'Yesterday' | 'Older', Array<{ poll: Poll; timing: ReturnType<typeof getPollTiming> }>> = {
+    Today: [],
+    Yesterday: [],
+    Older: [],
+  };
+
+  endedPolls.forEach((poll) => {
+    const timing = getPollTiming(poll);
+    const endDayStart = new Date(new Date(timing.endMs).getFullYear(), new Date(timing.endMs).getMonth(), new Date(timing.endMs).getDate()).getTime();
+
+    if (endDayStart === startOfToday) {
+      endedPollGroups.Today.push({ poll, timing });
+      return;
+    }
+
+    if (endDayStart === startOfYesterday) {
+      endedPollGroups.Yesterday.push({ poll, timing });
+      return;
+    }
+
+    endedPollGroups.Older.push({ poll, timing });
+  });
+
+  const historyGroupOrder: Array<'Today' | 'Yesterday' | 'Older'> = ['Today', 'Yesterday', 'Older'];
   const popupTier = newBadgePopup ? getBadgeTier(newBadgePopup.badgeId?.category, newBadgePopup.badgeId?.name) : null;
 
   if (!roomCode) return <div>Loading...</div>;
@@ -441,6 +532,9 @@ export default function StudentPollRoom() {
             <p className="text-gray-600 dark:text-gray-400 mt-2">
               {roomDetails?.room?.name || "Join the conversation and make your voice heard!"}
             </p>
+            <p className="text-sm text-blue-600 dark:text-blue-300 mt-1 font-medium">
+              {hostDisplayLabel}
+            </p>
           </div>
         </div>
 
@@ -466,7 +560,7 @@ export default function StudentPollRoom() {
 
               <h3 className="text-lg font-semibold mb-2">Room Details</h3>
               <p><strong>Code:</strong> {roomDetails.room.roomCode}</p>
-              <p><strong>Host:</strong> {roomDetails.room.teacherName}</p>
+              <p><strong>Host:</strong> {hostDisplayLabel}</p>
               <p>
                 <strong>Created:</strong>{" "}
                 {roomDetails.room.createdAt
@@ -499,7 +593,7 @@ export default function StudentPollRoom() {
                         Active Polls
                       </CardTitle>
                       <p className="text-gray-600 dark:text-gray-400 mt-1">
-                        {activeLivePolls.length} poll{activeLivePolls.length !== 1 ? 's' : ''} waiting for your response
+                        {activeLivePolls.length} poll{activeLivePolls.length !== 1 ? 's' : ''} available to answer
                       </p>
                     </div>
                   </div>
@@ -523,7 +617,8 @@ export default function StudentPollRoom() {
                   activeLivePolls.map((poll) => (
                     <div
                       key={poll._id}
-                      className="group relative p-6 bg-gradient-to-r from-white to-purple-50/50 dark:from-gray-800 dark:to-purple-900/20 rounded-2xl border border-purple-200/50 dark:border-purple-700/50 hover:shadow-xl hover:shadow-purple-500/20 transition-all duration-300"
+                      className="group relative p-6 bg-gradient-to-r from-white to-purple-50/50 dark:from-gray-800 dark:to-purple-900/20 rounded-2xl border border-purple-200/50 dark:border-purple-700/50 hover:shadow-xl hover:shadow-purple-500/20 transition-all duration-300 cursor-pointer"
+                      onClick={() => navigate({ to: `/student/pollroom/${roomCode}/poll/${poll._id}/active` })}
                     >
                       <div className="absolute top-0 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-700 rounded-t-2xl overflow-hidden">
                         <div
@@ -546,61 +641,16 @@ export default function StudentPollRoom() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                        {poll.options.map((option, index) => (
-                          <Button
-                            key={index}
-                            variant={selectedOptions[poll._id] === index ? "default" : "outline"}
-                            size="lg"
-                            className={`
-                              relative overflow-hidden p-4 h-auto text-left justify-start transition-all duration-300
-                              ${selectedOptions[poll._id] === index
-                                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25 scale-105'
-                                : 'bg-white/80 dark:bg-gray-700/80 border-purple-200/50 dark:border-purple-700/50 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-300 dark:hover:border-purple-600 hover:scale-102'
-                              }
-                            `}
-                            onClick={() => setSelectedOptions(prev => ({ ...prev, [poll._id]: index }))}
-                            disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined}
-                          >
-                            <div className="flex items-center gap-3">
-                              {selectedOptions[poll._id] === index ? (
-                                <CheckCircle className="w-5 h-5 text-white" />
-                              ) : (
-                                <Circle className="w-5 h-5 text-gray-400" />
-                              )}
-                              <span className="font-medium">{option}</span>
-                            </div>
-                          </Button>
-                        ))}
-                      </div>
-
                       <div className="flex items-center justify-between">
-                        {answeredPolls[poll._id] !== undefined ? (
-                          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                            <CheckCircle className="w-5 h-5" />
-                            <span className="font-medium">Vote submitted successfully!</span>
-                          </div>
-                        ) : (
-                          <Button
-                            size="lg"
-                            className={`
-                              bg-gradient-to-r from-emerald-500 to-blue-500 text-white font-semibold px-8 py-3 
-                              hover:from-emerald-600 hover:to-blue-600 transition-all duration-300 hover:scale-105
-                              ${isAnimating ? 'animate-pulse' : ''}
-                            `}
-                            onClick={() => {
-                              if (selectedOptions[poll._id] !== null && selectedOptions[poll._id] !== undefined) {
-                                submitAnswer(poll._id, selectedOptions[poll._id]!);
-                              } else {
-                                toast.warning("Please select an option first");
-                              }
-                            }}
-                            disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined}
-                          >
-                            <Trophy className="w-5 h-5 mr-2" />
-                            Submit Vote
-                          </Button>
-                        )}
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          {poll.options.length} options
+                        </span>
+                        <Button
+                          size="sm"
+                          className="bg-gradient-to-r from-emerald-500 to-blue-500 text-white hover:from-emerald-600 hover:to-blue-600"
+                        >
+                          Open Poll
+                        </Button>
                       </div>
                     </div>
                   ))
@@ -617,72 +667,61 @@ export default function StudentPollRoom() {
                   </div>
                   <div>
                     <CardTitle className="text-2xl text-gray-800 dark:text-gray-100">
-                      Recent Live Polls
+                      Latest Polls
                     </CardTitle>
                     <p className="text-gray-600 dark:text-gray-400 mt-1">
-                      {answeredLivePolls.length} poll{answeredLivePolls.length !== 1 ? 's' : ''} completed in this session
+                      {latestPolls.length} recent poll{latestPolls.length !== 1 ? 's' : ''} (active + non-active)
                     </p>
                   </div>
                 </div>
               </CardHeader>
 
               <CardContent>
-                {answeredLivePolls.length === 0 ? (
+                {latestPolls.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 rounded-full flex items-center justify-center">
                       <History className="w-12 h-12 text-gray-400" />
                     </div>
                     <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                      No recent polls yet
+                      No latest polls yet
                     </h3>
                     <p className="text-gray-500 dark:text-gray-400">
-                      Completed live polls will appear here once you start voting.
+                      Recently created polls will appear here.
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {answeredLivePolls.map((poll) => (
-                      <div
-                        key={poll._id}
-                        className="p-6 bg-gradient-to-r from-emerald-50 to-blue-50 dark:from-emerald-900/20 dark:to-blue-900/20 rounded-xl border border-emerald-200/50 dark:border-emerald-700/50"
-                      >
-                        <div className="flex items-start gap-4">
-                          <div className="p-2 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-lg flex-shrink-0">
-                            <CheckCircle className="w-5 h-5 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                              {poll.question}
-                            </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                              {poll.options.map((option, index) => (
-                                <div
-                                  key={index}
-                                  className={`p-3 rounded-lg transition-all duration-200 ${answeredPolls[poll._id] === index
-                                    ? 'bg-gradient-to-r from-emerald-500 to-blue-500 text-white shadow-lg'
-                                    : 'bg-white/60 dark:bg-gray-700/60 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
-                                    }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {answeredPolls[poll._id] === index ? (
-                                      <CheckCircle className="w-4 h-4 text-white" />
-                                    ) : (
-                                      <Circle className="w-4 h-4 text-gray-400" />
-                                    )}
-                                    <span className="text-sm font-medium">{option}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                              <Trophy className="w-4 h-4" />
-                              <span className="text-sm font-medium">
-                                Your answer: {poll.options[answeredPolls[poll._id]]}
-                              </span>
+                    {latestPolls.map((poll) => (
+                      (() => {
+                        const timing = getPollTiming(poll);
+                        const detailMode = timing.phase === 'active' ? 'active' : 'latest';
+                        const actionLabel = timing.phase === 'active' ? 'Answer Poll' : 'View Poll';
+
+                        return (
+                          <div
+                            key={poll._id}
+                            className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-200/50 dark:border-blue-700/50 cursor-pointer hover:shadow-lg transition-all"
+                            onClick={() => navigate({ to: `/student/pollroom/${roomCode}/poll/${poll._id}/${detailMode}` })}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-1">
+                                  {poll.question}
+                                </h4>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                  {poll.options.length} options
+                                  {timing.phase === 'active' && ` • Active now (${timing.timeLeft}s left)`}
+                                  {timing.phase === 'upcoming' && ` • Starts at ${formatDateTime(timing.startMs)}`}
+                                  {timing.phase === 'ended' && ` • Start: ${formatDateTime(timing.startMs)} • End: ${formatDateTime(timing.endMs)}`}
+                                </p>
+                              </div>
+                              <Button size="sm" variant={timing.phase === 'active' ? 'default' : 'outline'}>
+                                {actionLabel}
+                              </Button>
                             </div>
                           </div>
-                        </div>
-                      </div>
+                        );
+                      })()
                     ))}
                   </div>
                 )}
@@ -697,7 +736,7 @@ export default function StudentPollRoom() {
                     <BookOpen className="w-5 h-5 text-white" />
                   </div>
                   <CardTitle className="text-xl text-gray-800 dark:text-gray-100">
-                    All Polls History ({allRoomPolls.length})
+                    All Polls History ({endedPolls.length})
                   </CardTitle>
                 </div>
 
@@ -717,94 +756,48 @@ export default function StudentPollRoom() {
 
               {showAllPolls && (
                 <CardContent className="max-h-96 overflow-y-auto">
-                  {allRoomPolls.length === 0 ? (
+                  {endedPolls.length === 0 ? (
                     <div className="text-center py-8">
                       <div className="w-16 h-16 mx-auto mb-3 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 rounded-full flex items-center justify-center">
                         <BookOpen className="w-8 h-8 text-gray-400" />
                       </div>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        No polls in this room yet
+                        No ended polls yet
                       </p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {allRoomPolls.map((poll) => {
-                        const status = getPollAnswerStatus(poll);
-                        const userAnswerIndex = answeredPolls[poll._id] ??
-                          poll.answers?.find(answer => answer.userId === user?.uid)?.answerIndex;
+                    <div className="space-y-5">
+                      {historyGroupOrder.map((group) => {
+                        const items = endedPollGroups[group];
+                        if (items.length === 0) return null;
 
                         return (
-                          <div
-                            key={poll._id}
-                            className="p-4 bg-gradient-to-r from-gray-50 to-blue-50/50 dark:from-gray-800 dark:to-blue-900/10 rounded-lg border border-gray-200/50 dark:border-gray-700/50"
-                          >
-                            <div className="flex items-start justify-between mb-3">
-                              <h4 className="font-medium text-gray-800 dark:text-gray-200 text-sm leading-5 pr-2">
-                                {poll.question}
-                              </h4>
-                              {getStatusBadge(status)}
+                          <div key={group} className="space-y-3">
+                            <div className="text-sm font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
+                              {group}
                             </div>
 
-                            <div className="space-y-2">
-                              {poll.options.map((option, index) => {
-                                const isCorrect = index === poll.correctOptionIndex;
-                                const isUserAnswer = userAnswerIndex === index;
+                            {items.map(({ poll, timing }) => {
+                              const historyMode = hasUserAnsweredPoll(poll) ? 'attempted' : 'latest';
 
-                                return (
-                                  <div
-                                    key={index}
-                                    className={`p-2 rounded-md text-sm transition-all duration-200 ${isCorrect && isUserAnswer
-                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-600'
-                                      : isCorrect
-                                        ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700'
-                                        : isUserAnswer
-                                          ? 'bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-600'
-                                          : 'bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600'
-                                      }`}
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      {isCorrect && isUserAnswer ? (
-                                        <CheckCircle className="w-4 h-4 text-emerald-600" />
-                                      ) : isCorrect ? (
-                                        <CheckCircle className="w-4 h-4 text-emerald-500" />
-                                      ) : isUserAnswer ? (
-                                        <X className="w-4 h-4 text-red-500" />
-                                      ) : (
-                                        <Circle className="w-4 h-4 text-gray-400" />
-                                      )}
-                                      <span className={`font-medium ${isCorrect && isUserAnswer
-                                        ? 'text-emerald-700 dark:text-emerald-300'
-                                        : isCorrect
-                                          ? 'text-emerald-600 dark:text-emerald-400'
-                                          : isUserAnswer
-                                            ? 'text-red-700 dark:text-red-300'
-                                            : 'text-gray-600 dark:text-gray-400'
-                                        }`}>
-                                        {option}
-                                      </span>
-                                      {isCorrect && (
-                                        <div className="ml-auto">
-                                          <div className="px-2 py-1 bg-emerald-200 dark:bg-emerald-800 rounded text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                                            Correct
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
+                              return (
+                                <div
+                                  key={poll._id}
+                                  className="p-4 bg-gradient-to-r from-gray-50 to-blue-50/50 dark:from-gray-800 dark:to-blue-900/10 rounded-lg border border-gray-200/50 dark:border-gray-700/50 cursor-pointer hover:shadow-lg transition-all"
+                                  onClick={() => navigate({ to: `/student/pollroom/${roomCode}/poll/${poll._id}/${historyMode}` })}
+                                >
+                                  <div className="flex items-start justify-between mb-2">
+                                    <h4 className="font-medium text-gray-800 dark:text-gray-200 text-sm leading-5 pr-2">
+                                      {poll.question}
+                                    </h4>
+                                    {getStatusBadge(getPollAnswerStatus(poll))}
                                   </div>
-                                );
-                              })}
-                            </div>
-
-                            {status !== 'unanswered' && (
-                              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
-                                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                                  <span>Your answer: {poll.options[userAnswerIndex!]}</span>
-                                  <span>
-                                    {poll.createdAt ? new Date(poll.createdAt).toLocaleDateString() : ''}
-                                  </span>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                                    {poll.options.length} options • Start: {formatDateTime(timing.startMs)} • End: {formatDateTime(timing.endMs)}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              );
+                            })}
                           </div>
                         );
                       })}
@@ -845,7 +838,7 @@ export default function StudentPollRoom() {
                             <div className="flex items-center gap-3">
                               <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Host:</span>
                               <span className="font-semibold text-purple-600 dark:text-purple-400">
-                                {roomDetails.room?.teacherName}
+                                {hostDisplayLabel}
                               </span>
                             </div>
                             <div className="flex items-center gap-3">

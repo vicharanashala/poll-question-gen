@@ -1,4 +1,4 @@
-import React, { JSX, useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios, { AxiosResponse } from "axios";
 import Modal from "./modal/Modal";
 import { UrlInput } from "./modal/UrlInput";
@@ -482,7 +482,7 @@ function ProgressBar(props: { progress: string }) {
 }
 
 function UrlTile(props: {
-    icon: JSX.Element;
+    icon: React.ReactNode;
     text: string;
     onUrlUpdate: (url: string) => void;
 }) {
@@ -528,7 +528,7 @@ function UrlModal(props: {
 }
 
 function FileTile(props: {
-    icon: JSX.Element;
+    icon: React.ReactNode;
     text: string;
     onFileUpdate: (decoded: AudioBuffer, blobUrl: string, mimeType: string) => void;
 }) {
@@ -561,7 +561,7 @@ function FileTile(props: {
 }
 
 function RecordTile(props: {
-    icon: JSX.Element;
+    icon: React.ReactNode;
     text: string;
     setAudioData: (data: Blob) => void;
     onAudioStream?: (audioBuffer: AudioBuffer) => void;
@@ -633,7 +633,7 @@ function RecordModal(props: {
     );
 }
 
-function Tile(props: { icon: JSX.Element; text?: string; onClick?: () => void }) {
+function Tile(props: { icon: React.ReactNode; text?: string; onClick?: () => void }) {
     return (
         <button
             onClick={props.onClick}
