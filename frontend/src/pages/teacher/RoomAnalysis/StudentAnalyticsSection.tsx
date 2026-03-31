@@ -1,9 +1,11 @@
 import { ChevronDown, Filter, Search } from "lucide-react";
-import { DashboardData } from "@/shared/types";
-import { StudentSortBy, StudentSortOrder } from "@/shared/types";
+import { Overview, PaginationMeta, StudentSortBy, StudentSortOrder, StudentStats } from "@/shared/types";
+import { PaginationControls } from "./PaginationControls";
 
 type Props = {
-  analysisData: DashboardData | null;
+  students: StudentStats[];
+  overview: Overview | null;
+  pagination: PaginationMeta;
   isLoading: boolean;
   searchQuery: string;
   setSearchQuery: (value: string) => void;
@@ -14,11 +16,14 @@ type Props = {
   studentSortBy: StudentSortBy;
   studentSortOrder: StudentSortOrder;
   handleStudentSort: (key: StudentSortBy) => void;
-  getStudentAccuracy: (student: DashboardData["students"][number]) => number;
+  getStudentAccuracy: (student: StudentStats) => number;
+  onPageChange: (page: number) => void;
 };
 
 export const StudentAnalyticsSection = ({
-  analysisData,
+  students,
+  overview,
+  pagination,
   isLoading,
   searchQuery,
   setSearchQuery,
@@ -30,6 +35,7 @@ export const StudentAnalyticsSection = ({
   studentSortOrder,
   handleStudentSort,
   getStudentAccuracy,
+  onPageChange,
 }: Props) => (
   <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col h-auto sm:h-[600px] transition-colors">
     <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -102,12 +108,12 @@ export const StudentAnalyticsSection = ({
                 <td className="p-4"><div className="h-4 w-20 rounded bg-slate-200 dark:bg-slate-700" /></td>
               </tr>
             ))}
-          {!isLoading && analysisData?.students?.map((student) => (
+          {!isLoading && students.map((student) => (
             <tr key={student.studentId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
               <td className="p-4 font-medium text-slate-800 dark:text-slate-100">{student.name}</td>
-              <td className="p-4">{student.attempted} / {analysisData?.overview?.questionsAsked ?? 0}</td>
-              <td className="p-4">{student.unAttempted} / {analysisData?.overview?.questionsAsked ?? 0}</td>
-              <td className="p-4">{student.missed} / {analysisData?.overview?.questionsAsked ?? 0}</td>
+              <td className="p-4">{student.attempted} / {overview?.questionsAsked ?? 0}</td>
+              <td className="p-4">{student.unAttempted} / {overview?.questionsAsked ?? 0}</td>
+              <td className="p-4">{student.missed} / {overview?.questionsAsked ?? 0}</td>
               <td className="p-4">
                 <div className="flex items-center gap-2">
                   <span className="w-10">{getStudentAccuracy(student)}%</span>
@@ -119,14 +125,14 @@ export const StudentAnalyticsSection = ({
                   </div>
                 </div>
                 <div className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  <span className="text-emerald-600 dark:text-emerald-400">{student.correct} ✓</span> | <span className="text-red-500 dark:text-red-400">{student.incorrect} ✗</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">{student.correct} ✓</span> | <span className="text-red-500 dark:text-red-400">{student.incorrect} ✕</span>
                 </div>
               </td>
               <td className="p-4 text-slate-500 dark:text-slate-400">{student.avgTime}</td>
               <td className="p-4 font-bold text-indigo-600 dark:text-indigo-400">{student.points.toLocaleString()}</td>
             </tr>
           ))}
-          {!isLoading && analysisData?.students?.length === 0 && (
+          {!isLoading && students.length === 0 && (
             <tr>
               <td colSpan={7} className="p-8 text-center text-slate-500 dark:text-slate-400">
                 No students match the current filters.
@@ -135,6 +141,16 @@ export const StudentAnalyticsSection = ({
           )}
         </tbody>
       </table>
+    </div>
+    <div className="border-t border-slate-200 dark:border-slate-700 px-4">
+      <PaginationControls
+        currentPage={pagination.currentPage}
+        totalPages={pagination.totalPages}
+        totalItems={pagination.totalItems}
+        pageSize={pagination.pageSize}
+        itemLabel="students"
+        onPageChange={onPageChange}
+      />
     </div>
   </div>
 );

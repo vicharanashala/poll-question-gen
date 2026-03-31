@@ -22,7 +22,7 @@ export interface UserAchievement {
   earnedAt: string;
 }
 
-export type ModalType = 'delete' | 'edit' | 'default';
+export type ModalType = "delete" | "edit" | "default";
 
 export interface ModalState {
   title: string;
@@ -32,99 +32,78 @@ export interface ModalState {
   cancelText?: string;
 }
 
-// =========================
-// 📊 OVERVIEW
-// =========================
 export type Overview = {
   roomCode: string;
   name: string;
-  createdAt: string; // or Date if parsed
+  createdAt: string;
   status: string;
-
   totalStudents: number;
   totalCohosts: number;
   questionsAsked: number;
-
   pointsDistributed: number;
   earnedPoints: number;
-
-  avgAccuracy: number; // ✅ added
+  avgAccuracy: number;
 };
 
-// =========================
-// 👨‍🎓 STUDENT STATS
-// =========================
 export type StudentStats = {
   studentId: string;
-  name: string; // ✅ now always present
-
+  name: string;
   attempted: number;
-  unAttempted: number; // ✅ added
-  missed: number; // ✅ added
-
+  unAttempted: number;
+  missed: number;
   correct: number;
   incorrect: number;
   points: number;
-
-  totalTime: number; // ✅ added (seconds)
+  totalTime: number;
   avgTime: string;
-  rank: number; // ✅ added
+  rank: number;
 };
 
-// =========================
-// ❓ QUESTION STATS
-// =========================
+export type PaginationMeta = {
+  currentPage: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
 export type QuestionStats = {
   text: string;
   responses: number;
-
   correctPct: number;
-  avgTime: string; // ✅ added
-  avgPoints: number; // ✅ added
-  engagementPct: number; // ✅ added
-
-  difficulty: "Easy" | "Medium" | "Hard"; // ✅ added
-  engagement: "High" | "Medium" | "Low"; // ✅ added
+  avgTime: string;
+  avgPoints: number;
+  engagementPct: number;
+  difficulty: "Easy" | "Medium" | "Hard";
+  engagement: "High" | "Medium" | "Low";
 };
 
-// =========================
-// 🏆 BADGE SUMMARY
-// =========================
 export type BadgeSummary = {
   name: string;
   earned: number;
   description: string;
 };
 
-// =========================
-// 🎖 STUDENT ACHIEVEMENTS
-// =========================
 export type StudentAchievement = {
   name: string;
   earnedBadges: string[];
 };
 
-// =========================
-// 🧩 ACHIEVEMENTS
-// =========================
 export type Achievements = {
   badges: BadgeSummary[];
   students: StudentAchievement[];
 };
 
-// =========================
-// 📦 DASHBOARD DATA
-// =========================
 export type DashboardData = {
   overview: Overview;
   students: StudentStats[];
   questions: QuestionStats[];
+  pagination: {
+    students: PaginationMeta;
+    questions: PaginationMeta;
+  };
   achievements: Achievements;
 };
 
-// =========================
-// 🌐 API RESPONSE
-// =========================
 export type DashboardResponse = {
   dashboardData: DashboardData;
 };
@@ -135,5 +114,5 @@ export type LineChartPoint = {
   tooltip?: string;
 };
 
-export type StudentSortBy = 'points' | 'avgTime' | 'accuracy';
-export type StudentSortOrder = 'asc' | 'desc';
+export type StudentSortBy = "points" | "avgTime" | "accuracy";
+export type StudentSortOrder = "asc" | "desc";

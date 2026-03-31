@@ -143,15 +143,28 @@ export class PollRoomController {
     @QueryParam('studentSortOrder') studentSortOrder?: string,
     @QueryParam('studentSearch') studentSearch?: string,
     @QueryParam('studentAccuracyBand') studentAccuracyBand?: string,
-    @QueryParam('studentParticipation') studentParticipation?: string
+    @QueryParam('studentParticipation') studentParticipation?: string,
+    @QueryParam('studentPage') studentPage?: number,
+    @QueryParam('studentPageSize') studentPageSize?: number,
+    @QueryParam('questionPage') questionPage?: number,
+    @QueryParam('questionPageSize') questionPageSize?: number
   ) {
+    const normalizedStudentPage = studentPage ? Number(studentPage) : undefined;
+    const normalizedStudentPageSize = studentPageSize ? Number(studentPageSize) : undefined;
+    const normalizedQuestionPage = questionPage ? Number(questionPage) : undefined;
+    const normalizedQuestionPageSize = questionPageSize ? Number(questionPageSize) : undefined;
+
     // Fetch from service
     const analysis = await this.roomService.getRoomAnalysisDashboardData(roomId, {
       studentSortBy,
       studentSortOrder,
       studentSearch,
       studentAccuracyBand,
-      studentParticipation
+      studentParticipation,
+      studentPage: normalizedStudentPage,
+      studentPageSize: normalizedStudentPageSize,
+      questionPage: normalizedQuestionPage,
+      questionPageSize: normalizedQuestionPageSize
     });
     return { success: true, data: analysis };
   }

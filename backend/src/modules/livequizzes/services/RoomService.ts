@@ -160,6 +160,10 @@ export class RoomService {
       studentSearch?: string;
       studentAccuracyBand?: string;
       studentParticipation?: string;
+      studentPage?: number;
+      studentPageSize?: number;
+      questionPage?: number;
+      questionPageSize?: number;
     }
   ) {
 
@@ -171,9 +175,9 @@ export class RoomService {
 
   {
     $facet: {
-      // =========================
-      // 📊 OVERVIEW
-      // =========================
+      
+      //OVERVIEW
+      
       overview: [
         {
           $project: {
@@ -235,9 +239,9 @@ export class RoomService {
         }
       ],
 
-      // =========================
-      // 👨‍🎓 STUDENTS
-      // =========================
+      
+      //STUDENTS
+      
       students: [
         { $unwind: "$joinedStudents" },
 
@@ -797,10 +801,61 @@ export class RoomService {
         return a.totalTime - b.totalTime;
       });
 
+      const paginateResults = <T>(items: T[], page?: number, pageSize?: number) => {
+        const totalItems = items.length;
+        const shouldPaginate =
+          Number.isInteger(page) &&
+          Number.isInteger(pageSize) &&
+          (page as number) > 0 &&
+          (pageSize as number) > 0;
+
+        if (!shouldPaginate) {
+          return {
+            items,
+            pagination: {
+              currentPage: 1,
+              pageSize: totalItems || 1,
+              totalItems,
+              totalPages: totalItems > 0 ? 1 : 0
+            }
+          };
+        }
+
+        const safePageSize = pageSize as number;
+        const totalPages = totalItems > 0 ? Math.ceil(totalItems / safePageSize) : 0;
+        const currentPage = totalPages > 0 ? Math.min(page as number, totalPages) : 1;
+        const startIndex = (currentPage - 1) * safePageSize;
+
+        return {
+          items: items.slice(startIndex, startIndex + safePageSize),
+          pagination: {
+            currentPage,
+            pageSize: safePageSize,
+            totalItems,
+            totalPages
+          }
+        };
+      };
+
+      const paginatedStudents = paginateResults(
+        students,
+        options?.studentPage,
+        options?.studentPageSize
+      );
+      const paginatedQuestions = paginateResults(
+        roomResult[0].questions,
+        options?.questionPage,
+        options?.questionPageSize
+      );
+
       const finalResult = {
         overview: roomResult[0].overview[0], // ✅ flattened
-        students,
-        questions: roomResult[0].questions,
+        students: paginatedStudents.items,
+        questions: paginatedQuestions.items,
+        pagination: {
+          students: paginatedStudents.pagination,
+          questions: paginatedQuestions.pagination
+        },
         achievements: achievementResult[0] || { badges: [], students: [] }
       };
 
