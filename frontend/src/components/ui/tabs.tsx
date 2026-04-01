@@ -12,13 +12,19 @@ const TabsContext = React.createContext<TabsContextType | undefined>(undefined);
 interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   defaultValue: string;
   children: React.ReactNode;
+  onValueChange?: (value: string) => void;
 }
 
-export function Tabs({ defaultValue, children, className, ...props }: TabsProps) {
+export function Tabs({ defaultValue, children, className, onValueChange, ...props }: TabsProps) {
   const [activeTab, setActiveTab] = React.useState(defaultValue);
 
+  const handleTabChange = React.useCallback((value: string) => {
+    setActiveTab(value);
+    onValueChange?.(value);
+  }, [onValueChange]);
+
   return (
-    <TabsContext.Provider value={{ activeTab, setActiveTab }}>
+    <TabsContext.Provider value={{ activeTab, setActiveTab: handleTabChange }}>
       <div className={cn("flex flex-col", className)} {...props}>
         {children}
       </div>
