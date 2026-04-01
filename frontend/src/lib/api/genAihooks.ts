@@ -2,7 +2,6 @@ import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "sonner";
 
-// Create a pre-configured axios instance
 const API_URL = import.meta.env.VITE_API_URL;
 const api = axios.create({
   baseURL: API_URL,
@@ -11,18 +10,50 @@ const api = axios.create({
   },
 });
 
-// Centralized error handling function
 const handleApiError = (error: any, message: string) => {
   console.error(error);
   toast.error(message);
 };
 
-type TranscriptResponse = {
-  message: string;
-  youtubeUrl: string;
-  generatedTranscript: string;
+// --- New Types for Live Generation ---
+export type LiveSegmentQuestionsInput = {
+  transcript: string;
+  questionSpecs: Record<string, number>;
+  model?: string;
 };
+
+export type LiveSegmentQuestionsResponse = {
+  success: boolean;
+  questions: any[];
+};
+
+// --- Existing Types ---
+type TranscriptResponse = { message: string; youtubeUrl: string; generatedTranscript: string; };
 type TranscriptInput = { youtubeUrl: string };
+
+// --- Hooks ---
+
+export function useGenerateLiveSegmentQuestions(
+  onSuccess: (data: any[]) => void,
+  onError?: (error: any) => void
+) {
+  return useMutation<LiveSegmentQuestionsResponse, unknown, LiveSegmentQuestionsInput>({
+    mutationFn: async (input) => {
+      try {
+        const response = await api.post<LiveSegmentQuestionsResponse>(
+          "/genai/generate-live-segment",
+          input
+        );
+        return response.data;
+      } catch (error: any) {
+        handleApiError(error, "Failed to generate live questions");
+        throw error;
+      }
+    },
+    onSuccess: (data) => onSuccess(data.questions),
+    onError,
+  });
+}
 
 export function useGenerateTranscript(
   onSuccess: (data: TranscriptResponse) => void,
@@ -30,24 +61,17 @@ export function useGenerateTranscript(
 ) {
   return useMutation<TranscriptResponse, unknown, FormData | TranscriptInput>({
     mutationFn: async (input) => {
-      try {
-        const isFormData = input instanceof FormData;
-        const response = await api.post<TranscriptResponse>(
-          "/genai/generate/transcript",
-          input,
-          {
-            headers: {
-              "Content-Type": isFormData
-                ? "multipart/form-data"
-                : "application/json",
-            },
-          }
-        );
-        return response.data;
-      } catch (error: any) {
-        handleApiError(error, "Failed to generate transcript");
-        throw error;
-      }
+      const isFormData = input instanceof FormData;
+      const response = await api.post<TranscriptResponse>(
+        "/genai/generate/transcript",
+        input,
+        {
+          headers: {
+            "Content-Type": isFormData ? "multipart/form-data" : "application/json",
+          },
+        }
+      );
+      return response.data;
     },
     onSuccess,
     onError,

@@ -19,9 +19,10 @@ import type { CorsOptions } from 'cors';
 import { currentUserChecker } from './shared/functions/currentUserChecker.js';
 import { pollSocket } from './modules/livequizzes/utils/PollSocket.js';
 import { connectToDatabase } from './config/db.js';
+// import { registerQuestionGenerationModule } from './modules/question-generation/index.js';
 
 const { controllers, validators } = await loadAppModules(appConfig.module.toLowerCase());
-
+  
 const corsOptions: CorsOptions = {
   origin: appConfig.origins,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

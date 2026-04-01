@@ -497,3 +497,46 @@ export default class GenAIVideoController {
   }
 }
 */ 
+
+import { JsonController, Post, HttpCode, Body, Res } from 'routing-controllers';
+import { injectable } from 'inversify';
+import { Response } from 'express';
+import { AIContentService } from './services/AIContentService.js';
+
+@injectable()
+@JsonController('/genai')
+export default class GenAIVideoController {
+  constructor(private aiContentService: AIContentService) {}
+
+  @Post('/generate-live-segment')
+  @HttpCode(200)
+  async generateLiveQuestions(
+    @Body() body: { 
+      transcript: string; 
+      questionSpecs: Record<string, number>; 
+      model?: string 
+    },
+    @Res() res: Response
+  ) {
+    try {
+      const { transcript, questionSpecs, model = 'gemma3' } = body;
+
+      // We treat the live chunk as a single segment for immediate processing
+      const segments = { "current_live_chunk": transcript };
+      const globalQuestionSpecification = [questionSpecs];
+
+      const questions = await this.aiContentService.generateQuestions({
+        segments,
+        globalQuestionSpecification,
+        model,
+      });
+
+      return res.json({
+        success: true,
+        questions,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+}

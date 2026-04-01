@@ -21,8 +21,7 @@ import socket from "@/lib/api/socket";
 import { CohostUser } from "@/shared/types";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useConfirmationModal } from "@/hooks/useConfirmationModal";
-
-
+import { useGenerateLiveSegmentQuestions } from "@/lib/api/genAihooks";
 
 const copyToClipboard = (text: string, message: string) => {
   navigator.clipboard.writeText(text).then(() => {
@@ -402,6 +401,14 @@ export default function TeacherPollRoom() {
   // New state for member names toggle
   const [isGenerateClicked, setIsGenerateClicked] = useState(false);
   const [_audioManagerKey, setAudioManagerKey] = useState(0);
+  const lastProcessedCharIndex = useRef(0);
+  const { mutate: generateLiveSegment } = useGenerateLiveSegmentQuestions(
+    (newQuestions) => {
+      // Requirements: Generated questions are sent for host approval before release
+      setQueuedGeneratedQuestions(prev => [...prev, ...newQuestions]);
+      toast.success("New periodic AI questions ready for review!");
+    }
+  );
 
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
@@ -428,6 +435,15 @@ export default function TeacherPollRoom() {
   const [showExternalModal, setShowExternalModal] = useState(false)
   const [_showGGMLRecordModel, setShowGGMLRecordModel] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | undefined>(undefined);
+
+  // Inside TeacherPollRoom component
+
+// const { mutate: generateLiveSegment } = useGenerateLiveSegmentQuestions(
+//   (newQuestions) => {
+//     setQueuedGeneratedQuestions(prev => [...prev, ...newQuestions]);
+//     toast.success("New AI questions ready for review!");
+//   }
+// );
 
   // Recording lock state
   const [recordingLockStatus, setRecordingLockStatus] = useState<{
@@ -809,6 +825,32 @@ export default function TeacherPollRoom() {
     }
   }, [isRecording, isLiveRecordingActive]);
 
+//   useEffect(() => {
+//   // Only run if recording is active and a valid interval is set
+//   if (!isRecording || !autoGenInterval || autoGenInterval <= 0) return;
+
+//   const intervalTimer = setInterval(() => {
+//     const fullText = (useWhisper || useWhisperGGML) ? whisperAiText : displayTranscript;
+    
+//     // 2. Extract ONLY the text spoken since the last check
+//     const newChunk = fullText.substring(lastProcessedCharIndex.current).trim();
+
+//     // 3. Only call API if the chunk is substantial (e.g., > 150 characters)
+//     if (newChunk.length > 150) {
+//       generateLiveSegment({
+//         transcript: newChunk,
+//         questionSpecs: { SOL: 1, TF: 1 }, // Fulfills "MCQ and True/False" requirement
+//         model: selectedModel
+//       });
+
+//       // 4. Update pointer forward so we don't repeat questions for this text
+//       lastProcessedCharIndex.current = fullText.length;
+//     }
+//   }, autoGenInterval * 1000); // interval is in seconds
+
+//   return () => clearInterval(intervalTimer);
+//  }, [isRecording, autoGenInterval, whisperAiText, displayTranscript, selectedModel]);
+
   // Keep bufferTextRef in sync with the latest transcript
   useEffect(() => {
     const textBuffer = (useWhisper || useWhisperGGML)
@@ -946,6 +988,7 @@ export default function TeacherPollRoom() {
       }
     } else {
       try {
+        lastProcessedCharIndex.current = 0;
 
         // Check if someone else is recording
         if (isMicLockedByOtherUser) {
@@ -1961,6 +2004,35 @@ export default function TeacherPollRoom() {
       Object.values(timerRefs.current).forEach(clearInterval);
     };
   }, []);
+
+  useEffect(() => {
+  // Only run if recording is active AND the host has set an interval > 0
+  if (!isRecording || !autoGenInterval || autoGenInterval <= 0) {
+    return;
+  }
+
+  const intervalTimer = setInterval(() => {
+    // 1. Get current full transcript from state
+    const currentText = displayTranscript || "";
+    
+    // 2. Extract ONLY the text spoken since the last check
+    const newChunk = currentText.substring(lastProcessedCharIndex.current).trim();
+
+    // 3. Only call API if there's substantial new content (e.g., > 150 characters)
+    if (newChunk.length > 150) {
+      generateLiveSegment({
+        transcript: newChunk,
+        questionSpecs: { SOL: 1, TF: 1 }, // Request 1 MCQ and 1 True/False
+        model: selectedModel
+      });
+
+      // 4. Move the pointer forward so we don't repeat questions
+      lastProcessedCharIndex.current = currentText.length;
+    }
+  }, autoGenInterval * 60000); // Minutes to milliseconds
+
+  return () => clearInterval(intervalTimer);
+}, [isRecording, autoGenInterval, displayTranscript, selectedModel, generateLiveSegment]);
 
   // No need to clear timers when switching questions
   // Timers will continue running in the background
