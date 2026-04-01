@@ -65,7 +65,7 @@ export const PaginationControls = ({
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="inline-flex items-center justify-center h-9 w-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-sm"
+          className="inline-flex items-center justify-center shrink-0 h-9 w-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-sm"
           aria-label="Go to previous page"
         >
           <ChevronLeft size={18} />
@@ -113,7 +113,7 @@ export const PaginationControls = ({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="inline-flex items-center justify-center h-9 w-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-sm"
+          className="inline-flex items-center justify-center shrink-0 h-9 w-9 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-sm mr-12"
           aria-label="Go to next page"
         >
           <ChevronRight size={18} />
