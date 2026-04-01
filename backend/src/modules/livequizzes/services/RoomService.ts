@@ -7,6 +7,7 @@ import { HttpError, NotFoundError } from 'routing-controllers';
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
+import { triggerLiveOverviewUpdate } from '../utils/overviewDebouncer.js';
 import UserAchievements from '#root/shared/database/models/UserAchievement.js';
 
 @injectable()
@@ -762,6 +763,7 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $addToSet: { students: userObjectId, joinedStudents: firebaseUID } }, { new: true })
+    triggerLiveOverviewUpdate(roomCode);
     return updatedRoom
   }
 
@@ -779,6 +781,7 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $pull: { students: userObjectId } }, { new: true })
+    triggerLiveOverviewUpdate(roomCode);
     return updatedRoom
   }
 
@@ -988,6 +991,8 @@ export class RoomService {
       activeCohosts: activeCohosts
     });
 
+    triggerLiveOverviewUpdate(decoded.roomId);
+
     return { message: "Joined as cohost", roomId: room.roomCode }
 
   }
@@ -1130,6 +1135,9 @@ export class RoomService {
       removedUserId: userId,
       activeCohosts: activeCohosts
     });
+    
+    triggerLiveOverviewUpdate(roomCode);
+
     return { message: 'coHost removed successfully' }
   }
 

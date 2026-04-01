@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import socket from "@/lib/api/socket";
 import { useParams } from "@tanstack/react-router";
 import { Calendar, Clock, FileSpreadsheet, Hash } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -21,6 +22,7 @@ import { OverviewTab } from "./RoomAnalysis/OverviewTab";
 import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
 import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
+import { useAuthStore } from "@/lib/store/auth-store";
 
 const STUDENT_PAGE_SIZE = 10;
 const QUESTION_PAGE_SIZE = 5;
@@ -34,6 +36,7 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
 
 export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
+  const { user: currentUser } = useAuthStore();
 
   const [loading, setLoading] = useState(false);
   const [studentLoading, setStudentLoading] = useState(false);
@@ -96,6 +99,53 @@ export default function TeacherPollAnalysis() {
       fetchAnalysisData();
     }
   }, [roomId]);
+
+  // ── Live overview updates 
+  useEffect(() => {
+    if (!roomId || !currentUser?.uid) return;
+
+    // Pass user UID so the backend can verify hasAccess.
+    socket.emit('join-room', { roomCode: roomId, user: currentUser.uid, role: 'teacher' });
+
+    // overview-analytics-updated receives the exact MongoDB aggregation 
+    // object for the overview stats (debounced to save DB load).
+    const handleOverviewAnalyticsUpdated = async (newOverview: any) => {
+      // 1. Instantly ping the overview stats for responsive UI
+      setAnalysisData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          overview: newOverview,
+        };
+      });
+
+      // 2. Silently fetch the rest of the dashboard so the Charts update with new data logs
+      // Add a timestamp cache-buster so the browser doesn't swallow the GET request
+      try {
+        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis?_t=${Date.now()}`);
+        if (response.data.success) {
+          const dashboard = response.data.data.dashboard;
+          console.log('[Live Refresh] Fetched fresh dashboard:', dashboard);
+          setAnalysisData(prev => {
+            if (!prev) return prev;
+            return {
+              ...dashboard,
+              overview: newOverview // Keep the perfectly real-time overview object
+            };
+          });
+        }
+      } catch (error) {
+        console.error("Failed to silently refresh chart data:", error);
+      }
+    };
+
+    socket.on('overview-analytics-updated', handleOverviewAnalyticsUpdated);
+
+    return () => {
+      socket.off('overview-analytics-updated', handleOverviewAnalyticsUpdated);
+      socket.emit('leave-room', roomId, null);
+    };
+  }, [roomId, currentUser?.uid]);
 
   useEffect(() => {
     const fetchFilteredStudents = async () => {
