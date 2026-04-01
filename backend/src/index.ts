@@ -13,12 +13,14 @@ import { loggingHandler } from './shared/middleware/loggingHandler.js';
 import { authorizationChecker, HttpErrorHandler } from './shared/index.js';
 import { generateOpenAPISpec } from './shared/functions/generateOpenApiSpec.js';
 import { apiReference } from '@scalar/express-api-reference';
+import { genaiModuleControllers } from './modules/genai/index.js'; // ✅ Imported
 import { loadAppModules } from './bootstrap/loadModules.js';
 import { printStartupSummary } from './utils/logDetails.js';
 import type { CorsOptions } from 'cors';
 import { currentUserChecker } from './shared/functions/currentUserChecker.js';
 import { pollSocket } from './modules/livequizzes/utils/PollSocket.js';
 import { connectToDatabase } from './config/db.js';
+import 'reflect-metadata';
 
 const { controllers, validators } = await loadAppModules(appConfig.module.toLowerCase());
 
@@ -31,10 +33,10 @@ const corsOptions: CorsOptions = {
 };
 
 const moduleOptions: RoutingControllersOptions = {
-  controllers: controllers,
+  // ✅ FIX: Manually adding your GenAI controllers to the registered list
+  controllers: [...controllers, ...genaiModuleControllers], 
   middlewares: [HttpErrorHandler],
   routePrefix: '/api',
-  //authorizationChecker: async () => true,
   authorizationChecker: authorizationChecker,
   currentUserChecker: currentUserChecker,
   defaultErrorHandler: true,
@@ -43,14 +45,10 @@ const moduleOptions: RoutingControllersOptions = {
   cors: corsOptions,
 };
 
-//const app = express();
 const app = createExpressServer({
   ...moduleOptions,
-  middlewares: [loggingHandler, HttpErrorHandler], // Add your middleware here
+  middlewares: [loggingHandler, HttpErrorHandler],
 });
-//app.use(loggingHandler);
-//const routingControllersApp = createExpressServer(moduleOptions);
-//app.use(routingControllersApp);
 
 const openApiSpec = await generateOpenAPISpec(moduleOptions, validators);
 app.use(
@@ -60,7 +58,6 @@ app.use(
     theme: 'elysiajs',
   }),
 );
-
 
 app.get("/debug-sentry", function mainHandler(req, res) {
   try {
@@ -84,7 +81,6 @@ app.get("/debug-sentry-error", function errorHandler(req, res) {
   throw new Error("Sentry error test!");
 });
 
-// Health check endpoint for Cloud Run
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",
@@ -97,6 +93,7 @@ if (NODE_ENV === 'production' || NODE_ENV === 'staging') {
   console.log('Setting up Sentry error handling - test for production and staging environment');
   setupSentryErrorHandling(app);
 }
+
 app.use(function onError(err, req, res, next) {
   let eventId;
   try {
@@ -115,14 +112,12 @@ app.use(function onError(err, req, res, next) {
 
 async function startServer() {
   try {
-    await connectToDatabase(); // Connect to MongoDB first
-    // Start server
-    //useExpressServer(app, moduleOptions);
+    await connectToDatabase(); 
     const server = app.listen(appConfig.port, () => {
       printStartupSummary();
     });
 
-    pollSocket.init(server); // For live poll socket functionality
+    pollSocket.init(server); 
   } catch (error) {
     console.error('❌ Failed to start server:', error);
     process.exit(1);
