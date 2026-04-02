@@ -7,13 +7,41 @@ import { HttpError, NotFoundError } from 'routing-controllers';
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
-import { triggerLiveOverviewUpdate } from '../utils/overviewDebouncer.js';
 import UserAchievements from '#root/shared/database/models/UserAchievement.js';
 
 @injectable()
 export class RoomService {
   private userModel = UserModel;
   private roomModel = Room;
+  // debounce storage
+  private debounceTimers = new Map<string, NodeJS.Timeout>();
+  private triggerLiveOverviewUpdate(roomCode: string) {
+    // Clear existing timer
+    if (this.debounceTimers.has(roomCode)) {
+      clearTimeout(this.debounceTimers.get(roomCode)!);
+    }
+
+    const timer = setTimeout(async () => {
+      this.debounceTimers.delete(roomCode);
+
+      try {
+        const overview = await this.getRoomAnalysisOverview(roomCode);
+
+        if (overview) {
+          pollSocket.emitToRoom(
+            roomCode,
+            'overview-analytics-updated',
+            overview
+          );
+        }
+      } catch (err) {
+        console.error('Failed to retrieve overview:', err);
+      }
+    }, 2000);
+
+    this.debounceTimers.set(roomCode, timer);
+  }
+
   async createRoom(name: string, teacherId: string): Promise<RoomType> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -224,7 +252,7 @@ export class RoomService {
     ]
     const roomOverview = await Room.aggregate(pipeline);
     if (!roomOverview.length) throw new Error('Room not found');
-    console.log('overview:',roomOverview)
+    console.log('overviewwwwwwwwwwwwwwwwwwwwwwwwwwwwwww:',roomOverview)
     return roomOverview[0];
   }
   //room questions analysis
@@ -362,7 +390,7 @@ export class RoomService {
 
     const finalResult  = roomQuestions[0]  ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
     
-    console.log('questions:',finalResult)
+    // console.log('questions:',finalResult)
     return finalResult;
   }
   //room students analysis
@@ -595,7 +623,7 @@ export class RoomService {
 
     const finalResult  = roomStudents[0]  ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
     
-    console.log('students:',finalResult)
+    // console.log('students:',finalResult)
     return finalResult;
   }
   //room achievement analysis
@@ -637,7 +665,7 @@ export class RoomService {
     ]
     const roomAchievements = await UserAchievements.aggregate(pipeline);
     if (!roomAchievements.length) throw new Error('Room not found');
-    console.log('achievement:',roomAchievements)
+    // console.log('achievement:',roomAchievements)
     return roomAchievements[0];
   }
 
@@ -739,7 +767,7 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $addToSet: { students: userObjectId, joinedStudents: firebaseUID } }, { new: true })
-    triggerLiveOverviewUpdate(roomCode);
+    this.triggerLiveOverviewUpdate(roomCode);
     return updatedRoom
   }
 
@@ -757,7 +785,7 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $pull: { students: userObjectId } }, { new: true })
-    triggerLiveOverviewUpdate(roomCode);
+    this.triggerLiveOverviewUpdate(roomCode);
     return updatedRoom
   }
 
@@ -967,7 +995,7 @@ export class RoomService {
       activeCohosts: activeCohosts
     });
 
-    triggerLiveOverviewUpdate(decoded.roomId);
+    this.triggerLiveOverviewUpdate(decoded.roomId);
 
     return { message: "Joined as cohost", roomId: room.roomCode }
 
@@ -1110,7 +1138,7 @@ export class RoomService {
       activeCohosts: activeCohosts
     });
     
-    triggerLiveOverviewUpdate(roomCode);
+    this.triggerLiveOverviewUpdate(roomCode);
 
     return { message: 'coHost removed successfully' }
   }
