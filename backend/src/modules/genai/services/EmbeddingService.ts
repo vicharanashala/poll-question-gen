@@ -4,9 +4,9 @@ import { aiConfig } from '#root/config/ai.js';
 
 @injectable()
 export class EmbeddingService {
-  // Pulling from your existing AI config (e.g., 127.0.0.1:11434)
+  
   private readonly apiUrl = `http://${aiConfig.serverIP}:${aiConfig.serverPort}/api/embeddings`;
-  private readonly model = 'llama3.2'; // Ensure this model is pulled in Ollama
+  private readonly model = 'llama3.2'; 
 
   public async embedText(text: string): Promise<number[]> {
     try {
