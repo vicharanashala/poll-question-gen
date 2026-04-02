@@ -136,6 +136,64 @@ export class PollRoomController {
   }
 
   //@Authorized(['teacher'])
+  @Get('/:roomId/analysis/overview')
+  async getPollAnalysisOverview(@Param('roomId') roomId: string) {
+
+    const analysis = await this.roomService.getRoomAnalysisOverview(roomId)
+    return {success:true, data: analysis}
+  }
+  @Get('/:roomId/analysis/students')
+  async getPollAnalysisStudents(
+    @Param('roomId') roomId: string,
+    @QueryParam('studentSortBy') studentSortBy?: string,
+    @QueryParam('studentSortOrder') studentSortOrder?: string,
+    @QueryParam('studentSearch') studentSearch?: string,
+    @QueryParam('studentAccuracyBand') studentAccuracyBand?: string,
+    @QueryParam('studentParticipation') studentParticipation?: string,
+    @QueryParam('studentPage') studentPage?: number,
+    @QueryParam('studentPageSize') studentPageSize?: number,
+) {
+
+    const normalizedStudentPage = studentPage ? Number(studentPage) : undefined;
+    const normalizedStudentPageSize = studentPageSize ? Number(studentPageSize) : undefined;
+    const analysis = await this.roomService.getRoomAnalysisStudents(
+      roomId,
+      {
+        studentSortBy,
+        studentSortOrder,
+        studentSearch,
+        studentAccuracyBand,
+        studentParticipation,
+        studentPage: normalizedStudentPage,
+        studentPageSize: normalizedStudentPageSize,
+      }
+    )
+    return {success:true, data: analysis}
+  }
+  @Get('/:roomId/analysis/questions')
+  async getPollAnalysisQuestions(
+    @Param('roomId') roomId: string,
+    @QueryParam('questionPage') questionPage?: number,
+    @QueryParam('questionPageSize') questionPageSize?: number
+) {
+
+    const normalizedQuestionPage = questionPage ? Number(questionPage) : undefined;
+    const normalizedQuestionPageSize = questionPageSize ? Number(questionPageSize) : undefined;
+    const analysis = await this.roomService.getRoomAnalysisQuestions(
+      roomId,
+      {
+        questionPage: normalizedQuestionPage,
+        questionPageSize: normalizedQuestionPageSize
+      }
+    )
+    return {success:true, data: analysis}
+  }
+  @Get('/:roomId/analysis/achievements')
+  async getPollAnalysisAchievements(@Param('roomId') roomId: string) {
+
+    const analysis = await this.roomService.getRoomAnalysisAchievements(roomId)
+    return {success:true, data: analysis}
+  }
   @Get('/:roomId/analysis')
   async getPollAnalysis(
     @Param('roomId') roomId: string,
