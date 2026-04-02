@@ -1,155 +1,245 @@
+import { useEffect, useState, useMemo } from "react";
 import { Activity, AlertCircle, Award, BarChart2, Clock, Shield, Target, TrendingDown, TrendingUp, Users } from "lucide-react";
-import { DashboardData } from "@/shared/types";
+import { DashboardData, Overview, LineChartPoint } from "@/shared/types";
 import { BarChart, LineChart } from "./Charts";
-import { LineChartPoint } from "@/shared/types";
+import api from "@/lib/api/api";
+import { LoadingState, EmptyState } from "./States";
 
 type Props = {
-  analysisData: DashboardData | null;
-  engagementData: LineChartPoint[];
-  engagementSummary: { average: number; lowestPoint: LineChartPoint } | null;
-  scoreDistribution: Array<{ label: string; value: number }>;
-  insightData: {
-    lowestAccuracyQuestion: DashboardData["questions"][number] | null;
-    highestEngagementQuestion: DashboardData["questions"][number] | null;
-    averageResponseTimeSeconds: number;
-    speedBadgeEarned: number;
-    averageQuestionAccuracy: number;
-  };
+  roomId: string;
+  overview: Overview | null;
 };
 
-export const OverviewTab = ({
-  analysisData,
-  engagementData,
-  engagementSummary,
-  scoreDistribution,
-  insightData,
-}: Props) => (
-  <div className="space-y-6">
-    <div className="flex flex-wrap items-center justify-center gap-4">
-      <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
-        <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Students</p>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalStudents}</h3>
+export const OverviewTab = ({ roomId, overview }: Props) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
+
+  useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        // We fetch the full dashboard specifically for the overview charts
+        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
+        const result = response.data;
+        if (!result.success) {
+          throw new Error("Failed to get analysis data");
+        }
+        setAnalysisData(result.data.dashboard || result.data);
+      } catch (err) {
+        if (err instanceof Error) setError(err.message);
+        console.error("Error fetching overview dashboard data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (roomId) fetchDashboard();
+  }, [roomId]);
+
+  const scoreDistribution = useMemo(() => {
+    const dist = [
+      { label: "< 500", value: 0 },
+      { label: "500-1k", value: 0 },
+      { label: "1k-2k", value: 0 },
+      { label: "2k-3k", value: 0 },
+      { label: "> 3k", value: 0 },
+    ];
+
+    analysisData?.students?.forEach((s) => {
+      if (s.points < 500) dist[0].value++;
+      else if (s.points < 1000) dist[1].value++;
+      else if (s.points < 2000) dist[2].value++;
+      else if (s.points < 3000) dist[3].value++;
+      else dist[4].value++;
+    });
+
+    return dist;
+  }, [analysisData?.students]);
+
+  const engagementData = useMemo<LineChartPoint[]>(() => {
+    return (analysisData?.questions ?? []).map((question, index) => ({
+      label: `Q${index + 1}`,
+      value: Math.round(question.engagementPct),
+      tooltip: question.text,
+    }));
+  }, [analysisData?.questions]);
+
+  const engagementSummary = useMemo(() => {
+    if (!engagementData.length) {
+      return null;
+    }
+
+    const total = engagementData.reduce((sum, point) => sum + point.value, 0);
+    const average = Math.round(total / engagementData.length);
+    const lowestPoint = engagementData.reduce((lowest, point) => (point.value < lowest.value ? point : lowest));
+
+    return { average, lowestPoint };
+  }, [engagementData]);
+
+  const insightData = useMemo(() => {
+    const allQuestions = analysisData?.questions ?? [];
+    const allStudents = analysisData?.students ?? [];
+    const badges = analysisData?.achievements?.badges ?? [];
+
+    const lowestAccuracyQuestion = allQuestions.length
+      ? allQuestions.reduce((lowest, question) => (question.correctPct < lowest.correctPct ? question : lowest))
+      : null;
+
+    const highestEngagementQuestion = allQuestions.length
+      ? allQuestions.reduce((highest, question) => (question.engagementPct > highest.engagementPct ? question : highest))
+      : null;
+
+    const averageResponseTimeSeconds = allStudents.length
+      ? Math.round(allStudents.reduce((sum, student) => sum + student.totalTime, 0) / allStudents.length)
+      : 0;
+
+    const speedBadge = badges.find((badge) => badge.name.toLowerCase().includes("speed"));
+
+    const averageQuestionAccuracy = allQuestions.length
+      ? Math.round(allQuestions.reduce((sum, question) => sum + question.correctPct, 0) / allQuestions.length)
+      : 0;
+
+    return {
+      lowestAccuracyQuestion,
+      highestEngagementQuestion,
+      averageResponseTimeSeconds,
+      speedBadgeEarned: speedBadge?.earned ?? 0,
+      averageQuestionAccuracy,
+    };
+  }, [analysisData]);
+
+  if (loading && !analysisData) return <LoadingState message="Loading overview charts..." />;
+  if (error) return <EmptyState title="Could not load charts" message={error} />;
+
+  return (
+    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
+      <div className="flex flex-wrap items-center justify-center gap-4">
+        <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors hover:shadow-md">
+          <div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Students</p>
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{overview?.totalStudents ?? 0}</h3>
+          </div>
+          <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3 shadow-inner">
+            <Users size={24} />
+          </div>
         </div>
-        <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3">
-          <Users size={24} />
+
+        <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors hover:shadow-md">
+          <div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Cohosts</p>
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{overview?.totalCohosts ?? 0}</h3>
+          </div>
+          <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3 shadow-inner">
+            <Shield size={24} />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors hover:shadow-md">
+          <div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Questions Asked</p>
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{overview?.questionsAsked ?? 0}</h3>
+          </div>
+          <div className="w-12 h-12 flex-shrink-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 ml-3 shadow-inner">
+            <BarChart2 size={24} />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors hover:shadow-md">
+          <div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Avg. Accuracy</p>
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{overview?.avgAccuracy ?? 0}%</h3>
+          </div>
+          <div className="w-12 h-12 flex-shrink-0 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400 ml-3 shadow-inner">
+            <Target size={24} />
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors hover:shadow-md">
+          <div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Points Distributed</p>
+            <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{overview?.pointsDistributed ?? 0}</h3>
+          </div>
+          <div className="w-12 h-12 flex-shrink-0 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400 ml-3 shadow-inner">
+            <Award size={24} />
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
-        <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Cohosts</p>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.totalCohosts ?? 0}</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col transition-colors">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+            <Activity size={20} className="text-blue-500 dark:text-blue-400" />
+            Session Engagement
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Participation rate by question based on how many students submitted a response.</p>
+          <div className="flex-1 min-h-[160px]">
+            <LineChart data={engagementData} />
+          </div>
+          {engagementSummary && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
+                <p className="text-slate-500 dark:text-slate-400">Average engagement</p>
+                <p className="font-bold text-slate-800 dark:text-white">{engagementSummary.average}%</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
+                <p className="text-slate-500 dark:text-slate-400">Lowest participation</p>
+                <p className="font-bold text-slate-800 dark:text-white">{engagementSummary.lowestPoint.label}: {engagementSummary.lowestPoint.value}%</p>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="w-12 h-12 shrink-0 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 ml-3">
-          <Shield size={24} />
-        </div>
-      </div>
 
-      <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
-        <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Questions Asked</p>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview.questionsAsked ?? 0}</h3>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col transition-colors">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+            <BarChart2 size={20} className="text-indigo-500 dark:text-indigo-400" />
+            Score Distribution
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Number of students within point brackets.</p>
+          <div className="flex-1 min-h-[160px]">
+            <BarChart data={scoreDistribution} />
+          </div>
         </div>
-        <div className="w-12 h-12 flex-shrink-0 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 ml-3">
-          <BarChart2 size={24} />
-        </div>
-      </div>
 
-      <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
-        <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Avg. Accuracy</p>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview?.avgAccuracy ?? 0}%</h3>
-        </div>
-        <div className="w-12 h-12 flex-shrink-0 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400 ml-3">
-          <Target size={24} />
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-[250px] max-w-[400px] bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-center justify-between transition-colors">
-        <div>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Points Distributed</p>
-          <h3 className="text-2xl font-bold text-slate-800 dark:text-white mt-1">{analysisData?.overview?.pointsDistributed ?? 0}</h3>
-        </div>
-        <div className="w-12 h-12 flex-shrink-0 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400 ml-3">
-          <Award size={24} />
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors lg:col-span-2">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <AlertCircle size={20} className="text-amber-500 dark:text-amber-400" />
+            Session Summary
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30 shadow-sm transition-transform hover:-translate-y-1">
+              <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-bold mb-2">
+                <TrendingDown size={18} /> Accuracy Summary
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {insightData.lowestAccuracyQuestion
+                  ? `Average question accuracy was ${insightData.averageQuestionAccuracy}%, with the lowest-performing question at ${Math.round(insightData.lowestAccuracyQuestion.correctPct)}%.`
+                  : "Accuracy summary will appear once responses are available."}
+              </p>
+            </div>
+            <div className="p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30 shadow-sm transition-transform hover:-translate-y-1">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold mb-2">
+                <TrendingUp size={18} /> Participation Summary
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {insightData.highestEngagementQuestion
+                  ? `Average engagement was ${engagementSummary?.average ?? 0}%, and the highest-response question reached ${Math.round(insightData.highestEngagementQuestion.engagementPct)}% participation.`
+                  : "Participation summary will appear once students start answering questions."}
+              </p>
+            </div>
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30 shadow-sm transition-transform hover:-translate-y-1">
+              <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold mb-2">
+                <Clock size={18} /> Response Summary
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300">
+                {analysisData?.students?.length
+                  ? `Students took about ${insightData.averageResponseTimeSeconds}s on average per submitted answer.${insightData.speedBadgeEarned ? ` ${insightData.speedBadgeEarned} speed badges were awarded.` : ""}`
+                  : "Response summary will appear once students have submitted answers."}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col transition-colors">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-          <Activity size={20} className="text-blue-500 dark:text-blue-400" />
-          Session Engagement
-        </h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Participation rate by question based on how many students submitted a response.</p>
-        <div className="flex-1 min-h-[160px]">
-          <LineChart data={engagementData} />
-        </div>
-        {engagementSummary && (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
-              <p className="text-slate-500 dark:text-slate-400">Average engagement</p>
-              <p className="font-bold text-slate-800 dark:text-white">{engagementSummary.average}%</p>
-            </div>
-            <div className="rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 p-3">
-              <p className="text-slate-500 dark:text-slate-400">Lowest participation</p>
-              <p className="font-bold text-slate-800 dark:text-white">{engagementSummary.lowestPoint.label}: {engagementSummary.lowestPoint.value}%</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 flex flex-col transition-colors">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-          <BarChart2 size={20} className="text-indigo-500 dark:text-indigo-400" />
-          Score Distribution
-        </h3>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Number of students within point brackets.</p>
-        <div className="flex-1 min-h-[160px]">
-          <BarChart data={scoreDistribution} />
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors lg:col-span-2">
-        <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-          <AlertCircle size={20} className="text-amber-500 dark:text-amber-400" />
-          Session Summary
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-bold mb-2">
-              <TrendingDown size={18} /> Accuracy Summary
-            </div>
-            <p className="text-sm text-slate-700 dark:text-slate-300">
-              {insightData.lowestAccuracyQuestion
-                ? `Average question accuracy was ${insightData.averageQuestionAccuracy}%, with the lowest-performing question at ${Math.round(insightData.lowestAccuracyQuestion.correctPct)}%.`
-                : "Accuracy summary will appear once responses are available."}
-            </p>
-          </div>
-          <div className="p-4 bg-emerald-50 dark:bg-emerald-900/10 rounded-lg border border-emerald-100 dark:border-emerald-900/30">
-            <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold mb-2">
-              <TrendingUp size={18} /> Participation Summary
-            </div>
-            <p className="text-sm text-slate-700 dark:text-slate-300">
-              {insightData.highestEngagementQuestion
-                ? `Average engagement was ${engagementSummary?.average ?? 0}%, and the highest-response question reached ${Math.round(insightData.highestEngagementQuestion.engagementPct)}% participation.`
-                : "Participation summary will appear once students start answering questions."}
-            </p>
-          </div>
-          <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-900/30">
-            <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 font-bold mb-2">
-              <Clock size={18} /> Response Summary
-            </div>
-            <p className="text-sm text-slate-700 dark:text-slate-300">
-              {analysisData?.students?.length
-                ? `Students took about ${insightData.averageResponseTimeSeconds}s on average per submitted answer.${insightData.speedBadgeEarned ? ` ${insightData.speedBadgeEarned} speed badges were awarded.` : ""}`
-                : "Response summary will appear once students have submitted answers."}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-);
+  );
+};
