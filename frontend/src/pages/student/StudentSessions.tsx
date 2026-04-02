@@ -28,6 +28,8 @@ export default function StudentSessions() {
         }
     };
 
+
+
     useEffect(() => {
         if (user?.uid) {
             fetchDashboardData();
@@ -146,31 +148,40 @@ export default function StudentSessions() {
                                         <div className="space-y-1">
                                             <div className="flex justify-between text-[10px] font-bold">
                                                 <span className="text-slate-500 uppercase">Accuracy</span>
-                                                <span className="text-blue-600">{room.averageScore}</span>
+                                                <span className={room.averageScore === '0%' ? 'text-rose-600' : 'text-blue-600'}>{room.averageScore}</span>
                                             </div>
                                             <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                <div className="h-full bg-blue-500 rounded-full" style={{ width: room.averageScore }} />
+                                                <div className={`h-full ${room.averageScore === '0%' ? 'bg-rose-500' : 'bg-blue-500'} rounded-full`} style={{ width: room.averageScore }} />
                                             </div>
                                         </div>
                                         <div className="space-y-1">
-                                            <div className="flex justify-between text-[10px] font-bold">
-                                                <span className="text-slate-500 uppercase">Participation</span>
-                                                <span className="text-emerald-600">{Math.round((room.attendedPolls / room.totalPolls) * 100)}%</span>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(room.attendedPolls / room.totalPolls) * 100}%` }} />
-                                            </div>
+                                            {(() => {
+                                                const participation = room.totalPolls > 0 ? Math.round((room.attendedPolls / room.totalPolls) * 100) : 0;
+                                                return (
+                                                    <>
+                                                        <div className="flex justify-between text-[10px] font-bold">
+                                                            <span className="text-slate-500 uppercase">Participation</span>
+                                                            <span className={participation === 0 ? 'text-rose-600' : 'text-emerald-600'}>{participation}%</span>
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                            <div className={`h-full ${participation === 0 ? 'bg-rose-500' : 'bg-emerald-500'} rounded-full`} style={{ width: `${participation}%` }} />
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full rounded-xl border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 font-bold text-xs"
-                                        onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
-                                    >
-                                        Review Session <ArrowRightCircle className="ml-2 w-4 h-4" />
-                                    </Button>
+                                    {room.status === 'active' && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full rounded-xl border-slate-200 hover:bg-slate-100 dark:hover:bg-slate-900 font-bold text-xs"
+                                            onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
+                                        >
+                                            Rejoin <ArrowRightCircle className="ml-2 w-4 h-4" />
+                                        </Button>
+                                    )}
                                 </CardContent>
                             </Card>
                         ))

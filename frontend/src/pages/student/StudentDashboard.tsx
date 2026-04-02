@@ -2,10 +2,11 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Bar } from "recharts";
 import { useState, useEffect } from "react";
-import { BookOpen, TrendingUp, Calendar, Trophy, Clock, CheckCircle, BarChart2, AlertCircle, ShieldCheck, ArrowRightCircle, Target, Award } from "lucide-react";
+import { TrendingUp, Clock, Award, ShieldCheck, BarChart2, BookOpen, ArrowRightCircle, Target, Trophy, AlertCircle, CheckCircle, Calendar } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useNavigate } from "@tanstack/react-router";
 import api from "@/lib/api/api";
+import { getBadgeTier } from "@/shared/getBadgeTier";
 import socket from "@/lib/api/socket";
 
 export interface StudentData {
@@ -147,6 +148,30 @@ export default function StudentDashboard() {
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
   }, [user?.uid]);
+
+  const renderBadgeIcon = (badge: any, size: "sm" | "md" | "lg" = "md") => {
+    if (!badge) return <div className="text-2xl">🏆</div>;
+
+    // Check if there's an actual image file override
+    const iconStr = badge.icon || "";
+    const isImage = iconStr.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i);
+    if (isImage) {
+      const imgSize = size === "sm" ? "w-6 h-6" : size === "md" ? "w-8 h-8" : "w-12 h-12";
+      return <img src={iconStr.startsWith('http') ? iconStr : `/badges/${iconStr}`} alt="Badge" className={`${imgSize} object-contain`} />;
+    }
+
+    // Use getBadgeTier for Lucide icons and styling
+    const tier = getBadgeTier(badge.category, badge.name);
+    const Icon = tier.Icon;
+    const containerSize = size === "sm" ? "h-10 w-10" : size === "md" ? "h-12 w-12" : "h-16 w-16";
+    const iconSize = size === "sm" ? "w-5 h-5" : size === "md" ? "w-6 h-6" : "w-8 h-8";
+
+    return (
+      <div className={`flex ${containerSize} items-center justify-center rounded-full bg-gradient-to-br shadow-md transition-transform duration-300 ${tier.iconContainer}`}>
+        <Icon className={`${iconSize} ${tier.iconColor}`} />
+      </div>
+    );
+  };
 
   // Sync active room from backend if local storage is empty (e.g., incognito/new device)
   useEffect(() => {
@@ -542,7 +567,7 @@ export default function StudentDashboard() {
                     {achievements?.recentAchievements && achievements.recentAchievements.length > 0 ? (
                       achievements.recentAchievements.slice(0, 3).map((ach: any, idx: number) => (
                         <div key={idx} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800 group hover:border-indigo-200 transition-all">
-                          <div className="text-2xl">{ach.badgeId?.icon || "🏆"}</div>
+                          {renderBadgeIcon(ach.badgeId, "sm")}
                           <div>
                             <div className="text-sm font-bold text-slate-800 dark:text-slate-100">{ach.badgeId?.name}</div>
                             <div className="text-[10px] text-slate-500 font-medium">Earned in Room {ach.roomCode}</div>
@@ -566,8 +591,8 @@ export default function StudentDashboard() {
                         <Award className="w-16 h-16 text-indigo-600" />
                       </div>
                       <div className="relative z-10">
-                        <div className="text-3xl mb-3">{achievements.upcomingBadge.icon || "✨"}</div>
-                        <h5 className="font-extrabold text-slate-800 dark:text-indigo-100 text-lg">{achievements.upcomingBadge.name}</h5>
+                        {renderBadgeIcon(achievements.upcomingBadge, "md")}
+                        <h5 className="font-extrabold text-slate-800 dark:text-indigo-100 text-lg mt-3">{achievements.upcomingBadge.name}</h5>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4 line-clamp-2">{achievements.upcomingBadge.description}</p>
 
                         <div className="space-y-2">
@@ -694,31 +719,40 @@ export default function StudentDashboard() {
                         <div className="space-y-1">
                           <div className="flex justify-between text-[10px] font-bold">
                             <span className="text-slate-500 uppercase">Accuracy</span>
-                            <span className="text-blue-600">{room.averageScore}</span>
+                            <span className={room.averageScore === '0%' ? 'text-rose-600' : 'text-blue-600'}>{room.averageScore}</span>
                           </div>
                           <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: room.averageScore }} />
+                            <div className={`h-full ${room.averageScore === '0%' ? 'bg-rose-500' : 'bg-blue-500'} rounded-full`} style={{ width: room.averageScore }} />
                           </div>
                         </div>
                         <div className="space-y-1">
-                          <div className="flex justify-between text-[10px] font-bold">
-                            <span className="text-slate-500 uppercase">Participation</span>
-                            <span className="text-emerald-600">{Math.round((room.attendedPolls / room.totalPolls) * 100)}%</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(room.attendedPolls / room.totalPolls) * 100}%` }} />
-                          </div>
+                          {(() => {
+                            const participation = room.totalPolls > 0 ? Math.round((room.attendedPolls / room.totalPolls) * 100) : 0;
+                            return (
+                              <>
+                                <div className="flex justify-between text-[10px] font-bold">
+                                  <span className="text-slate-500 uppercase">Participation</span>
+                                  <span className={participation === 0 ? 'text-rose-600' : 'text-emerald-600'}>{participation}%</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                                  <div className={`h-full ${participation === 0 ? 'bg-rose-500' : 'bg-emerald-500'} rounded-full`} style={{ width: `${participation}%` }} />
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
 
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
-                        className="w-full rounded-xl border-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900 font-bold text-xs"
-                      >
-                        Review Session <ArrowRightCircle className="ml-2 w-4 h-4" />
-                      </Button>
+                      {room.status === 'active' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
+                          className="w-full rounded-xl border-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900 font-bold text-xs"
+                        >
+                          Rejoin <ArrowRightCircle className="ml-2 w-4 h-4" />
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
                 ))

@@ -14,12 +14,12 @@ export type UserRoomStats = {
 }
 
 
-export async function evaluateBadges(userId:string, roomCode:string, stats: UserRoomStats){
+export async function evaluateBadges(userId: string, roomCode: string, stats: UserRoomStats) {
 
   const badges = await Badge.find();
   const newlyUnlocked: any[] = [];
 
-  for(const badge of badges){
+  for (const badge of badges) {
 
     const alreadyEarned = await UserAchievement.findOne({
       userId,
@@ -27,11 +27,11 @@ export async function evaluateBadges(userId:string, roomCode:string, stats: User
       roomCode
     });
 
-    if(alreadyEarned) continue;
+    if (alreadyEarned) continue;
 
     const unlocked = checkRule(badge.rule, stats);
 
-    if(unlocked){
+    if (unlocked) {
 
       const achievement = await UserAchievement.create({
         userId,
