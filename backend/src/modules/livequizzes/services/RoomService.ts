@@ -166,7 +166,20 @@ export class RoomService {
                   status: 1,
 
                   totalStudents: { $size: '$joinedStudents' },
-                  totalCohosts:  { $size: { $ifNull: ['$coHosts', []] } },
+           totalCohosts: {
+             $size: {
+               $filter: {
+                 input: { $ifNull: ['$coHosts', []] },
+                 as: 'coHost',
+                 cond: {
+                   $and: [
+                     { $ne: ['$$coHost', null] },
+                     { $eq: ['$$coHost.isActive', true] }
+                   ]
+                 }
+               }
+             }
+           },
                   questionsAsked: { $size: '$polls' },
 
                   pointsDistributed: {
@@ -1086,12 +1099,10 @@ export class RoomService {
     if (room.teacherId !== teacherId) {
       throw new HttpError(400, "Invalid room")
     }
-    room.coHosts.forEach(c => {
-      if (c.userId === userId) {
-        c.isActive = false;
-      }
-    });
-    await room.save();
+    await Room.updateOne(
+      { roomCode, "coHosts.userId": userId },
+      { $set: { "coHosts.$.isActive": false } }
+    );
     // Get updated cohost list
     const activeCohosts = await this.getRoomCohosts(teacherId, roomCode);
     pollSocket?.emitToRoom(roomCode, 'cohost-removed', {

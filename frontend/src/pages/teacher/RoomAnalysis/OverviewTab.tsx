@@ -20,13 +20,24 @@ export const OverviewTab = ({ roomId, overview }: Props) => {
       try {
         setLoading(true);
         setError(null);
-        // We fetch the full dashboard specifically for the overview charts
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
-        const result = response.data;
-        if (!result.success) {
+        // We fetch the needed data using the decoupled endpoints to reconstruct the charts
+        const [studentsResp, questionsResp, achievementsResp] = await Promise.all([
+          api.get(`/livequizzes/rooms/${roomId}/analysis/students`, { params: { studentPageSize: 10000 } }),
+          api.get(`/livequizzes/rooms/${roomId}/analysis/questions`, { params: { questionPageSize: 1000 } }),
+          api.get(`/livequizzes/rooms/${roomId}/analysis/achievements`)
+        ]);
+
+        if (!studentsResp.data.success || !questionsResp.data.success) {
           throw new Error("Failed to get analysis data");
         }
-        setAnalysisData(result.data.dashboard || result.data);
+
+        setAnalysisData({
+          overview: overview!,
+          students: studentsResp.data.data.items || studentsResp.data.data.dashboard?.students || [],
+          questions: questionsResp.data.data.items || questionsResp.data.data.dashboard?.questions || [],
+          achievements: achievementsResp.data.data.achievements || achievementsResp.data.data || { badges: [], students: [] },
+          pagination: { students: studentsResp.data.data.pagination, questions: questionsResp.data.data.pagination }
+        });
       } catch (err) {
         if (err instanceof Error) setError(err.message);
         console.error("Error fetching overview dashboard data:", err);
@@ -34,8 +45,8 @@ export const OverviewTab = ({ roomId, overview }: Props) => {
         setLoading(false);
       }
     };
-    if (roomId) fetchDashboard();
-  }, [roomId]);
+    if (roomId && overview) fetchDashboard();
+  }, [roomId, overview]);
 
   const scoreDistribution = useMemo(() => {
     const dist = [
