@@ -22,8 +22,6 @@ import { CohostUser } from "@/shared/types";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useConfirmationModal } from "@/hooks/useConfirmationModal";
 
-
-
 const copyToClipboard = (text: string, message: string) => {
   navigator.clipboard.writeText(text).then(() => {
     toast.success(message ?? 'Copied to clipboard!');
@@ -397,8 +395,8 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
-  const [questionCount, setQuestionCount] = useState<number>(3);
+  const [selectedModel, setSelectedModel] = useState("llama3");
+  const [questionCount, setQuestionCount] = useState<number>(3); 
 
   // Queue for auto-generated questions while live recording is ongoing.
   // These are hidden from the UI until the teacher stops the mic.
@@ -738,15 +736,20 @@ export default function TeacherPollRoom() {
       const chunk = pendingTextChunksRef.current.shift();
       if (!chunk) continue;
       try {
-        const formData = new FormData();
-        formData.append('transcript', chunk);
-        if (questionSpec) formData.append('questionSpec', questionSpec);
-        formData.append('model', selectedModel);
-        formData.append('questionCount', questionCount.toString());
+        const payload = {
+          segments: {
+            "00:00.000": chunk
+          },
+          globalQuestionSpecification: [
+            { SOL: questionCount }
+          ],
+          model: selectedModel
+        };
 
-        const response = await api.post(`/livequizzes/rooms/${roomCode}/generate-questions`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        const response = await api.post(
+          `/livequizzes/rooms/${roomCode}/generate-questions`,
+          payload
+        );
 
         const rawQuestions = response.data.questions || [];
 
@@ -1758,7 +1761,8 @@ export default function TeacherPollRoom() {
       { value: "gemma3", label: "Gemma 3" },
       { value: "gpt-4", label: "GPT-4" },
       { value: "claude-3", label: "Claude 3" },
-      { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
+      { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" },
+      { value: "llama3", label: "Llama 3 (Local)" }
     ];
 
     const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
@@ -3821,9 +3825,9 @@ export default function TeacherPollRoom() {
                             Generated Questions (from AI)
                           </h4>
 
-                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md p-2.5">
+                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md">
                             <div className="overflow-y-auto pr-2 flex-1">
-                              <div className="space-y-4 mr-3">
+                              <div className="space-y-4">
                                 {generatedQuestions.map((q, idx) => (
                                   <div
                                     key={idx}
@@ -3836,7 +3840,7 @@ export default function TeacherPollRoom() {
                                           AI Generated
                                         </span>
                                       </div>
-                                      {/* <Button
+                                      <Button
                                         size="sm"
                                         variant="outline"
                                         className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -3844,7 +3848,7 @@ export default function TeacherPollRoom() {
                                       >
                                         <Check className="w-3 h-3 mr-1" />
                                         Use This
-                                      </Button> */}
+                                      </Button>
                                     </div>
 
                                     {/* Question Text */}
@@ -3879,7 +3883,7 @@ export default function TeacherPollRoom() {
                                       </div>
                                     </div>
 
-                                    <div className="absolute -right-4.5 top-1/2 transform -translate-y-1/2 flex flex-col gap-1">
+                                    <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
                                       <Button
                                         variant="ghost"
                                         size="icon"
