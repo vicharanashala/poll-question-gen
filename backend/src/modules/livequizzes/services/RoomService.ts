@@ -236,133 +236,190 @@ export class RoomService {
     }
   ) {
     // Questions pagination
-     const qPageSize = Number(options?.questionPageSize ?? 0);
-      const qHasPagination = qPageSize > 0;
-      const qPage  = qHasPagination ? Math.max(1, Number(options?.questionPage ?? 1)) : 1;
-      const qSkip  = qHasPagination ? (qPage - 1) * qPageSize : 0;
-      const qLimit = qPageSize;
+    const qPageSize = Number(options?.questionPageSize ?? 0);
+    const qHasPagination = qPageSize > 0;
+    const qPage = qHasPagination ? Math.max(1, Number(options?.questionPage ?? 1)) : 1;
+    const qSkip = qHasPagination ? (qPage - 1) * qPageSize : 0;
+    const qLimit = qPageSize;
+
+    const itemPipeline: any[] = [
+      { $unwind: { path: '$polls', includeArrayIndex: 'pollIndex' } },
+      { $sort: { pollIndex: 1 } },
+      ...(qHasPagination ? [{ $skip: qSkip }, { $limit: qLimit }] : []),
+      {
+        $addFields: {
+          answerStats: {
+            $reduce: {
+              input: { $ifNull: ['$polls.answers', []] },
+              initialValue: {
+                responses: 0,
+                correctAnswers: 0,
+                totalTime: 0,
+                totalPoints: 0
+              },
+              in: {
+                responses: { $add: ['$$value.responses', 1] },
+                correctAnswers: {
+                  $add: [
+                    '$$value.correctAnswers',
+                    { $cond: [{ $eq: ['$$this.answerIndex', '$polls.correctOptionIndex'] }, 1, 0] }
+                  ]
+                },
+                totalTime: {
+                  $add: [
+                    '$$value.totalTime',
+                    { $subtract: ['$$this.answeredAt', '$polls.createdAt'] }
+                  ]
+                },
+                totalPoints: { $add: ['$$value.totalPoints', { $ifNull: ['$$this.points', 0] }] }
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          responses: '$answerStats.responses',
+          correctPct: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$answerStats.responses', 0] },
+                  { $multiply: [{ $divide: ['$answerStats.correctAnswers', '$answerStats.responses'] }, 100] },
+                  0
+                ]
+              },
+              2
+            ]
+          },
+          avgTimeSec: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$answerStats.responses', 0] },
+                  { $divide: ['$answerStats.totalTime', { $multiply: ['$answerStats.responses', 1000] }] },
+                  0
+                ]
+              },
+              2
+            ]
+          },
+          avgPoints: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$answerStats.responses', 0] },
+                  { $divide: ['$answerStats.totalPoints', '$answerStats.responses'] },
+                  0
+                ]
+              },
+              2
+            ]
+          },
+          engagementPct: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: ['$totalStudents', 0] },
+                  { $multiply: [{ $divide: ['$answerStats.responses', '$totalStudents'] }, 100] },
+                  0
+                ]
+              },
+              2
+            ]
+          }
+        }
+      },
+      {
+        $addFields: {
+          difficulty: {
+            $switch: {
+              branches: [
+                { case: { $gte: ['$correctPct', 80] }, then: 'Easy' },
+                { case: { $gte: ['$correctPct', 50] }, then: 'Medium' }
+              ],
+              default: 'Hard'
+            }
+          },
+          engagement: {
+            $switch: {
+              branches: [
+                { case: { $gte: ['$engagementPct', 80] }, then: 'High' },
+                { case: { $gte: ['$engagementPct', 50] }, then: 'Medium' }
+              ],
+              default: 'Low'
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          text: '$polls.question',
+          responses: 1,
+          correctPct: 1,
+          avgTime: { $concat: [{ $toString: '$avgTimeSec' }, 's'] },
+          avgPoints: 1,
+          engagementPct: 1,
+          difficulty: 1,
+          engagement: 1
+        }
+      }
+    ];
 
     const pipeline: any[] = [
       { $match: { roomCode } },
-       {
-                $project: {
-                  polls: 1,
-                  totalStudents: { $size: '$joinedStudents' }
-                }
-              },
-
-              { $unwind: '$polls' },
-
-              {
-                $addFields: {
-                  responses: { $size: '$polls.answers' },
-                  correctAnswers: {
-                    $size: {
-                      $filter: {
-                        input: '$polls.answers',
-                        as: 'a',
-                        cond: { $eq: ['$$a.answerIndex', '$polls.correctOptionIndex'] }
+      {
+        $project: {
+          polls: { $ifNull: ['$polls', []] },
+          totalStudents: { $size: { $ifNull: ['$joinedStudents', []] } }
+        }
+      },
+      {
+        $facet: {
+          metadata: [
+            {
+              $project: {
+                _id: 0,
+                totalItems: { $size: '$polls' }
+              }
+            }
+          ],
+          items: itemPipeline
+        }
+      },
+      {
+        $project: {
+          items: { $ifNull: ['$items', []] },
+          pagination: {
+            totalItems: { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
+            pageSize: { $literal: qHasPagination ? qPageSize : 0 },
+            currentPage: { $literal: qPage },
+            totalPages: {
+              $cond: [
+                { $eq: [{ $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] }, 0] },
+                0,
+                qHasPagination
+                  ? {
+                      $ceil: {
+                        $divide: [
+                          { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
+                          qPageSize
+                        ]
                       }
                     }
-                  },
-                  totalTime: {
-                    $sum: {
-                      $map: {
-                        input: '$polls.answers',
-                        as: 'a',
-                        in: { $subtract: ['$$a.answeredAt', '$polls.createdAt'] }
-                      }
-                    }
-                  },
-                  totalPoints: { $sum: '$polls.answers.points' }
-                }
-              },
-
-              {
-                $addFields: {
-                  correctPct:    { $cond: [{ $gt: ['$responses', 0] }, { $multiply: [{ $divide: ['$correctAnswers', '$responses'] }, 100] }, 0] },
-                  avgTimeSec:    { $cond: [{ $gt: ['$responses', 0] }, { $divide: ['$totalTime', { $multiply: ['$responses', 1000] }] }, 0] },
-                  avgPoints:     { $cond: [{ $gt: ['$responses', 0] }, { $divide: ['$totalPoints', '$responses'] }, 0] },
-                  engagementPct: { $cond: [{ $gt: ['$totalStudents', 0] }, { $multiply: [{ $divide: ['$responses', '$totalStudents'] }, 100] }, 0] }
-                }
-              },
-
-              {
-                $addFields: {
-                  difficulty: {
-                    $switch: {
-                      branches: [
-                        { case: { $gte: ['$correctPct', 80] }, then: 'Easy' },
-                        { case: { $gte: ['$correctPct', 50] }, then: 'Medium' }
-                      ],
-                      default: 'Hard'
-                    }
-                  },
-                  engagement: {
-                    $switch: {
-                      branches: [
-                        { case: { $gte: ['$engagementPct', 80] }, then: 'High' },
-                        { case: { $gte: ['$engagementPct', 50] }, then: 'Medium' }
-                      ],
-                      default: 'Low'
-                    }
-                  }
-                }
-              },
-
-              {
-                $project: {
-                  _id: 0,
-                  text: '$polls.question',
-                  responses: 1,
-                  correctPct:    { $round: ['$correctPct', 2] },
-                  avgTime:       { $concat: [{ $toString: { $round: ['$avgTimeSec', 2] } }, 's'] },
-                  avgPoints:     { $round: ['$avgPoints', 2] },
-                  engagementPct: { $round: ['$engagementPct', 2] },
-                  difficulty: 1,
-                  engagement: 1
-                }
-              },
-
-              // ─────────────────────────────────────────────────────────
-              // PAGINATION via $group + $slice
-              // ─────────────────────────────────────────────────────────
-              {
-                $group: {
-                  _id: null,
-                  items: { $push: '$$ROOT' },
-                  total: { $sum: 1 }
-                }
-              },
-              {
-                $addFields: {
-                  items: qHasPagination
-                    ? { $slice: ['$items', qSkip, qLimit] }
-                    : '$items',
-                  pagination: {
-                    totalItems:  '$total',
-                    pageSize:    qHasPagination ? qPageSize : '$total',
-                    currentPage: qHasPagination ? qPage     : 1,
-                    totalPages: {
-                      $cond: [
-                        { $gt: ['$total', 0] },
-                        qHasPagination
-                          ? { $ceil: { $divide: ['$total', qPageSize] } }
-                          : 1,
-                        0
-                      ]
-                    }
-                  }
-                }
-              },
-              { $project: { _id: 0, items: 1, pagination: 1 } }
-    ]
+                  : 1
+              ]
+            }
+          }
+        }
+      }
+    ];
     const roomQuestions = await Room.aggregate(pipeline);
     if (!roomQuestions.length) throw new Error('Room not found');
 
-    const finalResult  = roomQuestions[0]  ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
-    
-    // console.log('questions:',finalResult)
+    const finalResult = roomQuestions[0] ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
+
     return finalResult;
   }
   //room students analysis
