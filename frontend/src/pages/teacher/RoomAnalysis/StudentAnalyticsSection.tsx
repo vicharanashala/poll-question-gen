@@ -10,6 +10,20 @@ type Props = {
   isActive: boolean;
 };
 
+  // Helper function to dynamically style the rank badge
+  const getRankBadgeStyle = (rank:number) => {
+    switch (rank) {
+      case 1:
+        return "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30 shadow-sm";
+      case 2:
+        return "bg-slate-200 text-slate-700 border-slate-300 dark:bg-slate-600/50 dark:text-slate-300 dark:border-slate-500 shadow-sm";
+      case 3:
+        return "bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-500/20 dark:text-orange-400 dark:border-orange-500/30 shadow-sm";
+      default:
+        return "bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700/50";
+    }
+  };
+
 const STUDENT_PAGE_SIZE = 10;
 
 const emptyPagination = (pageSize: number): PaginationMeta => ({
@@ -51,6 +65,7 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
   }, [isActive]);
 
   const students = studentsQuery.data?.items ?? [];
+  console.log('students:',students)
   const pagination = studentsQuery.data?.pagination ?? emptyPagination(STUDENT_PAGE_SIZE);
   const isLoading = studentsQuery.isLoading;
 
@@ -144,7 +159,22 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
               ))}
             {!isLoading && students.map((student) => (
               <tr key={student.studentId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                <td className="p-4 font-medium text-slate-800 dark:text-slate-100">{student.name}</td>
+                <td className="p-4 font-medium text-slate-800 dark:text-slate-100">
+                  <div className="flex items-center gap-4">
+                      {/* Rank Badge */}
+                      <span className={`
+                        flex items-center justify-center shrink-0 w-8 h-8 rounded-full text-sm font-bold border
+                        ${getRankBadgeStyle(student?.rank)}
+                      `}>
+                        {student?.rank}
+                      </span>
+                      
+                      {/* Student Name */}
+                      <span className="font-medium text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        {student.name}
+                      </span>
+                    </div>
+                  </td>
                 <td className="p-4">{student.attempted} / {questionsAsked}</td>
                 <td className="p-4">{student.unAttempted} / {questionsAsked}</td>
                 <td className="p-4">{student.missed} / {questionsAsked}</td>
