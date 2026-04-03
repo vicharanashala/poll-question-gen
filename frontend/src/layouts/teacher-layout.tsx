@@ -3,7 +3,10 @@ import { TourGuide } from "@/components/tour-guide";
 import { Outlet } from "@tanstack/react-router";
 import { TeacherSidebar } from "@/components/teacher-sidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-
+import { useEffect } from "react";
+import { useAuthStore } from "@/lib/store/auth-store";
+import { auth } from "@/lib/firebase";
+import { toast } from "sonner";
 // import React from "react";
 
 /*const AuroraText = ({
@@ -19,6 +22,25 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/s
 );*/
 
 export default function TeacherLayout() {
+  useEffect(() => {
+    const { user } = useAuthStore.getState();
+    const path = window.location.pathname;
+
+    // Use a type cast (as any) to bypass the missing 'isGuest' property check on IUser
+    // AND check for path redirection
+    if ((user as any)?.isGuest && !path.includes('/teacher/pollroom/')) {
+      toast.error("Guest sessions are restricted to the live room.");
+      
+      // Perform logout cleanup
+      auth.signOut();
+      
+      // Based on common Zustand patterns, if .logout() doesn't exist, 
+      // we manually reset the state using setState
+      useAuthStore.setState({ user: null, isAuthenticated: false });
+      
+      window.location.href = '/auth'; 
+    }
+  }, [window.location.pathname]);
   return (
     <SidebarProvider>
       <div className="fixed inset-0 overflow-hidden pointer-events-none">

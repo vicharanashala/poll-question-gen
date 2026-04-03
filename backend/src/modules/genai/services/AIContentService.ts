@@ -6,7 +6,7 @@ import { extractJSONFromMarkdown } from '../utils/extractJSONFromMarkdown.js';
 import { cleanTranscriptLines } from '../utils/cleanTranscriptLines.js';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { aiConfig } from '#root/config/ai.js';
-
+import { GoogleGenerativeAI } from '@google/generative-ai';
 // --- Type Definitions ---
 export interface TranscriptSegment {
   end_time: string;
@@ -46,6 +46,7 @@ export class AIContentService {
     const config: AxiosRequestConfig = {
       timeout: 180000, // 3 min request timeout
     };
+
     
     try {
       const isLocal = this.ollimaApiBaseUrl.includes('localhost') || this.ollimaApiBaseUrl.includes('127.0.0.1');
@@ -66,6 +67,16 @@ export class AIContentService {
     }
     
     return config;
+  }
+
+private getGeminiModel() {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new InternalServerError("GEMINI_API_KEY is not defined in the backend environment variables.");
+    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // You can use gemini-2.5-flash for fast, high-quality JSON generation
+    return genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
   }
 
   // --- Segmentation Logic ---
@@ -101,19 +112,36 @@ JSON:`;
     let segments: TranscriptSegment[] = [];
 
     try {
-      console.log(`[segmentTranscript] Connecting to Ollama API at ${this.llmApiUrl} with model ${model}`);
-      const config = this.getRequestConfig();
-      
-      const response = await axios.post(this.llmApiUrl, {
-        model,
-        prompt,
-        stream: false,
-        options: { temperature: 0.1, top_p: 0.9 },
-      }, config);
+      let generatedText = '';
 
-      const generatedText = response.data?.response;
-      if (typeof generatedText !== 'string') {
-        throw new InternalServerError('Unexpected Ollima response format.');
+      if (model.toLowerCase() === 'gemini') {
+        console.log(`[segmentTranscript] Using Google Gemini API`);
+        const geminiModel = this.getGeminiModel();
+        const result = await geminiModel.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { 
+            temperature: 0.1, 
+            topP: 0.9,
+            responseMimeType: "application/json" // <--- ADDS STRICT JSON MODE
+          }
+        });
+        generatedText = result.response.text();
+        
+      } else {
+        console.log(`[segmentTranscript] Connecting to Ollama API at ${this.llmApiUrl} with model ${model}`);
+        const config = this.getRequestConfig();
+        
+        const response = await axios.post(this.llmApiUrl, {
+          model,
+          prompt,
+          stream: false,
+          options: { temperature: 0.1, top_p: 0.9 },
+        }, config);
+
+        generatedText = response.data?.response;
+        if (typeof generatedText !== 'string') {
+          throw new InternalServerError('Unexpected Ollima response format.');
+        }
       }
 
       console.log('[segmentTranscript] Response preview:', generatedText.slice(0, 300));
@@ -345,59 +373,60 @@ ${transcriptContent}
             const format = count === 1 ? schema : { type: 'array', items: schema, minItems: count, maxItems: count };
             const prompt = this.createQuestionPrompt(type, count, transcript);
 
-            console.log(`[generateQuestions] Connecting to Ollama API at ${this.llmApiUrl} with model ${model} for ${type} questions`);
-            const config = this.getRequestConfig();
-            
-            const response = await axios.post(this.llmApiUrl, {
-              model,
-              prompt,
-              stream: false,
-              format: schema ? format : undefined,
-              options: { temperature: 0.2 }
-            }, config);
-            
-            console.log(`[generateQuestions] Successfully received response for ${type} questions`);
+            let text = '';
 
-            const text = response.data?.response;
+            if (model.toLowerCase() === 'gemini') {
+              console.log(`[generateQuestions] Using Google Gemini API for ${type} questions`);
+              const geminiModel = this.getGeminiModel();
+              const result = await geminiModel.generateContent({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { 
+                  temperature: 0.2,
+                  responseMimeType: "application/json" // <--- ADDS STRICT JSON MODE
+                }
+              });
+              text = result.response.text();
+              console.log(`[generateQuestions] Successfully received response for ${type} questions from Gemini`);
+
+            } else {
+              console.log(`[generateQuestions] Connecting to Ollama API at ${this.llmApiUrl} with model ${model} for ${type} questions`);
+              const config = this.getRequestConfig();
+              
+              const response = await axios.post(this.llmApiUrl, {
+                model,
+                prompt,
+                stream: false,
+                format: schema ? format : undefined,
+                options: { temperature: 0.2 }
+              }, config);
+              
+              console.log(`[generateQuestions] Successfully received response for ${type} questions from Ollama`);
+              text = response.data?.response;
+            }
+
             if (typeof text !== 'string') {
               console.warn(`[generateQuestions] Unexpected response for type ${type}, segment ${segmentId}.`);
               continue;
             }
 
-            const cleaned = extractJSONFromMarkdown(text);
+           const cleaned = extractJSONFromMarkdown(text);
             const parsed = JSON.parse(cleaned);
             const questions = Array.isArray(parsed) ? parsed : [parsed];
 
-            questions.forEach(q => {
-              let questionText = q.question?.text || q.questionText || '';
-              let options = [];
-              // Extract options
-              if (q.solution?.incorrectLotItems) {
-                options = q.solution.incorrectLotItems.map((item: any) => ({
-                  text: item.text,
-                  correct: false,
-                  explanation: item.explaination || item.explanation || ''
-                }));
-              }
-              if (q.solution?.correctLotItem) {
-                options.push({
-                  text: q.solution.correctLotItem.text,
-                  correct: true,
-                  explanation: q.solution.correctLotItem.explaination || q.solution.correctLotItem.explanation || ''
-                });
-              }
-              allQuestions.push({
-                questionText,
-                options,
-                solution: '', // Optional: create from q.solution or leave empty
-                isParameterized: q.question?.isParameterized ?? false,
-                timeLimitSeconds: q.question?.timeLimitSeconds ?? 60,
-                points: q.question?.points ?? 5,
+            // Simply map the perfectly formatted AI response to our interface
+            const formattedQuestions = questions.map((q: any) => ({
+                questionText: q.questionText || q.question?.text || 'Untitled Question',
+                options: Array.isArray(q.options) ? q.options : [],
+                solution: q.solution || '',
+                isParameterized: q.isParameterized ?? false,
+                timeLimitSeconds: q.timeLimitSeconds ?? 60,
+                points: q.points ?? 5,
                 segmentId,
                 questionType: type
-              });
-            });
-            allQuestions.push(...questions);
+            }));
+
+            // Push exactly once
+            allQuestions.push(...formattedQuestions);
             console.log(`[generateQuestions] Generated ${questions.length} ${type} questions for segment ${segmentId}`);
             console.log(`[generateQuestions] Raw LLM text for type ${type}, segment ${segmentId}:`, text.slice(0, 500));
           } catch (e: any) {

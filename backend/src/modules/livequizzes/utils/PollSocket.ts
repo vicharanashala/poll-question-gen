@@ -21,6 +21,14 @@ class PollSocket {
     // private readonly userService:UserService
   ) { }
 
+  // Helper inside PollSocket class
+  private async isPrivilegedUser(roomCode: string, firebaseUID: string): Promise<boolean> {
+    const room = await Room.findOne({ roomCode }).lean();
+    if (!room) return false;
+    return room.teacherId === firebaseUID ||
+      room.coHosts?.some(c => c.userId === firebaseUID && c.isActive);
+  }
+
   init(server: import('http').Server) {
     this.io = new Server(server, {
       cors: { origin: appOrigins || 'http://localhost:3000' },
@@ -34,17 +42,18 @@ class PollSocket {
       socket.on('join-room', async (data: { roomCode: string; email?: string; user?: string; role?: string; }) => {
         try {
           const { roomCode, email, user, role } = data;
-          const {isActive, hasAccess} = await this.roomService.isRoomValidAndHasAccess(roomCode, user);
+          const { isActive, hasAccess } = await this.roomService.isRoomValidAndHasAccess(roomCode, user);
 
-          if(role === 'teacher' && !hasAccess) {
+          if (role === 'teacher' && !hasAccess) {
             console.log('this teacher does not have access to the room:', roomCode);
             socket.emit('room-ended');
             return;
-          }  
-         
+          }
+
           if (typeof email === 'string' && email.trim() !== '') {
             const user = await this.userRepo.findByEmail(email)
-            const userId = user?._id;
+            if (!user) return; // Exit early if user was already deleted
+            const userId = user._id;
             socket.data.userId = user?.firebaseUID;
             await this.roomService.enrollStudent(userId as string, roomCode, user?.firebaseUID as string)
           }
@@ -80,7 +89,9 @@ class PollSocket {
       socket.on('leave-room', async (roomCode: string, email: string) => {
         if (email) {
           const user = await this.userRepo.findByEmail(email)
+          if (!user) return; // Exit early if user was already deleted
           const userId = user._id as string
+          // const userId = user._id as string
           await this.roomService.unEnrollStudent(userId, roomCode)
         }
         socket.leave(roomCode);
@@ -101,15 +112,16 @@ class PollSocket {
       });
 
       socket.on("remove-student", async ({ roomCode, email }) => {
-
         try {
-          const user = await this.userRepo.findByEmail(email);
+          const callerUID = socket.data.userId;
+          const isPrivileged = await this.isPrivilegedUser(roomCode, callerUID);
+          if (!isPrivileged) return; // Prevent unauthorized removal
 
+          const user = await this.userRepo.findByEmail(email);
           if (!user) return;
 
-          const userId = user._id.toString();
+          await this.roomService.unEnrollStudent(user._id.toString(), roomCode);
 
-          await this.roomService.unEnrollStudent(userId, roomCode);
 
           let studentSocketId: string | null = null;
 
@@ -155,16 +167,18 @@ class PollSocket {
 
       });
 
-      socket.on('update-room-control', ({ roomCode, mode }) => {
+      socket.on('update-room-control', async ({ roomCode, mode }) => {
         try {
-          console.log(`Room ${roomCode} control updated to: ${mode} by socket ${socket.id}`);
+          const callerUID = socket.data.userId;
+          const isPrivileged = await this.isPrivilegedUser(roomCode, callerUID);
+          if (!isPrivileged) return;
 
+          console.log(`Room ${roomCode} control updated to: ${mode} by socket ${socket.id}`);
           socket.to(roomCode).emit('room-control-updated', { mode });
         } catch (err) {
           console.error("update-room-control error", err);
         }
       });
-
       socket.on('cohost-leave', async (roomCode: string, cohostId: string) => {
         const room = await Room.findOne({ roomCode });
         const teacherId = room.teacherId

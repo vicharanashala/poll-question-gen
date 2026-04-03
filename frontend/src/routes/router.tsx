@@ -219,9 +219,10 @@ const teacherPollAnalysisRoute = createRoute({
 });
 
 // Cohost invite route
+// Cohost invite route - MUST BE PUBLIC
 const cohostInviteRoute = createRoute({
-  getParentRoute: () => teacherLayoutRoute,
-  path: '/cohost-invite/$token',
+  getParentRoute: () => rootRoute, // <--- Changed from teacherLayoutRoute to rootRoute
+  path: '/teacher/cohost-invite/$token', 
   component: CohostInvite,
 });
 
@@ -339,6 +340,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
   roleSelectRoute,
+  cohostInviteRoute,
   teacherLayoutRoute.addChildren([
     // teacherGenAIHomeRoute,
     teacherPollRoomRoute,
@@ -349,7 +351,6 @@ const routeTree = rootRoute.addChildren([
     teacherManageRoomsRoute,
     teacherCohostedRoomsRoute,
     teacherPollAnalysisRoute,
-    cohostInviteRoute,
   ]),
   studentLayoutRoute.addChildren([
     studentPollRoomRoute,
