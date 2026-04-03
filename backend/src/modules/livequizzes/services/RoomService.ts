@@ -394,15 +394,13 @@ export class RoomService {
       const sHasPagination = sPageSize > 0;
       const sPage  = sHasPagination ? Math.max(1, Number(options?.studentPage ?? 1)) : 1;
       const sSkip  = sHasPagination ? (sPage - 1) * sPageSize : 0;
-      const sLimit = sPageSize;
-
     const pipeline: any[] = [
       { $match: { roomCode } },
       // 1. Flatten one document per student
-      { $addFields: { totalQuestions: { $size: "$polls" } } },
+      { $addFields: { totalPollsCount: { $size: "$polls" } } },
               { $unwind: '$joinedStudents' },
 
-              { $project: { studentId: '$joinedStudents', polls: 1 } },
+              { $project: { studentId: '$joinedStudents', polls: 1, totalPollsCount: 1 } },
 
               // 2. Compute per-student stats across all polls
               {
@@ -418,32 +416,24 @@ export class RoomService {
                       in: {
                         $let: {
                           vars: {
-                            ans: {
-                              $first: {
-                                $filter: {
-                                  input: '$$this.answers',
-                                  as: 'a',
-                                  cond: { $eq: ['$$a.userId', '$studentId'] }
-                                }
+                            matchingAnswers: {
+                              $filter: {
+                                input: '$$this.answers',
+                                as: 'a',
+                                cond: { $eq: ['$$a.userId', '$studentId'] }
                               }
                             },
-                            isAnswered: {
-                              $gt: [
-                                { $size: { $filter: { input: '$$this.answers', as: 'a', cond: { $eq: ['$$a.userId', '$studentId'] } } } },
-                                0
-                              ]
-                            },
-                            isLocked: { $in: ['$studentId', '$$this.lockedActiveUsers'] }
+                            isLocked: { $in: ['$studentId', { $ifNull: ['$$this.lockedActiveUsers', []] }] }
                           },
                           in: {
-                            attempted:   { $add: ['$$value.attempted',   { $cond: ['$$isAnswered', 1, 0] }] },
-                            correct:     { $add: ['$$value.correct',     { $cond: [{ $and: ['$$isAnswered', { $eq: ['$$ans.answerIndex', '$$this.correctOptionIndex'] }] }, 1, 0] }] },
-                            incorrect:   { $add: ['$$value.incorrect',   { $cond: [{ $and: ['$$isAnswered', { $ne: ['$$ans.answerIndex', '$$this.correctOptionIndex'] }] }, 1, 0] }] },
-                            unAttempted: { $add: ['$$value.unAttempted', { $cond: [{ $and: [{ $not: ['$$isAnswered'] }, '$$isLocked'] }, 1, 0] }] },
-                            missed:      { $add: ['$$value.missed',      { $cond: [{ $and: [{ $not: ['$$isAnswered'] }, { $not: ['$$isLocked'] }] }, 1, 0] }] },
-                            points:      { $add: ['$$value.points',      { $ifNull: ['$$ans.points', 0] }] },
-                            totalTime:   { $add: ['$$value.totalTime',   { $cond: ['$$isAnswered', { $subtract: ['$$ans.answeredAt', '$$this.createdAt'] }, 0] }] },
-                            answerCount: { $add: ['$$value.answerCount', { $cond: ['$$isAnswered', 1, 0] }] }
+                            attempted:   { $add: ['$$value.attempted',   { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] },
+                            correct:     { $add: ['$$value.correct',     { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $eq: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
+                            incorrect:   { $add: ['$$value.incorrect',   { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $ne: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
+                            unAttempted: { $add: ['$$value.unAttempted', { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, '$$isLocked'] }, 1, 0] }] },
+                            missed:      { $add: ['$$value.missed',      { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, { $not: ['$$isLocked'] }] }, 1, 0] }] },
+                            points:      { $add: ['$$value.points',      { $ifNull: [{ $first: '$$matchingAnswers.points' }, 0] }] },
+                            totalTime:   { $add: ['$$value.totalTime',   { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $subtract: [{ $first: '$$matchingAnswers.answeredAt' }, '$$this.createdAt'] }, 0] }] },
+                            answerCount: { $add: ['$$value.answerCount', { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] }
                           }
                         }
                       }
