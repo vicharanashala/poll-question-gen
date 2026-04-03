@@ -7,6 +7,7 @@ import { useRoomStudents } from "@/lib/api/roomAnalysisHooks";
 type Props = {
   roomId: string;
   questionsAsked: number;
+  isActive: boolean;
 };
 
 const STUDENT_PAGE_SIZE = 10;
@@ -18,7 +19,7 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
   totalPages: 0,
 });
 
-export const StudentAnalyticsSection = ({ roomId, questionsAsked }: Props) => {
+export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Props) => {
   const [studentSortBy, setStudentSortBy] = useState<StudentSortBy>("points");
   const [studentSortOrder, setStudentSortOrder] = useState<StudentSortOrder>("desc");
   const [searchQuery, setSearchQuery] = useState("");
@@ -41,6 +42,13 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked }: Props) => {
     studentPage,
     studentPageSize: STUDENT_PAGE_SIZE,
   });
+
+  // Refetch when tab becomes active
+  useEffect(() => {
+    if (isActive) {
+      studentsQuery.refetch();
+    }
+  }, [isActive]);
 
   const students = studentsQuery.data?.items ?? [];
   const pagination = studentsQuery.data?.pagination ?? emptyPagination(STUDENT_PAGE_SIZE);

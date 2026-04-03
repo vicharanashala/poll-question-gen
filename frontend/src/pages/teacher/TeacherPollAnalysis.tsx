@@ -15,7 +15,7 @@ import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
 import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { useRoomOverview } from "@/lib/api/roomAnalysisHooks";
+import { useRoomAchievements, useRoomOverview, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
 
 export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
@@ -25,8 +25,11 @@ export default function TeacherPollAnalysis() {
 
   const overviewQuery = useRoomOverview(roomId);
 
-  // "Live" overview can still update via sockets (header, status, timer),
-  // but the graphs should *not* re-render on every socket event.
+  // Prefetch all analysis data
+  const achievementsQuery = useRoomAchievements(roomId);
+  const studentsQuery = useRoomStudents(roomId, { studentPage: 1, studentPageSize: 10 });
+  const questionsQuery = useRoomQuestions(roomId, { questionPage: 1, questionPageSize: 5 });
+
   const [liveOverview, setLiveOverview] = useState<Overview | null>(null);
   const [overviewSnapshot, setOverviewSnapshot] = useState<Overview | null>(null);
 
@@ -48,10 +51,38 @@ export default function TeacherPollAnalysis() {
       }
     };
 
+    const handleTotalStudentsUpdated = (data: { totalStudents: number }) => {
+      setLiveOverview(prev => prev ? { ...prev, totalStudents: data.totalStudents } : null);
+    };
+
+    const handleTotalCohostsUpdated = (data: { totalCohosts: number }) => {
+      setLiveOverview(prev => prev ? { ...prev, totalCohosts: data.totalCohosts } : null);
+    };
+
+    const handleQuestionsAskedUpdated = (data: { questionsAsked: number; pointsDistributed?: number }) => {
+      setLiveOverview(prev => prev ? { 
+        ...prev, 
+        questionsAsked: (prev.questionsAsked || 0) + data.questionsAsked,
+        pointsDistributed: (prev.pointsDistributed || 0) + (data.pointsDistributed || 0)
+      } : null);
+    };
+
+    const handleAvgAccuracyUpdated = (data: { avgAccuracy: number }) => {
+      setLiveOverview(prev => prev ? { ...prev, avgAccuracy: data.avgAccuracy } : null);
+    };
+
     socket.on("overview-analytics-updated", handleOverviewAnalyticsUpdated);
+    socket.on("total-students-updated", handleTotalStudentsUpdated);
+    socket.on("total-cohosts-updated", handleTotalCohostsUpdated);
+    socket.on("questions-asked-updated", handleQuestionsAskedUpdated);
+    socket.on("avg-accuracy-updated", handleAvgAccuracyUpdated);
 
     return () => {
       socket.off("overview-analytics-updated", handleOverviewAnalyticsUpdated);
+      socket.off("total-students-updated", handleTotalStudentsUpdated);
+      socket.off("total-cohosts-updated", handleTotalCohostsUpdated);
+      socket.off("questions-asked-updated", handleQuestionsAskedUpdated);
+      socket.off("avg-accuracy-updated", handleAvgAccuracyUpdated);
       socket.emit("leave-room", roomId, null);
     };
   }, [roomId, currentUser?.uid]);
@@ -171,9 +202,9 @@ export default function TeacherPollAnalysis() {
             {activeTab === "overview" && (
               <OverviewTab roomId={roomId} overview={overview} chartSnapshot={overviewSnapshot} />
             )}
-            {activeTab === "students" && <StudentAnalyticsSection roomId={roomId} questionsAsked={overview?.questionsAsked || 0} />}
-            {activeTab === "questions" && <QuestionsTab roomId={roomId} totalStudents={overview?.totalStudents || 0} />}
-            {activeTab === "achievements" && <AchievementsTab roomId={roomId} />}
+            {activeTab === "students" && <StudentAnalyticsSection roomId={roomId} questionsAsked={overview?.questionsAsked || 0} isActive={activeTab === "students"} />}
+            {activeTab === "questions" && <QuestionsTab roomId={roomId} totalStudents={overview?.totalStudents || 0} isActive={activeTab === "questions"} />}
+            {activeTab === "achievements" && <AchievementsTab roomId={roomId} isActive={activeTab === "achievements"} />}
           </div>
 
           <DraggableMenu activeTab={activeTab} setActiveTab={setActiveTab} />

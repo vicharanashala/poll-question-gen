@@ -1,13 +1,22 @@
+import { useEffect } from "react";
 import { Award } from "lucide-react";
 import { LoadingState } from "./States";
-import { type AchievementData, useRoomAchievements } from "@/lib/api/roomAnalysisHooks";
+import { useRoomAchievements } from "@/lib/api/roomAnalysisHooks";
 
 type Props = {
   roomId: string;
+  isActive: boolean;
 };
 
-export const AchievementsTab = ({ roomId }: Props) => {
+export const AchievementsTab = ({ roomId, isActive }: Props) => {
   const achievementsQuery = useRoomAchievements(roomId);
+
+  // Refetch when tab becomes active
+  useEffect(() => {
+    if (isActive) {
+      achievementsQuery.refetch();
+    }
+  }, [isActive]);
 
   const achievements = achievementsQuery.data ?? null;
 

@@ -13,34 +13,6 @@ import UserAchievements from '#root/shared/database/models/UserAchievement.js';
 export class RoomService {
   private userModel = UserModel;
   private roomModel = Room;
-  // debounce storage
-  private static debounceTimers = new Map<string, NodeJS.Timeout>();
-  private triggerLiveOverviewUpdate(roomCode: string) {
-    // Clear existing timer
-    if (RoomService.debounceTimers.has(roomCode)) {
-      clearTimeout(RoomService.debounceTimers.get(roomCode)!);
-    }
-
-    const timer = setTimeout(async () => {
-      RoomService.debounceTimers.delete(roomCode);
-
-      try {
-        const overview = await this.getRoomAnalysisOverview(roomCode);
-
-        if (overview) {
-          pollSocket.emitToRoom(
-            roomCode,
-            'overview-analytics-updated',
-            overview
-          );
-        }
-      } catch (err) {
-        console.error('Failed to retrieve overview:', err);
-      }
-    }, 2000);
-
-    RoomService.debounceTimers.set(roomCode, timer);
-  }
 
   async createRoom(name: string, teacherId: string): Promise<RoomType> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -767,7 +739,7 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $addToSet: { students: userObjectId, joinedStudents: firebaseUID } }, { new: true })
-    this.triggerLiveOverviewUpdate(roomCode);
+    pollSocket.emitToRoom(roomCode, 'total-students-updated', { totalStudents: updatedRoom?.joinedStudents?.length || 0 });
     return updatedRoom
   }
 
@@ -785,7 +757,6 @@ export class RoomService {
       return room
     }
     const updatedRoom = await Room.findOneAndUpdate({ roomCode }, { $pull: { students: userObjectId } }, { new: true })
-    this.triggerLiveOverviewUpdate(roomCode);
     return updatedRoom
   }
 
@@ -995,7 +966,7 @@ export class RoomService {
       activeCohosts: activeCohosts
     });
 
-    this.triggerLiveOverviewUpdate(decoded.roomId);
+    pollSocket.emitToRoom(decoded.roomId, 'total-cohosts-updated', { totalCohosts: activeCohosts.length });
 
     return { message: "Joined as cohost", roomId: room.roomCode }
 
@@ -1138,7 +1109,7 @@ export class RoomService {
       activeCohosts: activeCohosts
     });
     
-    this.triggerLiveOverviewUpdate(roomCode);
+    pollSocket.emitToRoom(roomCode, 'total-cohosts-updated', { totalCohosts: activeCohosts.length });
 
     return { message: 'coHost removed successfully' }
   }

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useState } from "react";
 import { PaginationMeta, QuestionStats } from "@/shared/types";
 import { PaginationControls } from "./PaginationControls";
@@ -6,6 +7,7 @@ import { useRoomQuestions } from "@/lib/api/roomAnalysisHooks";
 type Props = {
   roomId: string;
   totalStudents: number;
+  isActive: boolean;
 };
 
 const QUESTION_PAGE_SIZE = 5;
@@ -17,10 +19,17 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
   totalPages: 0,
 });
 
-export const QuestionsTab = ({ roomId, totalStudents }: Props) => {
+export const QuestionsTab = ({ roomId, totalStudents, isActive }: Props) => {
   const [questionPage, setQuestionPage] = useState(1);
 
   const questionsQuery = useRoomQuestions(roomId, { questionPage, questionPageSize: QUESTION_PAGE_SIZE });
+
+  // Refetch when tab becomes active
+  useEffect(() => {
+    if (isActive) {
+      questionsQuery.refetch();
+    }
+  }, [isActive]);
 
   const questions = questionsQuery.data?.items ?? [];
   const pagination = questionsQuery.data?.pagination ?? emptyPagination(QUESTION_PAGE_SIZE);
