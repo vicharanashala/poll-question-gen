@@ -1,5 +1,5 @@
 import { useEffect, useState, useDeferredValue } from "react";
-import { ChevronDown, Filter, Search } from "lucide-react";
+import { ArrowDown, Filter, Search } from "lucide-react";
 import { PaginationMeta, StudentSortBy, StudentSortOrder, StudentStats } from "@/shared/types";
 import { PaginationControls } from "./PaginationControls";
 import { useRoomStudents } from "@/lib/api/roomAnalysisHooks";
@@ -134,13 +134,13 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
               <th className="p-4">UnAttempted</th>
               <th className="p-4">Missed</th>
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort("accuracy")}>
-                <div className="flex items-center gap-1">Accuracy {studentSortBy === "accuracy" && <ChevronDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
+                <div className="flex items-center gap-1">Accuracy {studentSortBy === "accuracy" && <ArrowDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
               </th>
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort("avgTime")}>
-                <div className="flex items-center gap-1">Avg Time {studentSortBy === "avgTime" && <ChevronDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
+                <div className="flex items-center gap-1">Avg Time {studentSortBy === "avgTime" && <ArrowDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
               </th>
               <th className="p-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleStudentSort("points")}>
-                <div className="flex items-center gap-1">Total Points {studentSortBy === "points" && <ChevronDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
+                <div className="flex items-center gap-1">Total Points {studentSortBy === "points" && <ArrowDown size={14} className={studentSortOrder === "asc" ? "rotate-180" : ""} />}</div>
               </th>
             </tr>
           </thead>
