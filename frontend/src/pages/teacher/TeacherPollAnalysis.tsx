@@ -17,6 +17,7 @@ import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { roomAnalysisKeys, useRoomAchievements, useRoomOverview, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
+import { formatDuration } from "@/utils/formatDuration";
 
 export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
@@ -192,7 +193,7 @@ export default function TeacherPollAnalysis() {
                       Running: <LiveTimer className="text-emerald-500 font-semibold" createdAt={overview.createdAt} />
                     </span>
                   ) : (
-                    <span>Duration: 0</span>
+                    <span>Duration: {formatDuration(overview?.endedAt, overview?.createdAt)}</span>
                   )}
                 </div>
               </div>

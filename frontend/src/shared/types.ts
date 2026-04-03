@@ -43,6 +43,7 @@ export type Overview = {
   pointsDistributed: number;
   earnedPoints: number;
   avgAccuracy: number;
+  endedAt?: string;
 };
 
 export type StudentStats = {

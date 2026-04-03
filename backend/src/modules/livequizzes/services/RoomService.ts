@@ -164,6 +164,7 @@ export class RoomService {
                   name: 1,
                   createdAt: 1,
                   status: 1,
+                  endedAt: 1,
 
                   totalStudents: { $size: '$joinedStudents' },
            totalCohosts: {
