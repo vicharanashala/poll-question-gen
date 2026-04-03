@@ -2,7 +2,7 @@ import { useEffect, useState, useDeferredValue } from "react";
 import { ChevronDown, Filter, Search } from "lucide-react";
 import { PaginationMeta, StudentSortBy, StudentSortOrder, StudentStats } from "@/shared/types";
 import { PaginationControls } from "./PaginationControls";
-import api from "@/lib/api/api";
+import { useRoomStudents } from "@/lib/api/roomAnalysisHooks";
 
 type Props = {
   roomId: string;
@@ -19,10 +19,6 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
 });
 
 export const StudentAnalyticsSection = ({ roomId, questionsAsked }: Props) => {
-  const [students, setStudents] = useState<StudentStats[]>([]);
-  const [pagination, setPagination] = useState<PaginationMeta>(emptyPagination(STUDENT_PAGE_SIZE));
-  const [isLoading, setIsLoading] = useState(false);
-
   const [studentSortBy, setStudentSortBy] = useState<StudentSortBy>("points");
   const [studentSortOrder, setStudentSortOrder] = useState<StudentSortOrder>("desc");
   const [searchQuery, setSearchQuery] = useState("");
@@ -36,40 +32,19 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked }: Props) => {
     setStudentPage(1);
   }, [studentSortBy, studentSortOrder, deferredSearchQuery, accuracyFilter, participationFilter]);
 
-  useEffect(() => {
-    const fetchFilteredStudents = async () => {
-      try {
-        setIsLoading(true);
-        // Using the decoupled endpoint specifically for students
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/students`, {
-          params: {
-            studentSortBy,
-            studentSortOrder,
-            studentSearch: deferredSearchQuery,
-            studentAccuracyBand: accuracyFilter,
-            studentParticipation: participationFilter,
-            studentPage,
-            studentPageSize: STUDENT_PAGE_SIZE,
-          },
-        });
-        const result = response.data;
+  const studentsQuery = useRoomStudents(roomId, {
+    studentSortBy,
+    studentSortOrder,
+    studentSearch: deferredSearchQuery,
+    studentAccuracyBand: accuracyFilter,
+    studentParticipation: participationFilter,
+    studentPage,
+    studentPageSize: STUDENT_PAGE_SIZE,
+  });
 
-        if (result.success) {
-          // The result returns { items, pagination } under data
-          setStudents(result.data.items || result.data.dashboard?.students || []);
-          setPagination(result.data.pagination || result.data.dashboard?.pagination?.students || emptyPagination(STUDENT_PAGE_SIZE));
-        }
-      } catch (err) {
-        console.error("Error fetching filtered students:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (roomId) {
-      fetchFilteredStudents();
-    }
-  }, [roomId, studentSortBy, studentSortOrder, deferredSearchQuery, accuracyFilter, participationFilter, studentPage]);
+  const students = studentsQuery.data?.items ?? [];
+  const pagination = studentsQuery.data?.pagination ?? emptyPagination(STUDENT_PAGE_SIZE);
+  const isLoading = studentsQuery.isLoading;
 
   const handleStudentSort = (key: StudentSortBy) => {
     if (studentSortBy === key) {

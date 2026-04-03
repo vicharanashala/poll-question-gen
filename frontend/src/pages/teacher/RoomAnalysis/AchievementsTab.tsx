@@ -1,40 +1,17 @@
-import { useEffect, useState } from "react";
 import { Award } from "lucide-react";
-import api from "@/lib/api/api";
 import { LoadingState } from "./States";
+import { type AchievementData, useRoomAchievements } from "@/lib/api/roomAnalysisHooks";
 
 type Props = {
   roomId: string;
 };
 
-type AchievementData = {
-  badges: { name: string; description: string; earned: number }[];
-  students: { name: string; earnedBadges: string[] }[];
-};
-
 export const AchievementsTab = ({ roomId }: Props) => {
-  const [achievements, setAchievements] = useState<AchievementData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const achievementsQuery = useRoomAchievements(roomId);
 
-  useEffect(() => {
-    const fetchAchievements = async () => {
-      try {
-        setIsLoading(true);
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/achievements`);
-        const result = response.data;
-        if (result.success) {
-          setAchievements(result.data.achievements || result.data);
-        }
-      } catch (err) {
-        console.error("Error fetching achievements:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    if (roomId) fetchAchievements();
-  }, [roomId]);
+  const achievements = achievementsQuery.data ?? null;
 
-  if (isLoading && !achievements) {
+  if (achievementsQuery.isLoading && !achievements) {
     return <LoadingState message="Loading achievements..." />;
   }
 

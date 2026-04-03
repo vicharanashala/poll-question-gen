@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import socket from "@/lib/api/socket";
 import { useParams } from "@tanstack/react-router";
 import { Calendar, Clock, FileSpreadsheet, Hash } from "lucide-react";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
+import socket from "@/lib/api/socket";
 import api from "@/lib/api/api";
 import { Overview } from "@/shared/types";
 import LiveTimer from "@/components/LiveTimer";
@@ -15,64 +15,50 @@ import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
 import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { useRoomOverview } from "@/lib/api/roomAnalysisHooks";
 
 export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
   const { user: currentUser } = useAuthStore();
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [overview, setOverview] = useState<Overview | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [isExporting, setIsExporting] = useState(false);
 
+  const overviewQuery = useRoomOverview(roomId);
+
+  // "Live" overview can still update via sockets (header, status, timer),
+  // but the graphs should *not* re-render on every socket event.
+  const [liveOverview, setLiveOverview] = useState<Overview | null>(null);
+  const [overviewSnapshot, setOverviewSnapshot] = useState<Overview | null>(null);
+
   useEffect(() => {
-    const fetchOverviewData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+    if (!overviewQuery.data) return;
+    setLiveOverview(overviewQuery.data);
+    setOverviewSnapshot(overviewQuery.data);
+  }, [overviewQuery.data]);
 
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/overview`);
-        const result = response.data;
-
-        if (!result.success) {
-          throw new Error("Failed to get room overview");
-        }
-
-        // The decoupled API now returns the object as data 
-        setOverview((result.data.overview || result.data) as Overview);
-      } catch (err) {
-        if (err instanceof Error) {
-          setError(err.message);
-        }
-        console.error("Error fetching overview data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (roomId) {
-      fetchOverviewData();
-    }
-  }, [roomId]);
-
-  // ── Live overview updates 
   useEffect(() => {
     if (!roomId || !currentUser?.uid) return;
 
-    socket.emit('join-room', { roomCode: roomId, user: currentUser.uid, role: 'teacher' });
+    socket.emit("join-room", { roomCode: roomId, user: currentUser.uid, role: "teacher" });
 
-    const handleOverviewAnalyticsUpdated = (newOverview: any) => {
-      setOverview(newOverview);
+    const handleOverviewAnalyticsUpdated = (nextOverview: unknown) => {
+      // Keep "live" updates in the header, but don't drive chart updates.
+      if (nextOverview && typeof nextOverview === "object") {
+        setLiveOverview(nextOverview as Overview);
+      }
     };
 
-    socket.on('overview-analytics-updated', handleOverviewAnalyticsUpdated);
+    socket.on("overview-analytics-updated", handleOverviewAnalyticsUpdated);
 
     return () => {
-      socket.off('overview-analytics-updated', handleOverviewAnalyticsUpdated);
-      socket.emit('leave-room', roomId, null);
+      socket.off("overview-analytics-updated", handleOverviewAnalyticsUpdated);
+      socket.emit("leave-room", roomId, null);
     };
   }, [roomId, currentUser?.uid]);
+
+  const overview = liveOverview ?? overviewQuery.data ?? null;
+  const loading = overviewQuery.isLoading;
+  const error = overviewQuery.error instanceof Error ? overviewQuery.error.message : null;
 
   const isAnalysisEmpty = !!overview && (overview.questionsAsked ?? 0) === 0;
 
@@ -182,7 +168,9 @@ export default function TeacherPollAnalysis() {
           </div>
 
           <div className="w-full">
-            {activeTab === "overview" && <OverviewTab roomId={roomId} overview={overview} />}
+            {activeTab === "overview" && (
+              <OverviewTab roomId={roomId} overview={overview} chartSnapshot={overviewSnapshot} />
+            )}
             {activeTab === "students" && <StudentAnalyticsSection roomId={roomId} questionsAsked={overview?.questionsAsked || 0} />}
             {activeTab === "questions" && <QuestionsTab roomId={roomId} totalStudents={overview?.totalStudents || 0} />}
             {activeTab === "achievements" && <AchievementsTab roomId={roomId} />}

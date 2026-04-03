@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PaginationMeta, QuestionStats } from "@/shared/types";
 import { PaginationControls } from "./PaginationControls";
-import api from "@/lib/api/api";
+import { useRoomQuestions } from "@/lib/api/roomAnalysisHooks";
 
 type Props = {
   roomId: string;
@@ -18,38 +18,13 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
 });
 
 export const QuestionsTab = ({ roomId, totalStudents }: Props) => {
-  const [questions, setQuestions] = useState<QuestionStats[]>([]);
-  const [pagination, setPagination] = useState<PaginationMeta>(emptyPagination(QUESTION_PAGE_SIZE));
-  const [isLoading, setIsLoading] = useState(false);
   const [questionPage, setQuestionPage] = useState(1);
 
-  useEffect(() => {
-    const fetchPaginatedQuestions = async () => {
-      try {
-        setIsLoading(true);
-        const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/questions`, {
-          params: {
-            questionPage,
-            questionPageSize: QUESTION_PAGE_SIZE,
-          },
-        });
-        const result = response.data;
+  const questionsQuery = useRoomQuestions(roomId, { questionPage, questionPageSize: QUESTION_PAGE_SIZE });
 
-        if (result.success) {
-          setQuestions(result.data.items || result.data.dashboard?.questions || []);
-          setPagination(result.data.pagination || result.data.dashboard?.pagination?.questions || emptyPagination(QUESTION_PAGE_SIZE));
-        }
-      } catch (err) {
-        console.error("Error fetching paginated questions:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (roomId) {
-      fetchPaginatedQuestions();
-    }
-  }, [roomId, questionPage]);
+  const questions = questionsQuery.data?.items ?? [];
+  const pagination = questionsQuery.data?.pagination ?? emptyPagination(QUESTION_PAGE_SIZE);
+  const isLoading = questionsQuery.isLoading;
 
   return (
     <div className="space-y-4 animate-in fade-in zoom-in-95 duration-300">

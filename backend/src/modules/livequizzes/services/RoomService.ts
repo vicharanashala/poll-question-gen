@@ -14,15 +14,15 @@ export class RoomService {
   private userModel = UserModel;
   private roomModel = Room;
   // debounce storage
-  private debounceTimers = new Map<string, NodeJS.Timeout>();
+  private static debounceTimers = new Map<string, NodeJS.Timeout>();
   private triggerLiveOverviewUpdate(roomCode: string) {
     // Clear existing timer
-    if (this.debounceTimers.has(roomCode)) {
-      clearTimeout(this.debounceTimers.get(roomCode)!);
+    if (RoomService.debounceTimers.has(roomCode)) {
+      clearTimeout(RoomService.debounceTimers.get(roomCode)!);
     }
 
     const timer = setTimeout(async () => {
-      this.debounceTimers.delete(roomCode);
+      RoomService.debounceTimers.delete(roomCode);
 
       try {
         const overview = await this.getRoomAnalysisOverview(roomCode);
@@ -39,7 +39,7 @@ export class RoomService {
       }
     }, 2000);
 
-    this.debounceTimers.set(roomCode, timer);
+    RoomService.debounceTimers.set(roomCode, timer);
   }
 
   async createRoom(name: string, teacherId: string): Promise<RoomType> {

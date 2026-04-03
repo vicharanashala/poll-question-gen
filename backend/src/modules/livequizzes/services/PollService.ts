@@ -8,7 +8,7 @@ import UserAchievement from '#root/shared/database/models/UserAchievement.js';
 import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
 import { calculateScore } from '../utils/calculateScore.js';
-import { triggerLiveOverviewUpdate } from '../utils/overviewDebouncer.js';
+
 
 interface InMemoryPoll {
   pollId: string;
@@ -78,7 +78,6 @@ export class PollService {
     this.activePolls.set(pollId, livepoll);
 
     pollSocket.emitToRoom(roomCode, 'new-poll', poll);
-    triggerLiveOverviewUpdate(roomCode);
     return poll;
   }
 
@@ -150,8 +149,6 @@ export class PollService {
         badges: newlyUnlockedBadges,
       });
     }
-
-    triggerLiveOverviewUpdate(roomCode);
   }
 
   async getPollResults(roomCode: string) {

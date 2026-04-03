@@ -1,52 +1,45 @@
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Activity, AlertCircle, Award, BarChart2, Clock, Shield, Target, TrendingDown, TrendingUp, Users } from "lucide-react";
-import { DashboardData, Overview, LineChartPoint } from "@/shared/types";
+import { DashboardData, Overview, LineChartPoint, PaginationMeta } from "@/shared/types";
 import { BarChart, LineChart } from "./Charts";
-import api from "@/lib/api/api";
 import { LoadingState, EmptyState } from "./States";
+import { useRoomAchievements, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
+
+const emptyPagination = (pageSize: number): PaginationMeta => ({
+  currentPage: 1,
+  pageSize,
+  totalItems: 0,
+  totalPages: 0,
+});
 
 type Props = {
   roomId: string;
+  /** Live overview (socket + query) — used for KPI cards so totals update in real time. */
   overview: Overview | null;
+  /** Frozen copy from initial fetch — keeps chart `analysisData` stable when only KPI fields change via socket. */
+  chartSnapshot?: Overview | null;
 };
 
-export const OverviewTab = ({ roomId, overview }: Props) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [analysisData, setAnalysisData] = useState<DashboardData | null>(null);
+export const OverviewTab = ({ roomId, overview, chartSnapshot }: Props) => {
+  const studentsQuery = useRoomStudents(roomId, { studentPageSize: 10000 });
+  const questionsQuery = useRoomQuestions(roomId, { questionPageSize: 1000 });
+  const achievementsQuery = useRoomAchievements(roomId);
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        // We fetch the needed data using the decoupled endpoints to reconstruct the charts
-        const [studentsResp, questionsResp, achievementsResp] = await Promise.all([
-          api.get(`/livequizzes/rooms/${roomId}/analysis/students`, { params: { studentPageSize: 10000 } }),
-          api.get(`/livequizzes/rooms/${roomId}/analysis/questions`, { params: { questionPageSize: 1000 } }),
-          api.get(`/livequizzes/rooms/${roomId}/analysis/achievements`)
-        ]);
+  const overviewForCharts = chartSnapshot ?? overview;
 
-        if (!studentsResp.data.success || !questionsResp.data.success) {
-          throw new Error("Failed to get analysis data");
-        }
-
-        setAnalysisData({
-          overview: overview!,
-          students: studentsResp.data.data.items || studentsResp.data.data.dashboard?.students || [],
-          questions: questionsResp.data.data.items || questionsResp.data.data.dashboard?.questions || [],
-          achievements: achievementsResp.data.data.achievements || achievementsResp.data.data || { badges: [], students: [] },
-          pagination: { students: studentsResp.data.data.pagination, questions: questionsResp.data.data.pagination }
-        });
-      } catch (err) {
-        if (err instanceof Error) setError(err.message);
-        console.error("Error fetching overview dashboard data:", err);
-      } finally {
-        setLoading(false);
-      }
+  const analysisData = useMemo<DashboardData | null>(() => {
+    if (!overviewForCharts) return null;
+    return {
+      overview: overviewForCharts,
+      students: studentsQuery.data?.items ?? [],
+      questions: questionsQuery.data?.items ?? [],
+      achievements: achievementsQuery.data ?? { badges: [], students: [] },
+      pagination: {
+        students: studentsQuery.data?.pagination ?? emptyPagination(10000),
+        questions: questionsQuery.data?.pagination ?? emptyPagination(1000),
+      },
     };
-    if (roomId && overview) fetchDashboard();
-  }, [roomId, overview]);
+  }, [overviewForCharts, studentsQuery.data, questionsQuery.data, achievementsQuery.data]);
 
   const scoreDistribution = useMemo(() => {
     const dist = [
@@ -120,7 +113,14 @@ export const OverviewTab = ({ roomId, overview }: Props) => {
     };
   }, [analysisData]);
 
-  if (loading && !analysisData) return <LoadingState message="Loading overview charts..." />;
+  const isLoading = (studentsQuery.isLoading || questionsQuery.isLoading || achievementsQuery.isLoading) && !analysisData;
+  const error =
+    (studentsQuery.error instanceof Error && studentsQuery.error.message) ||
+    (questionsQuery.error instanceof Error && questionsQuery.error.message) ||
+    (achievementsQuery.error instanceof Error && achievementsQuery.error.message) ||
+    null;
+
+  if (isLoading) return <LoadingState message="Loading overview charts..." />;
   if (error) return <EmptyState title="Could not load charts" message={error} />;
 
   return (
