@@ -2,7 +2,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import { useState, useEffect } from "react";
-import { ClipboardList, Users, TrendingUp, Clock, HelpCircle, BarChart2, Loader2, ExternalLink } from "lucide-react";
+import { ClipboardList, Users, TrendingUp, HelpCircle, BarChart2, Loader2, ExternalLink, Award, Zap, Trophy, ArrowUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useNavigate } from "@tanstack/react-router";
@@ -13,21 +13,40 @@ export interface TeacherData {
     totalAssessmentRooms: number;
     totalPolls: number;
     totalResponses: number;
-    participationRate: string; // e.g. '85%'
+    totalPossibleResponses?: number;
+    totalPointsDistributed: number;
+    participationRate: string;
   };
   activeRooms: RoomPreview[];
   recentRooms: RoomPreview[];
+  scoringInsights: {
+    totalPointsDistributed: number;
+    avgPointsPerStudent: number;
+    highestScore: number;
+    lowestScore: number;
+  };
+  achievements: {
+    badgesEarned: BadgeInfo[];
+    totalBadgesEarned: number;
+  };
   faqs: FAQ[];
 }
 
 export interface RoomPreview {
   roomName: string;
   roomCode: string;
-  totalPolls?: number;         // present in recentRooms
-  totalResponses?: number;     // now present in both recentRooms & activeRooms
+  totalPolls?: number;
+  totalResponses?: number;
   totalStudents?: number;
-  status?: 'active' | 'ended'; // optional, present in recentRooms
-  createdAt: string;           // ISO date string
+  status?: 'active' | 'ended';
+  createdAt: string;
+}
+
+export interface BadgeInfo {
+  name: string;
+  icon: string;
+  description: string;
+  studentCount: number;
 }
 
 export interface FAQ {
@@ -101,20 +120,30 @@ export default function TeacherDashboard() {
     totalAssessmentRooms: 0,
     totalPolls: 0,
     totalResponses: 0,
+    totalPointsDistributed: 0,
     participationRate: '0%'
   };
   const activeRooms = dashboardData?.activeRooms || [];
   const recentRooms = dashboardData?.recentRooms || [];
   const faqs = dashboardData?.faqs || [];
+  const scoringInsights = dashboardData?.scoringInsights ?? {
+    totalPointsDistributed: 0,
+    avgPointsPerStudent: 0,
+    highestScore: 0,
+    lowestScore: 0,
+  };
+  const achievements = dashboardData?.achievements ?? {
+    badgesEarned: [],
+    totalBadgesEarned: 0,
+  };
 
   // Calculate participation rate for pie chart
   const participationData = [
     { name: "Responses", value: stats.totalResponses || 0 },
-    { name: "No Response", value: Math.max(0, (stats.totalPolls || 0) - (stats.totalResponses || 0)) }
+    { name: "No Response", value: Math.max(0, (stats.totalPossibleResponses || 0) - (stats.totalResponses || 0)) }
   ];
 
-  // Enhanced bar chart data for recent rooms with both polls and responses
-  // Sort by date (newest first) and then reverse to show latest on the right
+  // Bar chart data for recent rooms
   const roomsBarData = recentRooms
     .sort((b, a) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(0, 4)
@@ -125,7 +154,7 @@ export default function TeacherDashboard() {
       responses: room.totalResponses || 0
     }));
 
-  // Combine active and recent rooms, with active rooms marked
+  // Combine active and recent rooms
   const combinedRooms = [
     ...activeRooms.map(room => ({ ...room, status: 'active' as const })),
     ...recentRooms.filter(room => room.status !== 'active')
@@ -138,17 +167,6 @@ export default function TeacherDashboard() {
       day: 'numeric'
     });
   };
-
-  /* const getStatusColor = (status: 'active' | 'ended' | undefined): string => {
-     switch (status) {
-       case 'active':
-         return 'bg-green-500';
-       case 'ended':
-         return 'bg-red-500';
-       default:
-         return 'bg-gray-500';
-     }
-   };*/
 
   return (
     <div className="w-full">
@@ -181,12 +199,6 @@ export default function TeacherDashboard() {
               <p className="mb-4 opacity-90 text-sm sm:text-base">
                 Track, analyze, and enhance student learning outcomes
               </p>
-              {/* <Button
-                variant="secondary"
-                className="bg-white text-blue-800 hover:bg-white/90 text-sm sm:text-base"
-              >
-                Quick Start Guide
-              </Button> */}
             </div>
             <div className="lg:w-1/2 flex justify-center">
               <div className="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-white/20 rounded-full flex items-center justify-center">
@@ -227,6 +239,93 @@ export default function TeacherDashboard() {
               </div>
               <span className="font-bold text-base sm:text-lg text-blue-600">{stats.participationRate || '0%'}</span>
             </div>
+            <div className="flex items-center justify-between border-t pt-3">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 sm:h-5 sm:w-5 text-amber-500" />
+                <span className="font-medium text-sm sm:text-base">Points Distributed</span>
+              </div>
+              <span className="font-bold text-base sm:text-lg text-amber-500">{stats.totalPointsDistributed || 0}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Scoring Insights & Achievements Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+        {/* Points & Scoring Visibility */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-200 text-base sm:text-lg">
+              <Trophy className="h-4 w-4 sm:h-5 sm:w-5" />
+              Scoring Insights
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 bg-blue-50 dark:bg-slate-700 rounded-lg text-center">
+                <div className="text-2xl font-bold text-blue-600">{scoringInsights.avgPointsPerStudent}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Avg Points/Student</div>
+              </div>
+              <div className="p-3 bg-green-50 dark:bg-slate-700 rounded-lg text-center">
+                <div className="text-2xl font-bold text-green-600">{scoringInsights.highestScore}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Highest Score</div>
+              </div>
+              <div className="p-3 bg-red-50 dark:bg-slate-700 rounded-lg text-center">
+                <div className="text-2xl font-bold text-red-500">{scoringInsights.lowestScore}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Lowest Score</div>
+              </div>
+              <div className="p-3 bg-amber-50 dark:bg-slate-700 rounded-lg text-center">
+                <div className="text-2xl font-bold text-amber-500">{scoringInsights.totalPointsDistributed}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total Distributed</div>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                <span className="font-semibold">Scoring Method:</span> Time-based scoring. Points = maxPoints × (1 - responseTime/timer). Faster responses earn more points. Incorrect answers get 0 points.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Achievements Monitoring */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-200 text-base sm:text-lg">
+              <Award className="h-4 w-4 sm:h-5 sm:w-5" />
+              Achievements Overview
+              {achievements.totalBadgesEarned > 0 && (
+                <Badge variant="secondary" className="ml-2 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                  {achievements.totalBadgesEarned} earned
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {achievements.badgesEarned.length > 0 ? (
+              <div className="space-y-3">
+                {achievements.badgesEarned.slice(0, 5).map((badge, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-slate-700 dark:to-slate-700 rounded-lg border border-amber-100 dark:border-slate-600">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{badge.icon || '🏅'}</span>
+                      <div>
+                        <div className="font-semibold text-sm text-gray-900 dark:text-white">{badge.name}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{badge.description}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-sm text-amber-600">{badge.studentCount}</div>
+                      <div className="text-xs text-gray-500">students</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Award className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No badges earned yet across your rooms</p>
+                <p className="text-xs mt-1 text-gray-400">Badges are earned by students based on performance</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -323,20 +422,11 @@ export default function TeacherDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-blue-800 dark:text-blue-200 text-base sm:text-lg">
-              <Clock className="h-4 w-4 sm:h-5 sm:w-5" />
+              <ArrowUpDown className="h-4 w-4 sm:h-5 sm:w-5" />
               Quick Actions
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 sm:space-y-3">
-            {/* <Button
-              variant="outline"
-              className="w-full justify-start text-sm sm:text-base"
-              onClick={() => {
-                navigate({ to: '/teacher/pollroom' });
-              }}
-            >
-              Create New Room
-            </Button> */}
             <Button
               variant="outline"
               className="w-full justify-start text-sm sm:text-base"
@@ -481,9 +571,16 @@ export default function TeacherDashboard() {
               <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300">
                 You have created {stats.totalAssessmentRooms || 0} assessment rooms with a total of {stats.totalPolls || 0} polls.
                 Your polls have received {stats.totalResponses || 0} responses with a participation rate of {stats.participationRate || '0%'}.
+                A total of <span className="font-semibold text-amber-600">{stats.totalPointsDistributed || 0} points</span> have been distributed to students.
+                {scoringInsights.avgPointsPerStudent > 0 &&
+                  ` Students averaged ${scoringInsights.avgPointsPerStudent} points, with a high of ${scoringInsights.highestScore} and low of ${scoringInsights.lowestScore}.`
+                }
                 {activeRooms.length > 0 ?
                   ` You currently have ${activeRooms.length} active room${activeRooms.length > 1 ? 's' : ''}.` :
                   ' Create a new room to start engaging with students.'
+                }
+                {achievements.totalBadgesEarned > 0 &&
+                  ` ${achievements.totalBadgesEarned} badges have been earned by students across your rooms.`
                 }
               </p>
             </div>
@@ -520,7 +617,3 @@ export default function TeacherDashboard() {
     </div>
   );
 }
-
-
-
-

@@ -158,18 +158,46 @@ export class DashboardService {
 
         let totalPolls = 0;
         let totalResponses = 0;
+        let totalPossibleResponses = 0;
+        let totalPointsDistributed = 0;
+        let allStudentScores: number[] = [];
         let activeRooms: any[] = [];
         let recentRooms: any[] = [];
         let responsesPerRoom: { roomName: string, totalResponses: number }[] = [];
+        let totalStudentsAcrossRooms = 0;
+        let totalRespondedAcrossRooms = 0;
 
         for (const room of rooms) {
+            const studentCount = room.joinedStudents?.length || room.students?.length || 0;
             const pollCount = room.polls?.length || 0;
             const responseCount = room.polls?.reduce((sum, poll) => sum + (poll.answers?.length || 0), 0) || 0;
-            const uniqueStudents = new Set(room.students?.map((s: any) => s.toString()) || []);
-            const studentCount = uniqueStudents.size;
 
             totalPolls += pollCount;
             totalResponses += responseCount;
+            totalStudentsAcrossRooms += studentCount;
+
+            // Aggregate points and track responding students for this specific room
+            let roomPoints = 0;
+            const studentScoreMap = new Map<string, number>();
+            const roomResponders = new Set<string>();
+
+            for (const poll of room.polls ?? []) {
+                const pollExpected = poll.lockedActiveUsers?.length || studentCount;
+                totalPossibleResponses += pollExpected;
+
+                for (const answer of poll.answers ?? []) {
+                    const pts = answer.points ?? 0;
+                    roomPoints += pts;
+                    roomResponders.add(answer.userId);
+                    studentScoreMap.set(
+                        answer.userId,
+                        (studentScoreMap.get(answer.userId) || 0) + pts
+                    );
+                }
+            }
+            totalPointsDistributed += roomPoints;
+            totalRespondedAcrossRooms += roomResponders.size;
+            allStudentScores.push(...studentScoreMap.values());
 
             const roomData = {
                 roomName: room.name,
@@ -196,23 +224,77 @@ export class DashboardService {
         // Sort recentRooms and activeRooms by createdAt descending
         recentRooms.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         activeRooms.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        responsesPerRoom.sort((a, b) => b.totalResponses - a.totalResponses); // Optional: Sort descending
+        responsesPerRoom.sort((a, b) => b.totalResponses - a.totalResponses);
 
-        const participationRate = totalPolls > 0 ? `${Math.round((totalResponses / totalPolls) * 100)}%` : '0%';
+        // Proper participation rate: responded students per room / total students per room
+        const participationRate = totalStudentsAcrossRooms > 0
+            ? `${Math.round((totalRespondedAcrossRooms / totalStudentsAcrossRooms) * 100)}%`
+            : '0%';
+
+        // Scoring insights
+        const scoringInsights = {
+            totalPointsDistributed,
+            avgPointsPerStudent: allStudentScores.length > 0
+                ? Math.round(allStudentScores.reduce((a, b) => a + b, 0) / allStudentScores.length)
+                : 0,
+            highestScore: allStudentScores.length > 0 ? Math.max(...allStudentScores) : 0,
+            lowestScore: allStudentScores.length > 0 ? Math.min(...allStudentScores) : 0,
+        };
+
+        // Achievements: badges earned across teacher's rooms
+        const roomCodes = rooms.map(r => r.roomCode);
+        let achievements: any = { badgesEarned: [], totalBadgesEarned: 0 };
+
+        if (roomCodes.length > 0) {
+            const userAchievements = await UserAchievement.find({
+                roomCode: { $in: roomCodes }
+            }).populate('badgeId').lean();
+
+            // Badge distribution: count students per badge
+            const badgeMap = new Map<string, { name: string; icon: string; description: string; studentCount: number; students: string[] }>();
+            for (const ua of userAchievements) {
+                const badge = ua.badgeId as any;
+                if (!badge?._id) continue;
+                const badgeKey = badge._id.toString();
+                if (!badgeMap.has(badgeKey)) {
+                    badgeMap.set(badgeKey, {
+                        name: badge.name || 'Unknown',
+                        icon: badge.icon || '🏅',
+                        description: badge.description || '',
+                        studentCount: 0,
+                        students: [],
+                    });
+                }
+                const entry = badgeMap.get(badgeKey)!;
+                entry.studentCount += 1;
+                if (!entry.students.includes(ua.userId)) {
+                    entry.students.push(ua.userId);
+                }
+            }
+
+            achievements = {
+                badgesEarned: Array.from(badgeMap.values()).sort((a, b) => b.studentCount - a.studentCount),
+                totalBadgesEarned: userAchievements.length,
+            };
+        }
 
         return {
             summary: {
                 totalAssessmentRooms: rooms.length,
                 totalPolls,
                 totalResponses,
+                totalPossibleResponses,
+                totalPointsDistributed,
                 participationRate
             },
             activeRooms,
             recentRooms,
             responsesPerRoom,
+            scoringInsights,
+            achievements,
             faqs: [
                 { question: "How to create a room?", answer: "Click on 'Create Room' button from the dashboard." },
-                { question: "How are scores calculated?", answer: "Each correct answer gives 20 points." }
+                { question: "How are scores calculated?", answer: "Each correct answer earns points based on response speed: points = maxPoints × (1 - responseTime/timer). Faster responses earn more points." }
             ]
         };
     }

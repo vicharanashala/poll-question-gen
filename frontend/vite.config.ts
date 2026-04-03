@@ -70,12 +70,12 @@ const pwaOptions: Partial<VitePWAOptions> = {
     cleanupOutdatedCaches: true,
     skipWaiting: true,
     clientsClaim: true,
-    
+
     // Navigation fallback - serve index.html for all routes
     navigateFallback: '/index.html',
-   navigateFallbackAllowlist: [/^(?!.*\/api).*/],
+    navigateFallbackAllowlist: [/^(?!.*\/api).*/],
     navigateFallbackDenylist: [/^\/api\//, /\.[^\/]+$/, /\/sitemap\.xml$/, /\/robots\.txt$/],
-    
+
     // Cache the Google Fonts stylesheets with a stale-while-revalidate strategy
     runtimeCaching: [
       {
@@ -210,12 +210,25 @@ const pwaOptions: Partial<VitePWAOptions> = {
 };
 
 export default defineConfig(({ }) => {
-  
+
   return {
     server: {
       port: 3000,
       host: '0.0.0.0',
       strictPort: false,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8001',
+          changeOrigin: true,
+        },
+        '/socket.io': {
+          target: 'http://localhost:8001',
+          ws: true,
+        }
+      },
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+      }
     },
 
     plugins: [
@@ -250,7 +263,7 @@ export default defineConfig(({ }) => {
         }
       },
     },
-    
+
     build: {
       chunkSizeWarningLimit: 2000,
       rollupOptions: {
@@ -284,7 +297,7 @@ export default defineConfig(({ }) => {
         transformMixedEsModules: true
       }
     },
-    
+
     define: {
       'process.env': {}
     }

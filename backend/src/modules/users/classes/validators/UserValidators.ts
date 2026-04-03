@@ -106,9 +106,9 @@ export class CreateUserProfileBody {
   @Transform(({ value }) => value?.trim())
   firstName!: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  @Transform(({ value }) => value?.trim())
+  @Transform(({ value }) => value?.trim() || '')
   lastName!: string;
 
   @IsEmail()

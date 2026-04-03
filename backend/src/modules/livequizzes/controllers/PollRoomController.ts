@@ -357,11 +357,12 @@ export class PollRoomController {
   @Patch('/:code/controls')
   async updateRoomControls(
     @Param('code') roomCode: string,
-    @Body() body: { userId: string; micBlocked?: boolean; pollRestricted?: boolean }
+    @Body() body: { userId: string; micBlocked?: boolean; pollRestricted?: boolean; autoGenEnabled?: boolean }
   ) {
     const resp = await this.roomService.updateRoomControls(roomCode, body.userId, {
       micBlocked: body.micBlocked,
-      pollRestricted: body.pollRestricted
+      pollRestricted: body.pollRestricted,
+      autoGenEnabled: body.autoGenEnabled
     });
     return { success: true, ...resp };
   }

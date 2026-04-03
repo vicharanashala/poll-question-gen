@@ -55,12 +55,15 @@ export class RoomService {
     const room = await this.roomModel.findOne({ roomCode }).lean();
     if (!room) throw new Error('Room not found');
 
+    const totalStudentsInRoom = room.students?.length || 0;
+
     const participantsMap = new Map<string, {
       userId: string;
       correct: number;
       wrong: number;
       score: number;
-      timeTaken: number;
+      totalTimeTaken: number;
+      questionsAttempted: number;
     }>();
 
     // 1.1️⃣ Initialize map with all enrolled students (fetching their Firebase UIDs)
@@ -73,82 +76,156 @@ export class RoomService {
             correct: 0,
             wrong: 0,
             score: 0,
-            timeTaken: 0,
+            totalTimeTaken: 0,
+            questionsAttempted: 0,
           });
         }
       }
     }
 
-    // 2️⃣ Process each poll and answers
+    // 2️⃣ Process each poll and answers — use actual stored points
+    let totalPointsDistributed = 0;
     for (const poll of room.polls) {
       for (const answer of poll.answers) {
         if (!participantsMap.has(answer.userId)) {
-          // This case might still happen if a student answered but isn't in 'students' (unlikely but safe)
           participantsMap.set(answer.userId, {
             userId: answer.userId,
             correct: 0,
             wrong: 0,
             score: 0,
-            timeTaken: 0,
+            totalTimeTaken: 0,
+            questionsAttempted: 0,
           });
         }
         const participant = participantsMap.get(answer.userId)!;
 
+        // Use ACTUAL stored points (set by calculateScore at submission time)
+        const earnedPoints = answer.points ?? 0;
+        participant.score += earnedPoints;
+        totalPointsDistributed += earnedPoints;
+        participant.questionsAttempted += 1;
+
         if (answer.answerIndex === poll.correctOptionIndex) {
           participant.correct += 1;
-          participant.score += 5; // example scoring
         } else {
           participant.wrong += 1;
-          participant.score -= 2;
         }
 
         // Calculate time taken for this answer (in seconds)
         const answerTime = (answer.answeredAt.getTime() - poll.createdAt.getTime()) / 1000;
-        participant.timeTaken += answerTime;
+        participant.totalTimeTaken += answerTime;
       }
     }
 
-    // 3️⃣ Fetch user names (THIS IS WHERE to add)
+    // 3️⃣ Fetch user names
     const userIds = Array.from(participantsMap.keys());
-    const users = await this.userModel.find({ firebaseUID: { $in: userIds } }, 'firebaseUID firstName').lean();
+    const users = await this.userModel.find({ firebaseUID: { $in: userIds } }, 'firebaseUID firstName lastName').lean();
 
     // 4️⃣ Convert map to array and merge names
     const participants = Array.from(participantsMap.values()).map((p) => {
       const user = users.find(u => u.firebaseUID === p.userId);
+      const fullName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Anonymous' : 'Anonymous';
 
-      // Format time taken - convert seconds to minutes and seconds
-      let timeDisplay = "N/A";
-      if (p.timeTaken > 0) {
-        const totalSeconds = Math.round(p.timeTaken);
+      // Average response time (not cumulative sum)
+      const avgResponseTimeSec = p.questionsAttempted > 0 ? p.totalTimeTaken / p.questionsAttempted : 0;
+
+      // Format avg time
+      let avgTimeDisplay = "N/A";
+      if (avgResponseTimeSec > 0) {
+        const totalSeconds = Math.round(avgResponseTimeSec);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-
-        if (minutes > 0) {
-          timeDisplay = `${minutes}m ${seconds}s`;
-        } else {
-          timeDisplay = `${seconds}s`;
-        }
+        avgTimeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
       }
 
+      // Format total time
+      let totalTimeDisplay = "N/A";
+      if (p.totalTimeTaken > 0) {
+        const totalSeconds = Math.round(p.totalTimeTaken);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        totalTimeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+      }
+
+      const accuracy = p.questionsAttempted > 0
+        ? Math.round((p.correct / p.questionsAttempted) * 100)
+        : 0;
+
       return {
-        name: user?.firstName ?? 'Anonymous',
+        name: fullName,
         score: p.score,
         correct: p.correct,
         wrong: p.wrong,
-        timeTaken: timeDisplay
+        questionsAttempted: p.questionsAttempted,
+        accuracy,
+        timeTaken: totalTimeDisplay,
+        avgResponseTime: avgTimeDisplay,
+        avgResponseTimeSec: Math.round(avgResponseTimeSec * 10) / 10,
       };
     });
 
     // Sort descending by score
     participants.sort((a, b) => b.score - a.score);
 
-    // 5️⃣ Build question-level stats
-    const questions = room.polls.map((poll) => ({
-      text: poll.question,
-      correctCount: poll.answers.filter(
+    // 5️⃣ Build question-level stats with enhanced metrics
+    const questions = room.polls.map((poll) => {
+      const totalResponses = poll.answers.length;
+      const correctCount = poll.answers.filter(
         a => a.answerIndex === poll.correctOptionIndex
-      ).length
-    }));
+      ).length;
+      const correctPercentage = totalResponses > 0
+        ? Math.round((correctCount / totalResponses) * 100)
+        : 0;
+
+      // Average answer time for this question
+      let avgAnswerTimeSec = 0;
+      if (totalResponses > 0) {
+        const totalTime = poll.answers.reduce((sum, a) => {
+          return sum + (a.answeredAt.getTime() - poll.createdAt.getTime()) / 1000;
+        }, 0);
+        avgAnswerTimeSec = Math.round((totalTime / totalResponses) * 10) / 10;
+      }
+
+      // Engagement & difficulty indicators
+      const responseRate = totalStudentsInRoom > 0
+        ? Math.round((totalResponses / totalStudentsInRoom) * 100)
+        : 0;
+      const isLowEngagement = responseRate < 50;
+      const isHighDifficulty = correctPercentage < 30 && totalResponses > 0;
+
+      return {
+        text: poll.question,
+        options: poll.options,
+        correctOptionIndex: poll.correctOptionIndex,
+        maxPoints: poll.maxPoints ?? 20,
+        timer: poll.timer ?? 30,
+        totalResponses,
+        correctCount,
+        correctPercentage,
+        avgAnswerTimeSec,
+        responseRate,
+        isLowEngagement,
+        isHighDifficulty,
+      };
+    });
+
+    // 6️⃣ Scoring insights
+    const allScores = participants.map(p => p.score);
+    const scoringInsights = {
+      totalPointsDistributed,
+      avgPointsPerStudent: participants.length > 0
+        ? Math.round(allScores.reduce((a, b) => a + b, 0) / participants.length)
+        : 0,
+      highestScore: allScores.length > 0 ? Math.max(...allScores) : 0,
+      lowestScore: allScores.length > 0 ? Math.min(...allScores) : 0,
+      scoringMethod: 'Time-based: points = maxPoints × (1 - responseTime/timer). Incorrect answers get 0 points.',
+    };
+
+    // 7️⃣ Proper participation rate
+    const studentsWhoAnswered = participants.filter(p => p.questionsAttempted > 0).length;
+    const participationRate = totalStudentsInRoom > 0
+      ? Math.round((studentsWhoAnswered / totalStudentsInRoom) * 100)
+      : 0;
 
     return {
       id: room._id,
@@ -157,8 +234,11 @@ export class RoomService {
       duration: room.endedAt && room.createdAt
         ? Math.ceil((room.endedAt.getTime() - room.createdAt.getTime()) / 60000) + ' mins'
         : 'N/A',
+      totalStudents: totalStudentsInRoom,
+      participationRate,
       participants,
       questions,
+      scoringInsights,
     };
   }
 
@@ -229,7 +309,7 @@ export class RoomService {
       // Safely handle populated objects (s._id) or raw strings
       totalStudents: new Set(roomDoc.students?.map((s: any) => s._id ? s._id.toString() : s.toString()) || []).size,
       coHosts: roomDoc.coHosts,
-      controls: roomDoc.controls || { micBlocked: false, pollRestricted: false },
+      controls: roomDoc.controls || { micBlocked: false, pollRestricted: false, autoGenEnabled: true },
       polls: (roomDoc.polls || []).map((p: any): Poll => ({
         _id: p._id.toString(),  // convert ObjectId to string if needed
         question: p.question,
@@ -676,7 +756,7 @@ export class RoomService {
   async updateRoomControls(
     roomCode: string,
     userId: string,
-    controlsUpdate: { micBlocked?: boolean; pollRestricted?: boolean }
+    controlsUpdate: { micBlocked?: boolean; pollRestricted?: boolean; autoGenEnabled?: boolean }
   ): Promise<{ message: string; controls: any }> {
 
     const room = await Room.findOne({ roomCode });
@@ -691,11 +771,15 @@ export class RoomService {
     if (controlsUpdate.pollRestricted !== undefined) {
       room.controls.pollRestricted = controlsUpdate.pollRestricted;
     }
+    if (controlsUpdate.autoGenEnabled !== undefined) {
+      room.controls.autoGenEnabled = controlsUpdate.autoGenEnabled;
+    }
     await room.save()
     // EMIT TO FRONTEND
     pollSocket?.emitToRoom(roomCode, 'roomControlsUpdated', {
       micBlocked: room.controls.micBlocked,
-      pollRestricted: room.controls.pollRestricted
+      pollRestricted: room.controls.pollRestricted,
+      autoGenEnabled: room.controls.autoGenEnabled
     });
 
     return {

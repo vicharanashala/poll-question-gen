@@ -33,6 +33,7 @@ export interface Room {
   controls?: {
     micBlocked: boolean;
     pollRestricted: boolean;
+    autoGenEnabled: boolean;
   };
   joinedStudents?: string[];
   students?: {firstName: string, email: string}[]

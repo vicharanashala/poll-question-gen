@@ -187,7 +187,7 @@ export default function TeacherPollRoom() {
         });
 
         if (res.data.success && res.data.room?.controls) {
-          const { micBlocked, pollRestricted } = res.data.room.controls;
+          const { micBlocked, pollRestricted, autoGenEnabled } = res.data.room.controls;
 
           if (micBlocked) {
             setRoomControlMode('mic-disabled');
@@ -200,6 +200,7 @@ export default function TeacherPollRoom() {
           } else {
             setRoomControlMode('full');
           }
+          setIsAutoGenerationEnabled(autoGenEnabled ?? true);
         } else if (!res.data.success) {
           toast.error(res.data.message || 'You do not have access to this room');
           navigate({ to: '/teacher/manage-rooms' });
@@ -478,6 +479,7 @@ export default function TeacherPollRoom() {
   const [fileName, setFileName] = useState('');
 
   const [roomControlMode, setRoomControlMode] = useState<'full' | 'mic-disabled' | 'poll-disabled'>('full');
+  const [isAutoGenerationEnabled, setIsAutoGenerationEnabled] = useState<boolean>(true);
 
   // Handler for saving question edits
   const handleSaveQuestionEdit = () => {
@@ -583,6 +585,10 @@ export default function TeacherPollRoom() {
         if (controls.micBlocked) setRoomControlMode('mic-disabled');
         else if (controls.pollRestricted) setRoomControlMode('poll-disabled');
         else setRoomControlMode('full');
+        
+        if (controls.autoGenEnabled !== undefined) {
+          setIsAutoGenerationEnabled(controls.autoGenEnabled);
+        }
 
         if (controls.micBlocked) {
           setIsRecording(false);
@@ -783,11 +789,12 @@ export default function TeacherPollRoom() {
 
   // Enqueue a text chunk and start processing the queue
   const enqueueTextChunk = useCallback((textChunk: string) => {
+    if (!isAutoGenerationEnabled) return;
     if (!textChunk || !textChunk.trim()) return;
     pendingTextChunksRef.current.push(textChunk.trim());
     // start processing (fire-and-forget)
     void processPendingQueue();
-  }, [processPendingQueue]);
+  }, [processPendingQueue, isAutoGenerationEnabled]);
 
 
 
@@ -2048,6 +2055,22 @@ export default function TeacherPollRoom() {
 
   };
 
+  const handleAutoGenerationToggle = async (enabled: boolean) => {
+    setIsAutoGenerationEnabled(enabled);
+    try {
+      await api.patch(`/livequizzes/rooms/${roomCode}/controls`, {
+        userId: currentUser?.uid,
+        autoGenEnabled: enabled
+      });
+      toast.success(enabled ? 'Auto-Generation Resumed' : 'Auto-Generation Paused');
+    } catch (error) {
+      console.error("Error toggling auto-generation:", error);
+      toast.error("Failed to update auto-generation state");
+      // Revert optimism
+      setIsAutoGenerationEnabled(!enabled);
+    }
+  };
+
   const handleControlModeChange = async (newMode: 'full' | 'mic-disabled' | 'poll-disabled') => {
     setRoomControlMode(newMode);
 
@@ -2357,15 +2380,28 @@ export default function TeacherPollRoom() {
                   {showPreview ? 'Generated Questions' : 'Generated Questions'}
                 </Button>
                 {isHost && (
-                  <Button
-                    disabled={roomControlMode === 'poll-disabled'}
-                    variant={showPollModal ? "default" : "outline"}
-                    onClick={handleCreateManualPoll}
-                    className="mr-2"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create Live Poll
-                  </Button>
+                  <>
+                    <Button
+                      variant={isAutoGenerationEnabled ? "default" : "secondary"}
+                      onClick={() => handleAutoGenerationToggle(!isAutoGenerationEnabled)}
+                      className={`mr-2 transition-colors ${isAutoGenerationEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-500 hover:bg-gray-600 text-white'}`}
+                    >
+                      {isAutoGenerationEnabled ? (
+                        <><Check className="w-4 h-4 mr-2" /> Auto-Gen: ON</>
+                      ) : (
+                        <><X className="w-4 h-4 mr-2" /> Auto-Gen: OFF</>
+                      )}
+                    </Button>
+                    <Button
+                      disabled={roomControlMode === 'poll-disabled'}
+                      variant={showPollModal ? "default" : "outline"}
+                      onClick={handleCreateManualPoll}
+                      className="mr-2"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Manual Question
+                    </Button>
+                  </>
                 )}
                 <Button
                   variant={showResultsModal ? "default" : "outline"}
@@ -2525,18 +2561,34 @@ export default function TeacherPollRoom() {
                   </Button>
                   {
                     isHost && (
-                      <Button
-                        variant={showPollModal ? "default" : "outline"}
-                        onClick={() => {
-                          handleCreateManualPoll();
-                          setIsMobileMenuOpen(false);
-                        }}
-                        className="w-full justify-start"
-                        disabled={roomControlMode === 'poll-disabled'}
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Live Poll
-                      </Button>
+                      <>
+                        <Button
+                          variant={isAutoGenerationEnabled ? "default" : "secondary"}
+                          onClick={() => {
+                            handleAutoGenerationToggle(!isAutoGenerationEnabled);
+                            setIsMobileMenuOpen(false);
+                          }}
+                          className={`w-full justify-start transition-colors ${isAutoGenerationEnabled ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-500 hover:bg-gray-600 text-white'}`}
+                        >
+                          {isAutoGenerationEnabled ? (
+                            <><Check className="w-4 h-4 mr-2" /> Auto-Gen: ON</>
+                          ) : (
+                            <><X className="w-4 h-4 mr-2" /> Auto-Gen: OFF</>
+                          )}
+                        </Button>
+                        <Button
+                          variant={showPollModal ? "default" : "outline"}
+                          onClick={() => {
+                            handleCreateManualPoll();
+                            setIsMobileMenuOpen(false);
+                          }}
+                          className="w-full justify-start"
+                          disabled={roomControlMode === 'poll-disabled'}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Manual Question
+                        </Button>
+                      </>
                     )
                   }
                   <Button
@@ -3809,7 +3861,7 @@ export default function TeacherPollRoom() {
                       <div className="flex items-center justify-between w-full gap-2">
                         <CardTitle className="text-lg sm:text-xl flex items-center gap-2">
                           <ClipboardList className="w-5 h-5 text-purple-500" />
-                          Create Poll
+                          Create Manual Question
                         </CardTitle>
                       </div>
                     </CardHeader>

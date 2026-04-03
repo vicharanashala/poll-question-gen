@@ -13,14 +13,14 @@ export class DashboardController {
     ) { }
 
     // Student Dashboard
-    //@Authorized(['student'])
+    @Authorized(['student'])
     @Get('/students/dashboard/:studentId')
     async getStudentDashboard(@Param('studentId') studentId: string) {
         return await this.dashboardService.getStudentDashboardData(studentId);
     }
 
     // Teacher Dashboard
-    //@Authorized(['teacher'])
+    @Authorized(['teacher'])
     @Get('/teachers/dashboard/:teacherId')
     async getTeacherDashboard(@Param('teacherId') teacherId: string) {
         return await this.dashboardService.getTeacherDashboardData(teacherId);
