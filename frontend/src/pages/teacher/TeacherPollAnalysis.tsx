@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { Calendar, Clock, FileSpreadsheet, Hash } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -15,11 +16,12 @@ import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
 import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { useRoomAchievements, useRoomOverview, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
+import { roomAnalysisKeys, useRoomAchievements, useRoomOverview, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
 
 export default function TeacherPollAnalysis() {
   const { roomId } = useParams({ from: "/teacher/manage-rooms/pollanalysis/$roomId" });
   const { user: currentUser } = useAuthStore();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("overview");
   const [isExporting, setIsExporting] = useState(false);
 
@@ -44,6 +46,11 @@ export default function TeacherPollAnalysis() {
 
     socket.emit("join-room", { roomCode: roomId, user: currentUser.uid, role: "teacher" });
 
+    const refreshAnalysis = () => {
+      queryClient.invalidateQueries({ queryKey: roomAnalysisKeys.all(roomId) });
+      void queryClient.refetchQueries({ queryKey: roomAnalysisKeys.all(roomId) });
+    };
+
     const handleOverviewAnalyticsUpdated = (nextOverview: unknown) => {
       // Keep "live" updates in the header, but don't drive chart updates.
       if (nextOverview && typeof nextOverview === "object") {
@@ -65,10 +72,16 @@ export default function TeacherPollAnalysis() {
         questionsAsked: (prev.questionsAsked || 0) + data.questionsAsked,
         pointsDistributed: (prev.pointsDistributed || 0) + (data.pointsDistributed || 0)
       } : null);
+
+      refreshAnalysis();
     };
 
     const handleAvgAccuracyUpdated = (data: { avgAccuracy: number }) => {
       setLiveOverview(prev => prev ? { ...prev, avgAccuracy: data.avgAccuracy } : null);
+    };
+
+    const handleNewPoll = () => {
+      refreshAnalysis();
     };
 
     socket.on("overview-analytics-updated", handleOverviewAnalyticsUpdated);
@@ -76,6 +89,7 @@ export default function TeacherPollAnalysis() {
     socket.on("total-cohosts-updated", handleTotalCohostsUpdated);
     socket.on("questions-asked-updated", handleQuestionsAskedUpdated);
     socket.on("avg-accuracy-updated", handleAvgAccuracyUpdated);
+    socket.on("new-poll", handleNewPoll);
 
     return () => {
       socket.off("overview-analytics-updated", handleOverviewAnalyticsUpdated);
@@ -83,9 +97,10 @@ export default function TeacherPollAnalysis() {
       socket.off("total-cohosts-updated", handleTotalCohostsUpdated);
       socket.off("questions-asked-updated", handleQuestionsAskedUpdated);
       socket.off("avg-accuracy-updated", handleAvgAccuracyUpdated);
+      socket.off("new-poll", handleNewPoll);
       socket.emit("leave-room", roomId, null);
     };
-  }, [roomId, currentUser?.uid]);
+  }, [roomId, currentUser?.uid, queryClient]);
 
   const overview = liveOverview ?? overviewQuery.data ?? null;
   const loading = overviewQuery.isLoading;
