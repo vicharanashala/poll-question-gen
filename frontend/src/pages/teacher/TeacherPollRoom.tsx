@@ -93,6 +93,7 @@ type GeneratedQuestion = {
   question: string;
   options: string[];
   correctOptionIndex: number;
+  status?: string;
 };
 interface ModelSelectorProps {
   selectedModel: string;
@@ -1686,6 +1687,7 @@ export default function TeacherPollRoom() {
             question: q.questionText || q.question,
             options: options,
             correctOptionIndex: validCorrectOptionIndex,
+            status: q.status || 'pending',
           };
         });
 
@@ -2197,6 +2199,29 @@ export default function TeacherPollRoom() {
       });
     }, 1000);
   };
+
+  // ==========================================
+  // SYNC LOCAL TIMERS ACROSS ALL CO-HOSTS
+  // ==========================================
+  useEffect(() => {
+    generatedQuestions.forEach((q, index) => {
+      // If the backend says it's approved, but this local browser hasn't launched it yet...
+      if (q.status === 'approved' && !launchedQuestions.has(index)) {
+
+        // 1. Mark it as launched locally so we don't double-trigger
+        setLaunchedQuestions(prev => {
+          const newSet = new Set(prev);
+          newSet.add(index);
+          return newSet;
+        });
+
+        // 2. Start the local countdown timer for this specific co-host!
+        // If they didn't touch the input, default to 30 seconds
+        const duration = questionTimers[index]?.initialTime || 30;
+        startTimer(index, Number(duration));
+      }
+    });
+  }, [generatedQuestions]); // Runs whenever the WebSocket updates the questions list
   const handleRemoveStudent = async (studentEmail: string) => {
 
     if (!studentEmail) return;
@@ -3728,7 +3753,11 @@ export default function TeacherPollRoom() {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => setEditingQuestion(currentQuestionIndex)}
-                                                    disabled={launchedQuestions.has(currentQuestionIndex)}
+                                                    disabled={
+                                                      launchedQuestions.has(currentQuestionIndex) ||
+                                                      generatedQuestions[currentQuestionIndex]?.status === 'approved' ||
+                                                      questionTimers[currentQuestionIndex]?.isActive
+                                                    }
                                                     className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
                                                   >
                                                     <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" />
@@ -3750,7 +3779,11 @@ export default function TeacherPollRoom() {
                                                   if (!confirmed) return;
                                                   handleRejectQuestion(currentQuestionIndex); // Use new API handler
                                                 }}
-                                                disabled={launchedQuestions.has(currentQuestionIndex)}
+                                                disabled={
+                                                  launchedQuestions.has(currentQuestionIndex) ||
+                                                  generatedQuestions[currentQuestionIndex]?.status === 'approved' ||
+                                                  questionTimers[currentQuestionIndex]?.isActive
+                                                }
                                                 className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                                               >
                                                 <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
@@ -3888,85 +3921,93 @@ export default function TeacherPollRoom() {
                                         </div>
 
                                         {/* Action Buttons */}
-                                        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
+                                        {(() => {
+                                          // 1. Check if the poll was launched globally (approved) or locally (button clicked)
+                                          const isApproved = generatedQuestions[currentQuestionIndex]?.status === 'approved' || launchedQuestions.has(currentQuestionIndex);
+                                          const isLocallyActive = questionTimers[currentQuestionIndex]?.isActive;
 
+                                          // 2. If it's launched anywhere, we lock the inputs and show the countdown
+                                          const showCountdown = isApproved || isLocallyActive;
 
-                                          {/* Timer */}
-                                          <div className="flex-1 lg:flex-initial">
-                                            <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
-                                              <Clock className="w-4 h-4" />
-                                              {isPollActive ? 'Time Remaining' : 'Timer (seconds)'}
-                                            </label>
-                                            <div className="flex items-center gap-2">
-                                              {questionTimers[currentQuestionIndex]?.isActive ? (
-                                                <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
-                                                  {questionTimers[currentQuestionIndex]?.timeLeft || 0}s
+                                          // 3. USE STRICT LOCAL TIMER STATE (Your idea!)
+                                          const displayTime = questionTimers[currentQuestionIndex]?.timeLeft || 0;
+
+                                          return (
+                                            <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
+
+                                              {/* Timer */}
+                                              <div className="flex-1 lg:flex-initial">
+                                                <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
+                                                  <Clock className="w-4 h-4" />
+                                                  {showCountdown ? 'Time Remaining' : 'Timer (seconds)'}
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                  {showCountdown ? (
+                                                    <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
+                                                      {displayTime}s
+                                                    </div>
+                                                  ) : (
+                                                    <Input
+                                                      type="number"
+                                                      placeholder="e.g. 30"
+                                                      value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
+                                                      min={5}
+                                                      onChange={(e) => {
+                                                        const newTime = e.target.value === '' ? '' : Number(e.target.value);
+                                                        setQuestionTimers(prev => ({
+                                                          ...prev,
+                                                          [currentQuestionIndex]: {
+                                                            ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
+                                                            initialTime: newTime,
+                                                            timeLeft: prev[currentQuestionIndex]?.isActive
+                                                              ? Number(newTime)
+                                                              : (prev[currentQuestionIndex]?.timeLeft || 0)
+                                                          }
+                                                        }));
+                                                      }}
+                                                      className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
+                                                      aria-label="Timer in seconds"
+                                                    />
+                                                  )}
                                                 </div>
-                                              ) : (
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                  {showCountdown
+                                                    ? 'Poll is active. Students can now submit their responses.'
+                                                    : 'The timer controls how long the poll remains open for students to vote.'}
+                                                </p>
+                                              </div>
+
+                                              {/* Max Points */}
+                                              <div className="flex-1 lg:flex-initial">
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                  Max Points
+                                                </label>
                                                 <Input
                                                   type="number"
-                                                  placeholder="e.g. 30"
-                                                  value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
-                                                  min={5}
-                                                  onChange={(e) => {
-                                                    const newTime = e.target.value === '' ? '' : Number(e.target.value);
-                                                    setQuestionTimers(prev => ({
-                                                      ...prev,
-                                                      [currentQuestionIndex]: {
-                                                        ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
-                                                        initialTime: newTime,
-                                                        timeLeft: prev[currentQuestionIndex]?.isActive
-                                                          ? Number(newTime)
-                                                          : (prev[currentQuestionIndex]?.timeLeft || 0)
-                                                      }
-                                                    }));
-                                                  }}
+                                                  value={maxPoints}
+                                                  min={1}
+                                                  onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
                                                   className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
-                                                  aria-label="Timer in seconds"
-                                                  disabled={questionTimers[currentQuestionIndex]?.isActive ||
-                                                    (launchedQuestions.has(currentQuestionIndex) &&
-                                                      questionTimers[currentQuestionIndex]?.timeLeft === 0)}
+                                                  aria-label="Maximum points for this generated poll"
+                                                  disabled={showCountdown}
                                                 />
-                                              )}
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                  Maximum score awarded for a correct answer.
+                                                </p>
+                                              </div>
+
+                                              {/* Launch Button */}
+                                              <Button
+                                                onClick={handleLaunchPoll}
+                                                disabled={showCountdown}
+                                                className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
+                                              >
+                                                <BarChart2 className="w-4 h-4 mr-2" />
+                                                {showCountdown ? 'Poll Active' : 'Launch Poll'}
+                                              </Button>
                                             </div>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                              {questionTimers[currentQuestionIndex]?.isActive
-                                                ? 'Poll is active. Students can now submit their responses.'
-                                                : 'The timer controls how long the poll remains open for students to vote.'}
-                                            </p>
-                                          </div>
-
-                                          <div className="flex-1 lg:flex-initial">
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                              Max Points
-                                            </label>
-                                            <Input
-                                              type="number"
-                                              value={maxPoints}
-                                              min={1}
-                                              onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
-                                              className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
-                                              aria-label="Maximum points for this generated poll"
-                                              disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
-                                            />
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                              Maximum score awarded for a correct answer.
-                                            </p>
-                                          </div>
-
-                                          <Button
-                                            onClick={handleLaunchPoll}
-                                            disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
-                                            className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
-                                          >
-                                            <BarChart2 className="w-4 h-4 mr-2" />
-                                            {questionTimers[currentQuestionIndex]?.isActive
-                                              ? 'Poll Active'
-                                              : launchedQuestions.has(currentQuestionIndex)
-                                                ? 'Poll Completed'
-                                                : 'Launch Poll'}
-                                          </Button>
-                                        </div>
+                                          );
+                                        })()}
                                       </div>
                                     </div>
                                     <Button
