@@ -3821,9 +3821,9 @@ export default function TeacherPollRoom() {
                             Generated Questions (from AI)
                           </h4>
 
-                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md">
+                          <ScrollArea className="h-[calc(100vh-300px)] w-full rounded-md p-2.5">
                             <div className="overflow-y-auto pr-2 flex-1">
-                              <div className="space-y-4">
+                              <div className="space-y-4 mr-3">
                                 {generatedQuestions.map((q, idx) => (
                                   <div
                                     key={idx}
@@ -3836,7 +3836,7 @@ export default function TeacherPollRoom() {
                                           AI Generated
                                         </span>
                                       </div>
-                                      <Button
+                                      {/* <Button
                                         size="sm"
                                         variant="outline"
                                         className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -3844,7 +3844,7 @@ export default function TeacherPollRoom() {
                                       >
                                         <Check className="w-3 h-3 mr-1" />
                                         Use This
-                                      </Button>
+                                      </Button> */}
                                     </div>
 
                                     {/* Question Text */}
@@ -3879,7 +3879,7 @@ export default function TeacherPollRoom() {
                                       </div>
                                     </div>
 
-                                    <div className="absolute -right-3 top-1/2 transform -translate-y-1/2 flex flex-col gap-2">
+                                    <div className="absolute -right-4.5 top-1/2 transform -translate-y-1/2 flex flex-col gap-1">
                                       <Button
                                         variant="ghost"
                                         size="icon"
