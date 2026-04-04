@@ -45,7 +45,7 @@ export const PaginationControls = ({
   }, [currentPage, totalPages]);
 
   return (
-    <nav 
+    <nav
       aria-label="Pagination"
       className="flex flex-col sm:flex-row items-center justify-between gap-4 w-full py-3"
     >
@@ -53,9 +53,9 @@ export const PaginationControls = ({
       <div className="text-sm text-slate-500 dark:text-slate-400 order-2 sm:order-1">
         Showing <span className="font-semibold text-slate-900 dark:text-slate-100">{startItem}</span>
         {" "}-{" "}
-        <span className="font-semibold text-slate-900 dark:text-slate-100">{endItem}</span> 
+        <span className="font-semibold text-slate-900 dark:text-slate-100">{endItem}</span>
         {" "}of{" "}
-        <span className="font-semibold text-slate-900 dark:text-slate-100">{totalItems}</span> 
+        <span className="font-semibold text-slate-900 dark:text-slate-100">{totalItems}</span>
         {" "}{itemLabel}
       </div>
 
@@ -92,8 +92,8 @@ export const PaginationControls = ({
                 aria-label={`Page ${page}`}
                 className={`
                   min-w-[2.25rem] h-9 px-3 rounded-md text-sm font-medium transition-all
-                  ${isActive 
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" 
+                  ${isActive
+                    ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
                     : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                   }
                 `}

@@ -27,7 +27,7 @@ export class RoomService {
       status: 'active',
       polls: []
     }).save();
-    
+
     return this.mapRoom(newRoom.toObject());  // return plain object
   }
 
@@ -158,70 +158,70 @@ export class RoomService {
 
     const pipeline: any[] = [
       { $match: { roomCode } },
-       {
-                $project: {
-                  roomCode: 1,
-                  name: 1,
-                  createdAt: 1,
-                  status: 1,
-                  endedAt: 1,
+      {
+        $project: {
+          roomCode: 1,
+          name: 1,
+          createdAt: 1,
+          status: 1,
+          endedAt: 1,
 
-                  totalStudents: { $size: '$joinedStudents' },
-           totalCohosts: {
-             $size: {
-               $filter: {
-                 input: { $ifNull: ['$coHosts', []] },
-                 as: 'coHost',
-                 cond: {
-                   $and: [
-                     { $ne: ['$$coHost', null] },
-                     { $eq: ['$$coHost.isActive', true] }
-                   ]
-                 }
-               }
-             }
-           },
-                  questionsAsked: { $size: '$polls' },
-
-                  pointsDistributed: {
-                    $sum: {
-                      $map: {
-                        input: '$polls',
-                        as: 'p',
-                        in: { $ifNull: ['$$p.maxPoints', 0] }
-                      }
-                    }
-                  },
-
-                  earnedPoints: {
-                    $sum: {
-                      $map: {
-                        input: '$polls',
-                        as: 'poll',
-                        in: { $sum: '$$poll.answers.points' }
-                      }
-                    }
-                  },
-
-                  avgAccuracy: {
-                    $round: [
-                      {
-                        $cond: [
-                          { $gt: [{ $size: '$polls' }, 0] },
-                          {
-                            $divide: [
-                              { $sum: { $map: { input: '$polls', as: 'poll', in: { $sum: '$$poll.answers.points' } } } },
-                              { $size: '$polls' }
-                            ]
-                          },
-                          0
-                        ]
-                      },
-                      2
-                    ]
-                  }
+          totalStudents: { $size: '$joinedStudents' },
+          totalCohosts: {
+            $size: {
+              $filter: {
+                input: { $ifNull: ['$coHosts', []] },
+                as: 'coHost',
+                cond: {
+                  $and: [
+                    { $ne: ['$$coHost', null] },
+                    { $eq: ['$$coHost.isActive', true] }
+                  ]
                 }
               }
+            }
+          },
+          questionsAsked: { $size: '$polls' },
+
+          pointsDistributed: {
+            $sum: {
+              $map: {
+                input: '$polls',
+                as: 'p',
+                in: { $ifNull: ['$$p.maxPoints', 0] }
+              }
+            }
+          },
+
+          earnedPoints: {
+            $sum: {
+              $map: {
+                input: '$polls',
+                as: 'poll',
+                in: { $sum: '$$poll.answers.points' }
+              }
+            }
+          },
+
+          avgAccuracy: {
+            $round: [
+              {
+                $cond: [
+                  { $gt: [{ $size: '$polls' }, 0] },
+                  {
+                    $divide: [
+                      { $sum: { $map: { input: '$polls', as: 'poll', in: { $sum: '$$poll.answers.points' } } } },
+                      { $size: '$polls' }
+                    ]
+                  },
+                  0
+                ]
+              },
+              2
+            ]
+          }
+        }
+      }
     ]
     const roomOverview = await Room.aggregate(pipeline);
     if (!roomOverview.length) throw new Error('Room not found');
@@ -230,7 +230,7 @@ export class RoomService {
   //room questions analysis
   async getRoomAnalysisQuestions(
     roomCode: string,
-     options?: {
+    options?: {
       questionPage?: number;
       questionPageSize?: number;
     }
@@ -401,13 +401,13 @@ export class RoomService {
                 0,
                 qHasPagination
                   ? {
-                      $ceil: {
-                        $divide: [
-                          { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
-                          qPageSize
-                        ]
-                      }
+                    $ceil: {
+                      $divide: [
+                        { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
+                        qPageSize
+                      ]
                     }
+                  }
                   : 1
               ]
             }
@@ -425,7 +425,7 @@ export class RoomService {
   //room students analysis
   async getRoomAnalysisStudents(
     roomCode: string,
-     options?: {
+    options?: {
       studentSortBy?: string;
       studentSortOrder?: string;
       studentSearch?: string;
@@ -436,253 +436,253 @@ export class RoomService {
     }
   ) {
 
-     //   Pipeline field names: points, accuracyPct, avgTimeSeconds
-      const sortFieldMap: Record<string, string> = {
-        accuracy: 'accuracyPct',
-        avgTime: 'avgTimeSeconds',
-        points: 'points',
-      };
-      const sortField = sortFieldMap[options?.studentSortBy ?? ''] ?? 'points';
-      const sortDir = options?.studentSortOrder === 'asc' ? 1 : -1;
+    //   Pipeline field names: points, accuracyPct, avgTimeSeconds
+    const sortFieldMap: Record<string, string> = {
+      accuracy: 'accuracyPct',
+      avgTime: 'avgTimeSeconds',
+      points: 'points',
+    };
+    const sortField = sortFieldMap[options?.studentSortBy ?? ''] ?? 'points';
+    const sortDir = options?.studentSortOrder === 'asc' ? 1 : -1;
 
     // Students pagination
-      const sPageSize = Number(options?.studentPageSize ?? 0);
-      const sHasPagination = sPageSize > 0;
-      const sPage  = sHasPagination ? Math.max(1, Number(options?.studentPage ?? 1)) : 1;
-      const sSkip  = sHasPagination ? (sPage - 1) * sPageSize : 0;
+    const sPageSize = Number(options?.studentPageSize ?? 0);
+    const sHasPagination = sPageSize > 0;
+    const sPage = sHasPagination ? Math.max(1, Number(options?.studentPage ?? 1)) : 1;
+    const sSkip = sHasPagination ? (sPage - 1) * sPageSize : 0;
     const pipeline: any[] = [
       { $match: { roomCode } },
       // 1. Flatten one document per student
       { $addFields: { totalPollsCount: { $size: "$polls" } } },
-              { $unwind: '$joinedStudents' },
+      { $unwind: '$joinedStudents' },
 
-              { $project: { studentId: '$joinedStudents', polls: 1, totalPollsCount: 1 } },
+      { $project: { studentId: '$joinedStudents', polls: 1, totalPollsCount: 1 } },
 
-              // 2. Compute per-student stats across all polls
-              {
-                $addFields: {
-                  stats: {
-                    $reduce: {
-                      input: '$polls',
-                      initialValue: {
-                        attempted: 0, unAttempted: 0, missed: 0,
-                        correct: 0, incorrect: 0, points: 0,
-                        totalTime: 0, answerCount: 0
-                      },
-                      in: {
-                        $let: {
-                          vars: {
-                            matchingAnswers: {
-                              $filter: {
-                                input: '$$this.answers',
-                                as: 'a',
-                                cond: { $eq: ['$$a.userId', '$studentId'] }
-                              }
-                            },
-                            isLocked: { $in: ['$studentId', { $ifNull: ['$$this.lockedActiveUsers', []] }] }
-                          },
-                          in: {
-                            attempted:   { $add: ['$$value.attempted',   { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] },
-                            correct:     { $add: ['$$value.correct',     { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $eq: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
-                            incorrect:   { $add: ['$$value.incorrect',   { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $ne: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
-                            unAttempted: { $add: ['$$value.unAttempted', { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, '$$isLocked'] }, 1, 0] }] },
-                            missed:      { $add: ['$$value.missed',      { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, { $not: ['$$isLocked'] }] }, 1, 0] }] },
-                            points:      { $add: ['$$value.points',      { $ifNull: [{ $first: '$$matchingAnswers.points' }, 0] }] },
-                            totalTime:   { $add: ['$$value.totalTime',   { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $subtract: [{ $first: '$$matchingAnswers.answeredAt' }, '$$this.createdAt'] }, 0] }] },
-                            answerCount: { $add: ['$$value.answerCount', { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] }
-                          }
-                        }
+      // 2. Compute per-student stats across all polls
+      {
+        $addFields: {
+          stats: {
+            $reduce: {
+              input: '$polls',
+              initialValue: {
+                attempted: 0, unAttempted: 0, missed: 0,
+                correct: 0, incorrect: 0, points: 0,
+                totalTime: 0, answerCount: 0
+              },
+              in: {
+                $let: {
+                  vars: {
+                    matchingAnswers: {
+                      $filter: {
+                        input: '$$this.answers',
+                        as: 'a',
+                        cond: { $eq: ['$$a.userId', '$studentId'] }
                       }
-                    }
+                    },
+                    isLocked: { $in: ['$studentId', { $ifNull: ['$$this.lockedActiveUsers', []] }] }
+                  },
+                  in: {
+                    attempted: { $add: ['$$value.attempted', { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] },
+                    correct: { $add: ['$$value.correct', { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $eq: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
+                    incorrect: { $add: ['$$value.incorrect', { $cond: [{ $and: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $ne: [{ $ifNull: [{ $first: '$$matchingAnswers.answerIndex' }, null] }, '$$this.correctOptionIndex'] }] }, 1, 0] }] },
+                    unAttempted: { $add: ['$$value.unAttempted', { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, '$$isLocked'] }, 1, 0] }] },
+                    missed: { $add: ['$$value.missed', { $cond: [{ $and: [{ $eq: [{ $size: '$$matchingAnswers' }, 0] }, { $not: ['$$isLocked'] }] }, 1, 0] }] },
+                    points: { $add: ['$$value.points', { $ifNull: [{ $first: '$$matchingAnswers.points' }, 0] }] },
+                    totalTime: { $add: ['$$value.totalTime', { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, { $subtract: [{ $first: '$$matchingAnswers.answeredAt' }, '$$this.createdAt'] }, 0] }] },
+                    answerCount: { $add: ['$$value.answerCount', { $cond: [{ $gt: [{ $size: '$$matchingAnswers' }, 0] }, 1, 0] }] }
                   }
                 }
-              },
+              }
+            }
+          }
+        }
+      },
 
-              // 3. Join user document for name
-              { $lookup: { from: 'users', localField: 'studentId', foreignField: 'firebaseUID', as: 'user' } },
+      // 3. Join user document for name
+      { $lookup: { from: 'users', localField: 'studentId', foreignField: 'firebaseUID', as: 'user' } },
 
-              // 4. Compute derived fields (name, accuracy, avgTime, …)
-              {
-                $addFields: {
-                  name: {
-                    $trim: {
-                      input: {
-                        $concat: [
-                          { $ifNull: [{ $arrayElemAt: ['$user.firstName', 0] }, ''] },
-                          ' ',
-                          { $ifNull: [{ $arrayElemAt: ['$user.lastName', 0] }, ''] }
-                        ]
-                      }
-                    }
-                  },
-                                   avgTime: {
-                    $cond: [
-                      { $gt: ['$stats.answerCount', 0] },
-                      { $concat: [{ $toString: { $round: [{ $divide: ['$stats.totalTime', { $multiply: ['$stats.answerCount', 1000] }] }, 2] } }, 's'] },
-                      '0s'
-                    ]
-                  },
+      // 4. Compute derived fields (name, accuracy, avgTime, …)
+      {
+        $addFields: {
+          name: {
+            $trim: {
+              input: {
+                $concat: [
+                  { $ifNull: [{ $arrayElemAt: ['$user.firstName', 0] }, ''] },
+                  ' ',
+                  { $ifNull: [{ $arrayElemAt: ['$user.lastName', 0] }, ''] }
+                ]
+              }
+            }
+          },
+          avgTime: {
+            $cond: [
+              { $gt: ['$stats.answerCount', 0] },
+              { $concat: [{ $toString: { $round: [{ $divide: ['$stats.totalTime', { $multiply: ['$stats.answerCount', 1000] }] }, 2] } }, 's'] },
+              '0s'
+            ]
+          },
 
-                  avgTimeSeconds: {
-                    $round: [
-                      { $cond: [{ $gt: ['$stats.answerCount', 0] }, { $divide: ['$stats.totalTime', { $multiply: ['$stats.answerCount', 1000] }] }, 0] },
-                      2
-                    ]
-                  },
+          avgTimeSeconds: {
+            $round: [
+              { $cond: [{ $gt: ['$stats.answerCount', 0] }, { $divide: ['$stats.totalTime', { $multiply: ['$stats.answerCount', 1000] }] }, 0] },
+              2
+            ]
+          },
 
-                  accuracyPct: {
-                    $round: [
-                      { $cond: [{ $gt: ['$stats.attempted', 0] }, { $multiply: [{ $divide: ['$stats.correct', '$stats.attempted'] }, 100] }, 0] },
-                      2
-                    ]
-                  }
-                }
-              },
+          accuracyPct: {
+            $round: [
+              { $cond: [{ $gt: ['$stats.attempted', 0] }, { $multiply: [{ $divide: ['$stats.correct', '$stats.attempted'] }, 100] }, 0] },
+              2
+            ]
+          }
+        }
+      },
 
-              {
-                $project: {
-                  _id: 0, studentId: 1, name: 1,
-                  attempted:   '$stats.attempted',
-                  unAttempted: '$stats.unAttempted',
-                  missed:      '$stats.missed',
-                  correct:     '$stats.correct',
-                  incorrect:   '$stats.incorrect',
-                  points:      '$stats.points',
-                  accuracyPct: 1,
-                  avgTimeSeconds: 1,
-                  totalPollsCount: 1,
-                  avgTime: 1,
-                  totalTime:   { $round: [{ $divide: ['$stats.totalTime', 1000] }, 2] },
-                }
-              },
+      {
+        $project: {
+          _id: 0, studentId: 1, name: 1,
+          attempted: '$stats.attempted',
+          unAttempted: '$stats.unAttempted',
+          missed: '$stats.missed',
+          correct: '$stats.correct',
+          incorrect: '$stats.incorrect',
+          points: '$stats.points',
+          accuracyPct: 1,
+          avgTimeSeconds: 1,
+          totalPollsCount: 1,
+          avgTime: 1,
+          totalTime: { $round: [{ $divide: ['$stats.totalTime', 1000] }, 2] },
+        }
+      },
 
-              // ─────────────────────────────────────────────────────────
-              // RANKING via $setWindowFields  
-              // ─────────────────────────────────────────────────────────
-              {
-                $setWindowFields: {
-                  sortBy: { points: -1 },   // $denseRank requires exactly one sortBy field
-                  output: {
-                    rank: { $denseRank: {} }
-                  }
-                }
-              },
+      // ─────────────────────────────────────────────────────────
+      // RANKING via $setWindowFields  
+      // ─────────────────────────────────────────────────────────
+      {
+        $setWindowFields: {
+          sortBy: { points: -1 },   // $denseRank requires exactly one sortBy field
+          output: {
+            rank: { $denseRank: {} }
+          }
+        }
+      },
 
-              // ─────────────────────────────────────────────────────────
-              // SEARCH via $match with $regex
-              // ─────────────────────────────────────────────────────────
-              ...(options?.studentSearch?.trim()
-                ? [{ $match: { name: { $regex: options.studentSearch.trim(), $options: 'i' } } }]
-                : []),
+      // ─────────────────────────────────────────────────────────
+      // SEARCH via $match with $regex
+      // ─────────────────────────────────────────────────────────
+      ...(options?.studentSearch?.trim()
+        ? [{ $match: { name: { $regex: options.studentSearch.trim(), $options: 'i' } } }]
+        : []),
 
-              // ─────────────────────────────────────────────────────────
-              // FILTER by accuracy band
-              // ─────────────────────────────────────────────────────────
-              ...(() => {
-                const band = options?.studentAccuracyBand;
-                if (!band || band === 'all') return [];
-                if (band === 'high')   return [{ $match: { accuracyPct: { $gte: 70 } } }];
-                if (band === 'medium') return [{ $match: { accuracyPct: { $gte: 40, $lt: 70 } } }];
-                if (band === 'low')    return [{ $match: { accuracyPct: { $lt: 40 } } }];
-                return [];
-              })(),
+      // ─────────────────────────────────────────────────────────
+      // FILTER by accuracy band
+      // ─────────────────────────────────────────────────────────
+      ...(() => {
+        const band = options?.studentAccuracyBand;
+        if (!band || band === 'all') return [];
+        if (band === 'high') return [{ $match: { accuracyPct: { $gte: 70 } } }];
+        if (band === 'medium') return [{ $match: { accuracyPct: { $gte: 40, $lt: 70 } } }];
+        if (band === 'low') return [{ $match: { accuracyPct: { $lt: 40 } } }];
+        return [];
+      })(),
 
-              // ─────────────────────────────────────────────────────────
-              // FILTER by participation level
-              // ─────────────────────────────────────────────────────────
-              ...(() => {
-      const p = options?.studentParticipation;
-      if (!p || p === 'all') return [];
-      if (p === 'complete')    return [{ $match: { $expr: { $and: [{ $gt: ['$totalPollsCount', 0] }, { $eq: ['$attempted', '$totalPollsCount'] }] } } }];
-      if (p === 'partial')     return [{ $match: { $expr: { $and: [{ $gt: ['$attempted', 0] }, { $lt: ['$attempted', '$totalPollsCount'] }] } } }];
-      if (p === 'no_attempts') return [{ $match: { attempted: 0 } }];
-      return [];
-    })()  ,
+      // ─────────────────────────────────────────────────────────
+      // FILTER by participation level
+      // ─────────────────────────────────────────────────────────
+      ...(() => {
+        const p = options?.studentParticipation;
+        if (!p || p === 'all') return [];
+        if (p === 'complete') return [{ $match: { $expr: { $and: [{ $gt: ['$totalPollsCount', 0] }, { $eq: ['$attempted', '$totalPollsCount'] }] } } }];
+        if (p === 'partial') return [{ $match: { $expr: { $and: [{ $gt: ['$attempted', 0] }, { $lt: ['$attempted', '$totalPollsCount'] }] } } }];
+        if (p === 'no_attempts') return [{ $match: { attempted: 0 } }];
+        return [];
+      })(),
 
-              // ─────────────────────────────────────────────────────────
-              // SORTING via $sort
-              // ─────────────────────────────────────────────────────────
-              { $sort: { [sortField]: sortDir, totalTime: 1 } },
+      // ─────────────────────────────────────────────────────────
+      // SORTING via $sort
+      // ─────────────────────────────────────────────────────────
+      { $sort: { [sortField]: sortDir, totalTime: 1 } },
 
-              // 11. Final Pagination via $facet
-    {
-      $facet: {
-        metadata: [{ $count: 'totalItems' }],
-        items: sHasPagination 
-          ? [{ $skip: sSkip }, { $limit: sPageSize }] 
-          : [] // If no pagination, we'll handle it in the next stage
-      }
-    },
-              // 12. Format Final Output
-    {
-      $project: {
-        items: { $ifNull: ['$items', []] },
-        pagination: {
-          totalItems: { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
-          pageSize: { $literal: sHasPagination ? sPageSize : null },
-          currentPage: { $literal: sPage }
+      // 11. Final Pagination via $facet
+      {
+        $facet: {
+          metadata: [{ $count: 'totalItems' }],
+          items: sHasPagination
+            ? [{ $skip: sSkip }, { $limit: sPageSize }]
+            : [] // If no pagination, we'll handle it in the next stage
+        }
+      },
+      // 12. Format Final Output
+      {
+        $project: {
+          items: { $ifNull: ['$items', []] },
+          pagination: {
+            totalItems: { $ifNull: [{ $arrayElemAt: ['$metadata.totalItems', 0] }, 0] },
+            pageSize: { $literal: sHasPagination ? sPageSize : null },
+            currentPage: { $literal: sPage }
+          }
+        }
+      },
+      {
+        $addFields: {
+          "pagination.totalPages": {
+            $cond: [
+              { $eq: ['$pagination.totalItems', 0] },
+              0,
+              { $ceil: { $divide: ['$pagination.totalItems', { $ifNull: ['$pagination.pageSize', '$pagination.totalItems'] }] } }
+            ]
+          }
         }
       }
-    },
-    {
-      $addFields: {
-        "pagination.totalPages": {
-          $cond: [
-            { $eq: ['$pagination.totalItems', 0] },
-            0,
-            { $ceil: { $divide: ['$pagination.totalItems', { $ifNull: ['$pagination.pageSize', '$pagination.totalItems'] }] } }
-          ]
-        }
-      }
-    }
     ]
     const roomStudents = await Room.aggregate(pipeline);
     if (!roomStudents.length) throw new Error('Room not found');
 
-    const finalResult  = roomStudents[0]  ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
-    
+    const finalResult = roomStudents[0] ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
+
     return finalResult;
   }
   //room achievement analysis
   async getRoomAnalysisAchievements(roomCode: string) {
 
     const pipeline: any[] = [
-       { $match: { roomCode } },
-        {
-          $facet: {
-            badges: [
-              { $group: { _id: '$badgeId', earned: { $sum: 1 } } },
-              { $lookup: { from: 'badges', localField: '_id', foreignField: '_id', as: 'badge' } },
-              { $unwind: '$badge' },
-              { $project: { _id: 0, name: '$badge.name', description: '$badge.description', earned: 1 } }
-            ],
-            students: [
-              { $group: { _id: '$userId', badgeIds: { $push: '$badgeId' } } },
-              { $lookup: { from: 'badges', localField: 'badgeIds', foreignField: '_id', as: 'badgeDetails' } },
-              { $lookup: { from: 'users',  localField: '_id',      foreignField: 'firebaseUID', as: 'user' } },
-              {
-                $addFields: {
-                  name: {
-                    $trim: {
-                      input: {
-                        $concat: [
-                          { $ifNull: [{ $arrayElemAt: ['$user.firstName', 0] }, ''] },
-                          ' ',
-                          { $ifNull: [{ $arrayElemAt: ['$user.lastName', 0] }, ''] }
-                        ]
-                      }
+      { $match: { roomCode } },
+      {
+        $facet: {
+          badges: [
+            { $group: { _id: '$badgeId', earned: { $sum: 1 } } },
+            { $lookup: { from: 'badges', localField: '_id', foreignField: '_id', as: 'badge' } },
+            { $unwind: '$badge' },
+            { $project: { _id: 0, name: '$badge.name', description: '$badge.description', earned: 1 } }
+          ],
+          students: [
+            { $group: { _id: '$userId', badgeIds: { $push: '$badgeId' } } },
+            { $lookup: { from: 'badges', localField: 'badgeIds', foreignField: '_id', as: 'badgeDetails' } },
+            { $lookup: { from: 'users', localField: '_id', foreignField: 'firebaseUID', as: 'user' } },
+            {
+              $addFields: {
+                name: {
+                  $trim: {
+                    input: {
+                      $concat: [
+                        { $ifNull: [{ $arrayElemAt: ['$user.firstName', 0] }, ''] },
+                        ' ',
+                        { $ifNull: [{ $arrayElemAt: ['$user.lastName', 0] }, ''] }
+                      ]
                     }
                   }
                 }
-              },
-              { $project: { _id: 0, name: 1, earnedBadges: '$badgeDetails.name' } }
-            ]
-          }
+              }
+            },
+            { $project: { _id: 0, name: 1, earnedBadges: '$badgeDetails.name' } }
+          ]
         }
+      }
     ]
     const roomAchievements = await UserAchievements.aggregate(pipeline);
     if (!roomAchievements.length) throw new Error('Room not found');
-  
+
     return roomAchievements[0];
   }
 
@@ -691,17 +691,17 @@ export class RoomService {
     return rooms.map(room => this.mapRoom(room));
   }
 
-  async isRoomValidAndHasAccess(code: string, userId: string): Promise<{ isActive: boolean; hasAccess: boolean;}> {
+  async isRoomValidAndHasAccess(code: string, userId: string): Promise<{ isActive: boolean; hasAccess: boolean; }> {
 
-    const result = {isActive: true, hasAccess: false}
+    const result = { isActive: true, hasAccess: false }
     const room = await Room.findOne({ roomCode: code }).lean();
-    
+
     if (!room || room.status.toLowerCase() !== 'active') {
-    result['isActive'] = false;
-  }
-  
-  if(room.teacherId === userId ||
-      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive))result['hasAccess']=true
+      result['isActive'] = false;
+    }
+
+    if (room.teacherId === userId ||
+      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive)) result['hasAccess'] = true
     return result;
 
   }
@@ -1153,7 +1153,7 @@ export class RoomService {
       removedUserId: userId,
       activeCohosts: activeCohosts
     });
-    
+
     pollSocket.emitToRoom(roomCode, 'total-cohosts-updated', { totalCohosts: activeCohosts.length });
 
     return { message: 'coHost removed successfully' }

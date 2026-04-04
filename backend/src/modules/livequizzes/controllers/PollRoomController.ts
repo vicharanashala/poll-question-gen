@@ -89,7 +89,7 @@ export class PollRoomController {
         return { success: false, message: 'User id is required' };
       }
       const hasAccess = room.teacherId === userId ||
-      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive);
+        room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive);
       if (!hasAccess) {
         return { success: false, message: 'You do not have access to this room' };
       }
@@ -140,7 +140,7 @@ export class PollRoomController {
   async getPollAnalysisOverview(@Param('roomId') roomId: string) {
 
     const analysis = await this.roomService.getRoomAnalysisOverview(roomId)
-    return {success:true, data: analysis}
+    return { success: true, data: analysis }
   }
   @Get('/:roomId/analysis/students')
   async getPollAnalysisStudents(
@@ -152,7 +152,7 @@ export class PollRoomController {
     @QueryParam('studentParticipation') studentParticipation?: string,
     @QueryParam('studentPage') studentPage?: number,
     @QueryParam('studentPageSize') studentPageSize?: number,
-) {
+  ) {
 
     const normalizedStudentPage = studentPage ? Number(studentPage) : undefined;
     const normalizedStudentPageSize = studentPageSize ? Number(studentPageSize) : undefined;
@@ -168,14 +168,14 @@ export class PollRoomController {
         studentPageSize: normalizedStudentPageSize,
       }
     )
-    return {success:true, data: analysis}
+    return { success: true, data: analysis }
   }
   @Get('/:roomId/analysis/questions')
   async getPollAnalysisQuestions(
     @Param('roomId') roomId: string,
     @QueryParam('questionPage') questionPage?: number,
     @QueryParam('questionPageSize') questionPageSize?: number
-) {
+  ) {
 
     const normalizedQuestionPage = questionPage ? Number(questionPage) : undefined;
     const normalizedQuestionPageSize = questionPageSize ? Number(questionPageSize) : undefined;
@@ -186,13 +186,13 @@ export class PollRoomController {
         questionPageSize: normalizedQuestionPageSize
       }
     )
-    return {success:true, data: analysis}
+    return { success: true, data: analysis }
   }
   @Get('/:roomId/analysis/achievements')
   async getPollAnalysisAchievements(@Param('roomId') roomId: string) {
 
     const analysis = await this.roomService.getRoomAnalysisAchievements(roomId)
-    return {success:true, data: analysis}
+    return { success: true, data: analysis }
   }
 
 

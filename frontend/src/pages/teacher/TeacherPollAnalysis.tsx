@@ -48,7 +48,6 @@ export default function TeacherPollAnalysis() {
     };
 
     const handleOverviewAnalyticsUpdated = (nextOverview: unknown) => {
-      // Keep "live" updates in the header, but don't drive chart updates.
       if (nextOverview && typeof nextOverview === "object") {
         setLiveOverview(nextOverview as Overview);
       }
@@ -63,8 +62,8 @@ export default function TeacherPollAnalysis() {
     };
 
     const handleQuestionsAskedUpdated = (data: { questionsAsked: number; pointsDistributed?: number }) => {
-      setLiveOverview(prev => prev ? { 
-        ...prev, 
+      setLiveOverview(prev => prev ? {
+        ...prev,
         questionsAsked: (prev.questionsAsked || 0) + data.questionsAsked,
         pointsDistributed: (prev.pointsDistributed || 0) + (data.pointsDistributed || 0)
       } : null);
@@ -159,11 +158,10 @@ export default function TeacherPollAnalysis() {
                   {`${overview?.roomCode}-${overview?.name}`}
                 </h2>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 border ${
-                    overview?.status === "active"
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1.5 border ${overview?.status === "active"
                       ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
                       : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
-                  }`}
+                    }`}
                 >
                   {overview?.status === "active" && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
                   {overview?.status}

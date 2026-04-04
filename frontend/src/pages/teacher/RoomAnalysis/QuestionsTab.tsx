@@ -8,7 +8,7 @@ type Props = {
   totalStudents: number;
 };
 
-const QUESTION_PAGE_SIZE = 5;
+const QUESTION_PAGE_SIZE = 15;
 
 const emptyPagination = (pageSize: number): PaginationMeta => ({
   currentPage: 1,

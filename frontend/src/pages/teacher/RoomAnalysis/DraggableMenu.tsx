@@ -73,11 +73,10 @@ export const DraggableMenu = ({
                 setActiveTab(item.id);
                 setIsOpen(false);
               }}
-              className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center relative group transition-colors border ${
-                isActive
+              className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center relative group transition-colors border ${isActive
                   ? "bg-indigo-600 text-white border-indigo-700"
                   : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700"
-              }`}
+                }`}
             >
               <Icon size={20} />
               <span className="absolute right-full mr-3 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none shadow-sm">
