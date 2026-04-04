@@ -44,7 +44,10 @@ export default function TeacherPollAnalysis() {
 
     const refreshAnalysis = () => {
       queryClient.invalidateQueries({ queryKey: roomAnalysisKeys.all(roomId) });
-      void queryClient.refetchQueries({ queryKey: roomAnalysisKeys.all(roomId) });
+    };
+
+    const patchLiveOverview = (patch: Partial<Overview>) => {
+      setLiveOverview((prev) => (prev ? { ...prev, ...patch } : null));
     };
 
     const handleOverviewAnalyticsUpdated = (nextOverview: unknown) => {
@@ -54,25 +57,29 @@ export default function TeacherPollAnalysis() {
     };
 
     const handleTotalStudentsUpdated = (data: { totalStudents: number }) => {
-      setLiveOverview(prev => prev ? { ...prev, totalStudents: data.totalStudents } : null);
+      patchLiveOverview({ totalStudents: data.totalStudents });
     };
 
     const handleTotalCohostsUpdated = (data: { totalCohosts: number }) => {
-      setLiveOverview(prev => prev ? { ...prev, totalCohosts: data.totalCohosts } : null);
+      patchLiveOverview({ totalCohosts: data.totalCohosts });
     };
 
     const handleQuestionsAskedUpdated = (data: { questionsAsked: number; pointsDistributed?: number }) => {
-      setLiveOverview(prev => prev ? {
-        ...prev,
-        questionsAsked: (prev.questionsAsked || 0) + data.questionsAsked,
-        pointsDistributed: (prev.pointsDistributed || 0) + (data.pointsDistributed || 0)
-      } : null);
+      setLiveOverview((prev) =>
+        prev
+          ? {
+              ...prev,
+              questionsAsked: (prev.questionsAsked || 0) + data.questionsAsked,
+              pointsDistributed: (prev.pointsDistributed || 0) + (data.pointsDistributed || 0),
+            }
+          : null,
+      );
 
       refreshAnalysis();
     };
 
     const handleAvgAccuracyUpdated = (data: { avgAccuracy: number }) => {
-      setLiveOverview(prev => prev ? { ...prev, avgAccuracy: data.avgAccuracy } : null);
+      patchLiveOverview({ avgAccuracy: data.avgAccuracy });
     };
 
     const handleNewPoll = () => {
