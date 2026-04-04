@@ -5,6 +5,8 @@ export interface PollAnswer {
   answerIndex: number;
   answeredAt: Date;
   points?: number;
+  difficulty?: 'easy' | 'medium' | 'hard' | null;
+  difficultyAnsweredAt?: Date | null;
 }
 
 export interface Poll {
@@ -58,4 +60,3 @@ export interface ActiveCohost {
   addedBy: string;
   isMicMuted: boolean;
 }
-

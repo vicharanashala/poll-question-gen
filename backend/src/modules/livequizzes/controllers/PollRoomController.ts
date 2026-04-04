@@ -34,6 +34,7 @@ import mime from 'mime-types';
 import * as fsp from 'fs/promises';
 import { CreateInMemoryPollDto, InMemoryPollResponse, InMemoryPollResult, SubmitInMemoryAnswerDto } from '../validators/LivepollValidator.js';
 import { validate } from 'class-validator';
+import { SubmitPollDifficultyDto } from '../validators/PollDifficultyValidator.js';
 
 dotenv.config();
 const appOrigins = process.env.APP_ORIGINS;
@@ -155,11 +156,34 @@ export class PollRoomController {
     return { success: true };
   }
 
+  @Post('/:code/polls/:pollId/difficulty')
+  @HttpCode(200)
+  async submitPollDifficulty(
+    @Param('code') roomCode: string,
+    @Param('pollId') pollId: string,
+    @Body() body: SubmitPollDifficultyDto
+  ) {
+    const dto = Object.assign(new SubmitPollDifficultyDto(), body);
+    const errors = await validate(dto);
+    if (errors.length > 0) {
+      throw new BadRequestError('Invalid difficulty payload');
+    }
+
+    await this.pollService.submitDifficulty(roomCode, pollId, dto.userId, dto.difficulty);
+    return { success: true };
+  }
+
   // Fetch Results for All Polls in Room
   //@Authorized()
   @Get('/:code/polls/results')
   async getResultsForRoom(@Param('code') code: string) {
     return await this.pollService.getPollResults(code);
+  }
+
+  @Get('/:code/polls/insights')
+  @HttpCode(200)
+  async getPollInsights(@Param('code') roomCode: string) {
+    return await this.pollService.getPollInsights(roomCode);
   }
 
   //@Authorized(['teacher'])

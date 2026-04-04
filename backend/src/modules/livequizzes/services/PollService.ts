@@ -8,6 +8,9 @@ import UserAchievement from '#root/shared/database/models/UserAchievement.js';
 import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
 import { calculateScore } from '../utils/calculateScore.js';
+import { BadRequestError, NotFoundError } from 'routing-controllers';
+
+type PollDifficulty = 'easy' | 'medium' | 'hard';
 
 interface InMemoryPoll {
   pollId: string;
@@ -148,6 +151,142 @@ export class PollService {
         badges: newlyUnlockedBadges,
       });
     }
+  }
+
+  async submitDifficulty(
+    roomCode: string,
+    pollId: string,
+    userId: string,
+    difficulty: PollDifficulty,
+  ) {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError('Room not found');
+
+    const poll = room.polls.find(p => p._id === pollId);
+    if (!poll) throw new NotFoundError('Poll not found');
+
+    const answers = poll.answers?.filter(a => a.userId === userId) ?? [];
+    if (answers.length === 0) {
+      throw new NotFoundError('Answer not found for this user');
+    }
+
+    // Set difficulty on the latest answer (by answeredAt)
+    const latestAnswer = answers.reduce((latest, current) => {
+      const latestTime = latest?.answeredAt?.getTime?.() ?? 0;
+      const currentTime = current?.answeredAt?.getTime?.() ?? 0;
+      return currentTime >= latestTime ? current : latest;
+    }, answers[0]);
+
+    if (!latestAnswer) {
+      throw new NotFoundError('Answer not found for this user');
+    }
+
+    if (latestAnswer.difficulty) {
+      throw new BadRequestError('Difficulty already submitted');
+    }
+
+    latestAnswer.difficulty = difficulty;
+    latestAnswer.difficultyAnsweredAt = new Date();
+    await room.save();
+  }
+
+  async getPollInsights(roomCode: string) {
+    const room = await Room.findOne({ roomCode }).lean();
+    if (!room) throw new NotFoundError('Room not found');
+
+    const thresholdHighCorrect = 60; // percent
+
+    const insights = (room.polls ?? []).map(poll => {
+      // Dedupe by userId (take latest answeredAt)
+      const latestByUser = new Map<string, any>();
+      for (const ans of poll.answers ?? []) {
+        const previous = latestByUser.get(ans.userId);
+        const prevTime = previous?.answeredAt ? new Date(previous.answeredAt).getTime() : 0;
+        const curTime = ans?.answeredAt ? new Date(ans.answeredAt).getTime() : 0;
+        if (!previous || curTime >= prevTime) {
+          latestByUser.set(ans.userId, ans);
+        }
+      }
+      const answers = Array.from(latestByUser.values());
+      const total = answers.length;
+      const correctCount = answers.filter(a => a.answerIndex === poll.correctOptionIndex).length;
+      const correctPercent = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+
+      const difficultyCounts = { easy: 0, medium: 0, hard: 0 };
+      for (const a of answers) {
+        if (a?.difficulty === 'easy') difficultyCounts.easy += 1;
+        if (a?.difficulty === 'medium') difficultyCounts.medium += 1;
+        if (a?.difficulty === 'hard') difficultyCounts.hard += 1;
+      }
+      const difficultyTotal = difficultyCounts.easy + difficultyCounts.medium + difficultyCounts.hard;
+      const difficultyPercent = {
+        easy: difficultyTotal ? Math.round((difficultyCounts.easy / difficultyTotal) * 100) : 0,
+        medium: difficultyTotal ? Math.round((difficultyCounts.medium / difficultyTotal) * 100) : 0,
+        hard: difficultyTotal ? Math.round((difficultyCounts.hard / difficultyTotal) * 100) : 0,
+      };
+
+      const isHighCorrect = correctPercent >= thresholdHighCorrect;
+      let dominantDifficulty: 'easy' | 'medium' | 'hard' | 'mixed' | 'unknown' = 'unknown';
+      if (difficultyTotal === 0) {
+        dominantDifficulty = 'unknown';
+      } else {
+        const max = Math.max(difficultyCounts.easy, difficultyCounts.medium, difficultyCounts.hard);
+        const winners = (['easy', 'medium', 'hard'] as const).filter(
+          d => difficultyCounts[d] === max,
+        );
+        dominantDifficulty = winners.length === 1 ? winners[0] : 'mixed';
+      }
+
+      const majorityLabel =
+        dominantDifficulty === 'easy'
+          ? 'Easy'
+          : dominantDifficulty === 'medium'
+          ? 'Medium'
+          : dominantDifficulty === 'hard'
+          ? 'Hard'
+          : dominantDifficulty === 'mixed'
+          ? 'Mixed'
+          : 'Unknown';
+
+      const insight = (() => {
+        if (total === 0) return 'No responses yet.';
+
+        if (dominantDifficulty === 'medium') {
+          return `${correctPercent}% correct, majority marked Medium → Balanced difficulty, good concept-check question`;
+        }
+
+        if (dominantDifficulty === 'easy' && isHighCorrect) {
+          return 'Well-understood concept, suitable for quick checks';
+        }
+        if (dominantDifficulty === 'hard' && isHighCorrect) {
+          return 'Concept understood but perceived tricky—good for exams';
+        }
+        if (dominantDifficulty === 'easy' && !isHighCorrect) {
+          return 'Likely ambiguity or misconception—review question';
+        }
+        if (dominantDifficulty === 'hard' && !isHighCorrect) {
+          return 'Concept not understood—needs reteaching';
+        }
+
+        // fallback
+        return `${correctPercent}% correct, majority marked ${majorityLabel} → Review results`;
+      })();
+
+      return {
+        pollId: poll._id,
+        question: poll.question,
+        totalAnswers: total,
+        correctCount,
+        correctPercent,
+        difficultyCounts,
+        difficultyPercent,
+        difficultyTotal,
+        dominantDifficulty,
+        insight,
+      };
+    });
+
+    return { roomCode, insights };
   }
 
   async getPollResults(roomCode: string) {

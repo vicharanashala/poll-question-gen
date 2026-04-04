@@ -375,6 +375,18 @@ export default function TeacherPollRoom() {
   const [timer, _setTimer] = useState<number>(30);
   const [maxPoints, setMaxPoints] = useState<number | ''>(20);
   const [pollResults, setPollResults] = useState<PollResults>({});
+  type PollDifficultyCounts = { easy: number; medium: number; hard: number };
+  type PollInsight = {
+    pollId: string;
+    question: string;
+    totalAnswers: number;
+    correctPercent: number;
+    difficultyCounts: PollDifficultyCounts;
+    dominantDifficulty: string;
+    insight: string;
+  };
+  const [pollInsightsByQuestion, setPollInsightsByQuestion] = useState<Record<string, PollInsight>>({});
+  const [loadingInsights, setLoadingInsights] = useState(false);
   // State for live poll results
   type LivePollResult = {
     responses: Record<string, number>; // optionIndex: count
@@ -1394,6 +1406,24 @@ export default function TeacherPollRoom() {
     }
   };
 
+  const fetchPollInsights = async () => {
+    try {
+      setLoadingInsights(true);
+      const res = await api.get(`/livequizzes/rooms/${roomCode}/polls/insights`);
+      const insights: PollInsight[] = res.data?.insights || [];
+      const mapped: Record<string, PollInsight> = {};
+      for (const item of insights) {
+        if (item?.question) mapped[item.question] = item;
+      }
+      setPollInsightsByQuestion(mapped);
+    } catch (e) {
+      console.error('Failed to fetch poll insights:', e);
+      // Don’t toast on every open; keep it quiet unless needed
+    } finally {
+      setLoadingInsights(false);
+    }
+  };
+
 
   useEffect(() => {
     setIsTranscribing(!!transcriber.output?.isBusy);
@@ -1936,6 +1966,7 @@ export default function TeacherPollRoom() {
     setShowResultsModal(true);
     setShowPreview(false)
     setShowPollModal(false);
+    fetchPollInsights();
   };
 
   const handleVoiceRecorderTab = () => {
@@ -4045,7 +4076,10 @@ export default function TeacherPollRoom() {
                           <div className="flex items-center gap-2">
                             {Object.keys(pollResults).length > 0 && (
                               <Button
-                                onClick={fetchResults}
+                                onClick={() => {
+                                  fetchResults();
+                                  fetchPollInsights();
+                                }}
                                 variant="outline"
                                 size="sm"
                                 className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30 text-xs sm:text-sm"
@@ -4070,7 +4104,10 @@ export default function TeacherPollRoom() {
                               Poll results will appear here once students submit their responses.
                             </p>
                             <Button
-                              onClick={fetchResults}
+                              onClick={() => {
+                                fetchResults();
+                                fetchPollInsights();
+                              }}
                               variant="outline"
                               className="border-purple-500 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-400 dark:text-purple-300 dark:hover:bg-purple-900/30"
                             >
@@ -4117,6 +4154,27 @@ export default function TeacherPollRoom() {
                                               </Button>
                                             </div>
                                           </div>
+
+                                          {pollInsightsByQuestion[pollQuestion] && (
+                                            <div className="mt-2 space-y-1">
+                                              <div className="flex flex-wrap gap-2">
+                                                <span className="text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 px-2 py-1 rounded">
+                                                  Correct: {pollInsightsByQuestion[pollQuestion].correctPercent}%
+                                                </span>
+                                                <span className="text-xs bg-slate-100 text-slate-700 dark:bg-slate-700/50 dark:text-slate-200 px-2 py-1 rounded">
+                                                  Difficulty — E:{pollInsightsByQuestion[pollQuestion].difficultyCounts.easy} M:{pollInsightsByQuestion[pollQuestion].difficultyCounts.medium} H:{pollInsightsByQuestion[pollQuestion].difficultyCounts.hard}
+                                                </span>
+                                                {loadingInsights && (
+                                                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                                                    Loading insights…
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="text-xs text-slate-600 dark:text-slate-300">
+                                                {pollInsightsByQuestion[pollQuestion].insight}
+                                              </p>
+                                            </div>
+                                          )}
                                         </CardHeader>
 
                                         <CardContent className="pt-0">
