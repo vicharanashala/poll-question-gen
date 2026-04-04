@@ -1,4 +1,4 @@
-import { useEffect, useState, useDeferredValue } from "react";
+import { useEffect, useState, useDeferredValue, useMemo } from "react";
 import { ArrowDown, Filter, Search } from "lucide-react";
 import { PaginationMeta, StudentSortBy, StudentSortOrder, StudentStats } from "@/shared/types";
 import { PaginationControls } from "./PaginationControls";
@@ -7,7 +7,6 @@ import { useRoomStudents } from "@/lib/api/roomAnalysisHooks";
 type Props = {
   roomId: string;
   questionsAsked: number;
-  isActive: boolean;
 };
 
   // Helper function to dynamically style the rank badge
@@ -33,7 +32,7 @@ const emptyPagination = (pageSize: number): PaginationMeta => ({
   totalPages: 0,
 });
 
-export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Props) => {
+export const StudentAnalyticsSection = ({ roomId, questionsAsked }: Props) => {
   const [studentSortBy, setStudentSortBy] = useState<StudentSortBy>("points");
   const [studentSortOrder, setStudentSortOrder] = useState<StudentSortOrder>("desc");
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,15 +56,7 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
     studentPageSize: STUDENT_PAGE_SIZE,
   });
 
-  // Refetch when tab becomes active
-  useEffect(() => {
-    if (isActive) {
-      studentsQuery.refetch();
-    }
-  }, [isActive]);
-
   const students = studentsQuery.data?.items ?? [];
-  console.log('students:',students)
   const pagination = studentsQuery.data?.pagination ?? emptyPagination(STUDENT_PAGE_SIZE);
   const isLoading = studentsQuery.isLoading;
 
@@ -84,6 +75,22 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
     }
     return Math.round((student.correct / student.attempted) * 100);
   };
+
+  const studentRows = useMemo(
+    () =>
+      students.map((student) => {
+        const accuracy = getStudentAccuracy(student);
+        const accuracyColor =
+          accuracy > 70 ? "bg-emerald-500" : accuracy > 40 ? "bg-amber-500" : "bg-red-500";
+
+        return {
+          student,
+          accuracy,
+          accuracyColor,
+        };
+      }),
+    [students],
+  );
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col h-auto sm:h-[600px] transition-colors animate-in fade-in zoom-in-95 duration-300">
@@ -157,7 +164,7 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
                   <td className="p-4"><div className="h-4 w-20 rounded bg-slate-200 dark:bg-slate-700" /></td>
                 </tr>
               ))}
-            {!isLoading && students.map((student) => (
+            {!isLoading && studentRows.map(({ student, accuracy, accuracyColor }) => (
               <tr key={student.studentId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                 <td className="p-4 font-medium text-slate-800 dark:text-slate-100">
                   <div className="flex items-center gap-4">
@@ -180,11 +187,11 @@ export const StudentAnalyticsSection = ({ roomId, questionsAsked, isActive }: Pr
                 <td className="p-4">{student.missed} / {questionsAsked}</td>
                 <td className="p-4">
                   <div className="flex items-center gap-2">
-                    <span className="w-10">{getStudentAccuracy(student)}%</span>
+                    <span className="w-10">{accuracy}%</span>
                     <div className="w-20 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                       <div
-                        className={`h-full ${getStudentAccuracy(student) > 70 ? "bg-emerald-500" : getStudentAccuracy(student) > 40 ? "bg-amber-500" : "bg-red-500"}`}
-                        style={{ width: `${getStudentAccuracy(student)}%` }}
+                        className={`h-full ${accuracyColor}`}
+                        style={{ width: `${accuracy}%` }}
                       />
                     </div>
                   </div>

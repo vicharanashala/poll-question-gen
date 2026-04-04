@@ -1,24 +1,20 @@
-import { useEffect } from "react";
+import { useMemo } from "react";
 import { Award } from "lucide-react";
 import { LoadingState } from "./States";
 import { useRoomAchievements } from "@/lib/api/roomAnalysisHooks";
 
 type Props = {
   roomId: string;
-  isActive: boolean;
 };
 
-export const AchievementsTab = ({ roomId, isActive }: Props) => {
+export const AchievementsTab = ({ roomId }: Props) => {
   const achievementsQuery = useRoomAchievements(roomId);
 
-  // Refetch when tab becomes active
-  useEffect(() => {
-    if (isActive) {
-      achievementsQuery.refetch();
-    }
-  }, [isActive]);
-
   const achievements = achievementsQuery.data ?? null;
+  const recentAwardedStudents = useMemo(
+    () => achievements?.students?.filter((student) => student.earnedBadges.length > 0).slice(0, 5) ?? [],
+    [achievements?.students],
+  );
 
   if (achievementsQuery.isLoading && !achievements) {
     return <LoadingState message="Loading achievements..." />;
@@ -55,7 +51,7 @@ export const AchievementsTab = ({ roomId, isActive }: Props) => {
       <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 transition-colors">
         <h3 className="text-md font-bold text-slate-800 dark:text-white mb-4">Recent Awards</h3>
         <div className="space-y-3">
-          {achievements?.students?.slice(0, 5).map((student, idx) => (
+          {recentAwardedStudents.map((student, idx) => (
             <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
               <span className="font-medium text-slate-700 dark:text-slate-200">{student.name}</span>
               <div className="flex gap-2 flex-wrap">
@@ -67,7 +63,7 @@ export const AchievementsTab = ({ roomId, isActive }: Props) => {
               </div>
             </div>
           ))}
-          {(!achievements?.students || achievements.students.filter((s) => s.earnedBadges.length > 0).length === 0) && (
+          {recentAwardedStudents.length === 0 && (
             <div className="text-sm text-slate-500 dark:text-slate-400">No recent awards in this room.</div>
           )}
         </div>

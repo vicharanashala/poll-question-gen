@@ -2,6 +2,11 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import api from "@/lib/api/api";
 import type { Overview, PaginationMeta, QuestionStats, StudentStats } from "@/shared/types";
 
+type RoomAnalysisQueryOptions = {
+  enabled?: boolean;
+  staleTime?: number;
+};
+
 export const roomAnalysisKeys = {
   all: (roomId: string | undefined) => ["roomAnalysis", roomId] as const,
   overview: (roomId: string | undefined) => [...roomAnalysisKeys.all(roomId), "overview"] as const,
@@ -12,10 +17,11 @@ export const roomAnalysisKeys = {
     [...roomAnalysisKeys.all(roomId), "questions", params] as const,
 };
 
-export function useRoomOverview(roomId: string | undefined) {
+export function useRoomOverview(roomId: string | undefined, options?: RoomAnalysisQueryOptions) {
   return useQuery({
     queryKey: roomAnalysisKeys.overview(roomId),
-    enabled: !!roomId,
+    enabled: !!roomId && (options?.enabled ?? true),
+    staleTime: options?.staleTime ?? 10_000,
     queryFn: async () => {
       const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/overview`);
       const result = response.data;
@@ -30,10 +36,11 @@ export type AchievementData = {
   students: { name: string; earnedBadges: string[] }[];
 };
 
-export function useRoomAchievements(roomId: string | undefined) {
+export function useRoomAchievements(roomId: string | undefined, options?: RoomAnalysisQueryOptions) {
   return useQuery({
     queryKey: roomAnalysisKeys.achievements(roomId),
-    enabled: !!roomId,
+    enabled: !!roomId && (options?.enabled ?? true),
+    staleTime: options?.staleTime ?? 30_000,
     queryFn: async () => {
       const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/achievements`);
       const result = response.data;
@@ -43,11 +50,16 @@ export function useRoomAchievements(roomId: string | undefined) {
   });
 }
 
-export function useRoomStudents<TParams extends Record<string, unknown>>(roomId: string | undefined, params: TParams) {
+export function useRoomStudents<TParams extends Record<string, unknown>>(
+  roomId: string | undefined,
+  params: TParams,
+  options?: RoomAnalysisQueryOptions,
+) {
   return useQuery({
     queryKey: roomAnalysisKeys.students(roomId, params),
-    enabled: !!roomId,
+    enabled: !!roomId && (options?.enabled ?? true),
     placeholderData: keepPreviousData,
+    staleTime: options?.staleTime ?? 30_000,
     queryFn: async () => {
       const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/students`, { params });
       const result = response.data;
@@ -63,11 +75,16 @@ export function useRoomStudents<TParams extends Record<string, unknown>>(roomId:
   });
 }
 
-export function useRoomQuestions<TParams extends Record<string, unknown>>(roomId: string | undefined, params: TParams) {
+export function useRoomQuestions<TParams extends Record<string, unknown>>(
+  roomId: string | undefined,
+  params: TParams,
+  options?: RoomAnalysisQueryOptions,
+) {
   return useQuery({
     queryKey: roomAnalysisKeys.questions(roomId, params),
-    enabled: !!roomId,
+    enabled: !!roomId && (options?.enabled ?? true),
     placeholderData: keepPreviousData,
+    staleTime: options?.staleTime ?? 30_000,
     queryFn: async () => {
       const response = await api.get(`/livequizzes/rooms/${roomId}/analysis/questions`, { params });
       const result = response.data;

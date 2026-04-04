@@ -16,7 +16,7 @@ import { QuestionsTab } from "./RoomAnalysis/QuestionsTab";
 import { EmptyState, LoadingState } from "./RoomAnalysis/States";
 import { StudentAnalyticsSection } from "./RoomAnalysis/StudentAnalyticsSection";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { roomAnalysisKeys, useRoomAchievements, useRoomOverview, useRoomQuestions, useRoomStudents } from "@/lib/api/roomAnalysisHooks";
+import { roomAnalysisKeys, useRoomOverview } from "@/lib/api/roomAnalysisHooks";
 import { formatDuration } from "@/utils/formatDuration";
 
 export default function TeacherPollAnalysis() {
@@ -27,11 +27,6 @@ export default function TeacherPollAnalysis() {
   const [isExporting, setIsExporting] = useState(false);
 
   const overviewQuery = useRoomOverview(roomId);
-
-  // Prefetch all analysis data
-  const achievementsQuery = useRoomAchievements(roomId);
-  const studentsQuery = useRoomStudents(roomId, { studentPage: 1, studentPageSize: 10 });
-  const questionsQuery = useRoomQuestions(roomId, { questionPage: 1, questionPageSize: 5 });
 
   const [liveOverview, setLiveOverview] = useState<Overview | null>(null);
   const [overviewSnapshot, setOverviewSnapshot] = useState<Overview | null>(null);
@@ -218,9 +213,9 @@ export default function TeacherPollAnalysis() {
             {activeTab === "overview" && (
               <OverviewTab roomId={roomId} overview={overview} chartSnapshot={overviewSnapshot} />
             )}
-            {activeTab === "students" && <StudentAnalyticsSection roomId={roomId} questionsAsked={overview?.questionsAsked || 0} isActive={activeTab === "students"} />}
-            {activeTab === "questions" && <QuestionsTab roomId={roomId} totalStudents={overview?.totalStudents || 0} isActive={activeTab === "questions"} />}
-            {activeTab === "achievements" && <AchievementsTab roomId={roomId} isActive={activeTab === "achievements"} />}
+            {activeTab === "students" && <StudentAnalyticsSection roomId={roomId} questionsAsked={overview?.questionsAsked || 0} />}
+            {activeTab === "questions" && <QuestionsTab roomId={roomId} totalStudents={overview?.totalStudents || 0} />}
+            {activeTab === "achievements" && <AchievementsTab roomId={roomId} />}
           </div>
 
           <DraggableMenu activeTab={activeTab} setActiveTab={setActiveTab} />
