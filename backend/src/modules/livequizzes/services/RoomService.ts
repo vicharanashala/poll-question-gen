@@ -240,7 +240,8 @@ export class RoomService {
         answers: (p.answers || []).map((a: any): PollAnswer => ({
           userId: a.userId,
           answerIndex: a.answerIndex,
-          answeredAt: a.answeredAt
+          answeredAt: a.answeredAt,
+          points: a.points
         }))
       }))
     };
