@@ -225,7 +225,6 @@ export class RoomService {
     ]
     const roomOverview = await Room.aggregate(pipeline);
     if (!roomOverview.length) throw new Error('Room not found');
-    console.log('overviewwwwwwwwwwwwwwwwwwwwwwwwwwwwwww:',roomOverview)
     return roomOverview[0];
   }
   //room questions analysis
@@ -445,7 +444,6 @@ export class RoomService {
       };
       const sortField = sortFieldMap[options?.studentSortBy ?? ''] ?? 'points';
       const sortDir = options?.studentSortOrder === 'asc' ? 1 : -1;
-      console.log('sorting by:', sortField, 'direction:', sortDir)
 
     // Students pagination
       const sPageSize = Number(options?.studentPageSize ?? 0);
@@ -643,7 +641,6 @@ export class RoomService {
 
     const finalResult  = roomStudents[0]  ?? { items: [], pagination: { totalItems: 0, pageSize: 0, currentPage: 1, totalPages: 0 } };
     
-    // console.log('students:',finalResult)
     return finalResult;
   }
   //room achievement analysis
@@ -685,7 +682,7 @@ export class RoomService {
     ]
     const roomAchievements = await UserAchievements.aggregate(pipeline);
     if (!roomAchievements.length) throw new Error('Room not found');
-    // console.log('achievement:',roomAchievements)
+  
     return roomAchievements[0];
   }
 
