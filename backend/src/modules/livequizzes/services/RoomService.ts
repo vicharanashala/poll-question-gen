@@ -443,9 +443,9 @@ export class RoomService {
         avgTime: 'avgTimeSeconds',
         points: 'points',
       };
-
       const sortField = sortFieldMap[options?.studentSortBy ?? ''] ?? 'points';
       const sortDir = options?.studentSortOrder === 'asc' ? 1 : -1;
+      console.log('sorting by:', sortField, 'direction:', sortDir)
 
     // Students pagination
       const sPageSize = Number(options?.studentPageSize ?? 0);
@@ -604,7 +604,7 @@ export class RoomService {
               // ─────────────────────────────────────────────────────────
               // SORTING via $sort
               // ─────────────────────────────────────────────────────────
-              { $sort: { [sortField]: sortDir, points: -1,avgTimeSeconds: 1, totalTime: 1 } },
+              { $sort: { [sortField]: sortDir, totalTime: 1 } },
 
               // 11. Final Pagination via $facet
     {
