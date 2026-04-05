@@ -25,7 +25,7 @@ import { AIContentService } from '#root/modules/genai/services/AIContentService.
 import { VideoService } from '#root/modules/genai/services/VideoService.js';
 import { AudioService } from '#root/modules/genai/services/AudioService.js';
 import { CleanupService } from '#root/modules/genai/services/CleanupService.js';
-import type { QuestionSpec } from '#root/modules/genai/services/AIContentService.js';
+import type { GeneratedQuestion as GeneratedAIQuestion, QuestionSpec } from '#root/modules/genai/services/AIContentService.js';
 // import type { File as MulterFile } from 'multer';
 import { OpenAPI } from 'routing-controllers-openapi';
 import dotenv from 'dotenv';
@@ -34,6 +34,7 @@ import * as fsp from 'fs/promises';
 import { CreateInMemoryPollDto, InMemoryPollResponse, InMemoryPollResult, SubmitInMemoryAnswerDto } from '../validators/LivepollValidator.js';
 import { validate } from 'class-validator';
 import { appConfig } from '../../../config/app.js';
+import { aiConfig } from '../../../config/ai.js';
 
 dotenv.config();
 const appPublicUrl = appConfig.publicUrl.replace(/\/+$/, '');
@@ -59,6 +60,61 @@ export class PollRoomController {
     @inject(LIVE_QUIZ_TYPES.RoomService) private roomService: RoomService,
     @inject(LIVE_QUIZ_TYPES.PollService) private pollService: PollService,
   ) { }
+
+  private normalizeGeneratedQuestionForClient(question: GeneratedAIQuestion) {
+    const questionText = typeof question?.questionText === 'string'
+      ? question.questionText.replace(/\s+/g, ' ').trim()
+      : '';
+
+    if (!questionText) {
+      return null;
+    }
+
+    const rawOptions = Array.isArray(question?.options) ? question.options : [];
+    const normalizedOptions = rawOptions
+      .map((option) => ({
+        text: typeof option?.text === 'string' ? option.text.replace(/\s+/g, ' ').trim() : '',
+        correct: Boolean(option?.correct),
+        explanation: typeof option?.explanation === 'string' ? option.explanation.trim() : '',
+      }))
+      .filter((option) => option.text.length > 0);
+
+    if (normalizedOptions.length < 2) {
+      return null;
+    }
+
+    const initiallyCorrect = normalizedOptions.find((option) => option.correct);
+    let options = normalizedOptions.slice(0, 4);
+
+    if (initiallyCorrect && !options.some((option) => option.text.toLowerCase() === initiallyCorrect.text.toLowerCase())) {
+      if (options.length === 4) {
+        options[3] = initiallyCorrect;
+      } else {
+        options.push(initiallyCorrect);
+      }
+    }
+
+    let correctIndex = options.findIndex((option) => option.correct);
+    if (correctIndex < 0) {
+      correctIndex = 0;
+    }
+
+    options = options.map((option, index) => ({
+      ...option,
+      correct: index === correctIndex,
+    }));
+
+    return {
+      questionText,
+      options,
+      solution: question?.solution ?? '',
+      isParameterized: Boolean(question?.isParameterized),
+      timeLimitSeconds: Number(question?.timeLimitSeconds ?? 60),
+      points: Number(question?.points ?? 5),
+      segmentId: question?.segmentId,
+      questionType: question?.questionType,
+    };
+  }
 
   //@Authorized(['teacher'])
   @Post('/')
@@ -88,7 +144,7 @@ export class PollRoomController {
   @Post('/:code/polls')
   async createPollInRoom(
     @Param('code') roomCode: string,
-    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number; maxPoints?: number }
+    @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number; maxPoints?: number; scheduledAt?: string | Date }
   ) {
     const room = await this.roomService.getRoomByCode(roomCode);
     if (!room) throw new Error('Invalid room');
@@ -99,7 +155,8 @@ export class PollRoomController {
         options: body.options,
         correctOptionIndex: body.correctOptionIndex,
         timer: body.timer,
-        maxPoints: body.maxPoints
+        maxPoints: body.maxPoints,
+        scheduledAt: body.scheduledAt
       }
     );
 
@@ -211,34 +268,60 @@ export class PollRoomController {
     try {
       const { transcript, questionSpec, model, questionCount } = req.body;
 
+      const transcriptText = typeof transcript === 'string' ? transcript.trim() : '';
+      if (!transcriptText) {
+        return res.status(400).json({ message: 'Transcript is required and must be a non-empty string.' });
+      }
+
       const SEGMENTATION_THRESHOLD = parseInt(process.env.TRANSCRIPT_SEGMENTATION_THRESHOLD || '6000', 10);
-      const defaultModel = 'gemma3';
-      const selectedModel = model?.trim() || defaultModel;
+      const selectedModel = typeof model === 'string' && model.trim()
+        ? model.trim()
+        : aiConfig.mvpDummyModelToken;
+
+      console.log(`[generateQuestions] Provider: ${aiConfig.provider}, requested model token: ${selectedModel}`);
 
       // Parse questionCount with default value
-      const numQuestions = questionCount ? parseInt(questionCount, 10) : 2;
+      const parsedQuestionCount = Number.parseInt(String(questionCount ?? ''), 10);
+      const numQuestions = Number.isFinite(parsedQuestionCount) && parsedQuestionCount > 0
+        ? Math.min(parsedQuestionCount, 20)
+        : 2;
+
+      let parsedQuestionSpec: unknown = questionSpec;
+      if (typeof parsedQuestionSpec === 'string') {
+        const trimmed = parsedQuestionSpec.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            parsedQuestionSpec = JSON.parse(trimmed);
+          } catch {
+            console.warn('[generateQuestions] Failed to parse questionSpec JSON string; falling back to default spec.');
+            parsedQuestionSpec = undefined;
+          }
+        } else {
+          parsedQuestionSpec = undefined;
+        }
+      }
 
       let segments: Record<string, string>;
-      if (transcript.length <= SEGMENTATION_THRESHOLD) {
+      if (transcriptText.length <= SEGMENTATION_THRESHOLD) {
         console.log('[generateQuestions] Small transcript detected. Using full transcript without segmentation.');
-        console.log('Transcript:', transcript);
-        segments = { full: transcript };
+        console.log('Transcript:', transcriptText);
+        segments = { full: transcriptText };
       } else {
         console.log('[generateQuestions] Transcript is long; running segmentation...');
-        segments = await this.aiContentService.segmentTranscript(transcript, selectedModel);
+        segments = await this.aiContentService.segmentTranscript(transcriptText, selectedModel);
       }
 
       // ✅ Safe default questionSpec with custom count
       let safeSpec: QuestionSpec[] = [{ SOL: numQuestions }];
-      if (questionSpec && typeof questionSpec === 'object' && !Array.isArray(questionSpec)) {
-        safeSpec = [questionSpec];
-      } else if (Array.isArray(questionSpec) && typeof questionSpec[0] === 'object') {
-        safeSpec = questionSpec;
+      if (parsedQuestionSpec && typeof parsedQuestionSpec === 'object' && !Array.isArray(parsedQuestionSpec)) {
+        safeSpec = [parsedQuestionSpec as QuestionSpec];
+      } else if (Array.isArray(parsedQuestionSpec) && typeof parsedQuestionSpec[0] === 'object') {
+        safeSpec = parsedQuestionSpec as QuestionSpec[];
       } else {
         console.warn(`Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`);
       }
       console.log('Using questionSpec:', safeSpec);
-      console.log('[generateQuestions] Transcript length:', transcript.length);
+      console.log('[generateQuestions] Transcript length:', transcriptText.length);
       console.log('[generateQuestions] Transcript preview:', segments);
 
       console.log('[generateQuestions] Number of questions to generate:', numQuestions);
@@ -248,13 +331,17 @@ export class PollRoomController {
         model: selectedModel,
       });
 
+      const normalizedQuestions = generatedQuestions
+        .map((question) => this.normalizeGeneratedQuestionForClient(question))
+        .filter((question): question is NonNullable<ReturnType<PollRoomController['normalizeGeneratedQuestionForClient']>> => Boolean(question));
+
       return res.json({
         message: 'Questions generated successfully from transcript.',
-        transcriptPreview: transcript.substring(0, 200) + '...',
+        transcriptPreview: transcriptText.length > 200 ? `${transcriptText.substring(0, 200)}...` : transcriptText,
         segmentsCount: Object.keys(segments).length,
-        totalQuestions: generatedQuestions.length,
+        totalQuestions: normalizedQuestions.length,
         requestedQuestions: numQuestions,
-        questions: generatedQuestions,
+        questions: normalizedQuestions,
       });
     } catch (err: any) {
       console.error('Error generating questions:', err);
@@ -295,12 +382,26 @@ export class PollRoomController {
     return { success: true, ...resp };
   }
 
+  //join as guest cohost
+  @Post('/cohost/guest/join')
+  async joinAsGuestCohost(@Body() body: { token: string; displayName: string }) {
+    const resp = await this.roomService.joinAsGuestCohost(body.token, body.displayName);
+    return { success: true, ...resp };
+  }
+
   //generate cohost invite link
   @Post('/cohost/:code')
   async generateCohostInvite(@Param('code') roomCode: string, @Body() body: { userId: string }) {
     console.log('roomCode:', roomCode);
     const resp = await this.roomService.generateCohostInvite(roomCode, body.userId);
     return { success: true, inviteLink: resp };
+  }
+
+  //generate guest cohost invite link
+  @Post('/cohost/guest/:code')
+  async generateGuestCohostInvite(@Param('code') roomCode: string, @Body() body: { userId: string }) {
+    const resp = await this.roomService.generateGuestCohostInvite(roomCode, body.userId);
+    return { success: true, ...resp };
   }
 
   //get cohosted rooms

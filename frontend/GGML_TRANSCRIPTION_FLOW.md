@@ -2,6 +2,12 @@
 
 This document explains the complete code flow for GGML (Whisper.cpp) transcription using StreamTranscriber.
 
+## MVP Note (Poll Question Generation)
+
+- The teacher UI now sends a single dummy model token (`mvp-random-dummy-model`) for poll question generation.
+- Backend maps this token to the configured OpenRouter model (`nvidia/nemotron-3-super-120b-a12b:free`).
+- Set `OPENROUTER_API_KEY` in `backend/.env` for generation to work.
+
 ## Architecture Overview
 
 ```

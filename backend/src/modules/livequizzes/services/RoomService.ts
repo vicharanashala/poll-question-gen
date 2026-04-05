@@ -1,6 +1,17 @@
 import { injectable } from 'inversify';
 import { Room } from '../../../shared/database/models/Room.js';
-import type { Room as RoomType, Poll, PollAnswer, CohostJwtPayload, GetCohostRoom, ActiveCohost } from '../interfaces/PollRoom.js';
+import type {
+  Room as RoomType,
+  RoomStudent,
+  Poll,
+  PollAnswer,
+  CohostJwtPayload,
+  GuestCohostJwtPayload,
+  GetCohostRoom,
+  ActiveCohost,
+  CohostType,
+  ModerationActorType,
+} from '../interfaces/PollRoom.js';
 import { UserModel } from '../../../shared/database/models/User.js';
 import { ObjectId } from 'mongodb';
 import { HttpError, NotFoundError } from 'routing-controllers';
@@ -9,10 +20,85 @@ import jwt from "jsonwebtoken";
 import { pollSocket } from '../utils/PollSocket.js';
 import { appConfig } from '../../../config/app.js';
 
+type ModeratorContext = {
+  actorId: string;
+  actorType: ModerationActorType;
+  cohostType?: CohostType;
+  actorName: string;
+};
+
 @injectable()
 export class RoomService {
   private userModel = UserModel;
   private roomModel = Room;
+
+  private getInviteBaseUrl(): string {
+    return appConfig.publicUrl.replace(/\/+$/, '');
+  }
+
+  private getTeacherCohostSecret(): string {
+    const secret = process.env.COHOST_INVITE_SECRET;
+    if (!secret) {
+      throw new Error('COHOST_INVITE_SECRET is not configured');
+    }
+    return secret;
+  }
+
+  private getGuestCohostSecret(): string {
+    const secret = process.env.GUEST_COHOST_INVITE_SECRET || process.env.COHOST_INVITE_SECRET;
+    if (!secret) {
+      throw new Error('GUEST_COHOST_INVITE_SECRET is not configured');
+    }
+    return secret;
+  }
+
+  private getGuestInviteTtlMinutes(): number {
+    const ttl = Number(process.env.GUEST_COHOST_INVITE_TTL_MINUTES || 180);
+    return Number.isFinite(ttl) && ttl > 0 ? ttl : 180;
+  }
+
+  private async resolveModeratorContext(room: any, actorId: string): Promise<ModeratorContext> {
+    if (room.teacherId === actorId) {
+      const host = await this.userModel.findOne({ firebaseUID: actorId }, 'firstName lastName').lean();
+      const actorName = host
+        ? `${host.firstName || ''} ${host.lastName || ''}`.trim() || room.teacherName || 'Host'
+        : room.teacherName || 'Host';
+
+      return {
+        actorId,
+        actorType: 'host',
+        actorName,
+      };
+    }
+
+    const cohost = room.coHosts.find((c: any) => c.userId?.toString() === actorId && c.isActive);
+    if (!cohost) {
+      throw new HttpError(403, 'Only host or cohost can perform this action');
+    }
+
+    const cohostType: CohostType = (cohost.type as CohostType) || 'teacher';
+    if (cohostType === 'guest') {
+      return {
+        actorId,
+        actorType: 'cohost',
+        cohostType,
+        actorName: cohost.displayName || 'Guest Cohost',
+      };
+    }
+
+    const user = await this.userModel.findOne({ firebaseUID: actorId }, 'firstName lastName').lean();
+    const actorName = user
+      ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Cohost'
+      : cohost.displayName || 'Cohost';
+
+    return {
+      actorId,
+      actorType: 'cohost',
+      cohostType,
+      actorName,
+    };
+  }
+
   async createRoom(name: string, teacherId: string): Promise<RoomType> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -31,7 +117,7 @@ export class RoomService {
   }
 
   async getRoomByCode(code: string): Promise<RoomType | null> {
-    const room = await Room.findOne({ roomCode: code }).populate('students', 'firstName email').lean();
+    const room = await Room.findOne({ roomCode: code }).populate('students', 'firstName email firebaseUID').lean();
     return room ? this.mapRoom(room) : null;
   }
 
@@ -179,11 +265,37 @@ export class RoomService {
   }
 
   async endRoom(code: string, teacherId: string): Promise<boolean> {
-    const updated = await Room.findOneAndUpdate({ roomCode: code, teacherId }, { status: 'ended', endedAt: new Date() }, { new: true }).lean();
+    const room = await Room.findOne({ roomCode: code, teacherId });
+    if (!room) {
+      return false;
+    }
+
+    const endedAt = new Date();
+    room.status = 'ended';
+    room.endedAt = endedAt;
+    room.recordingLock = null;
+
+    if (room.coHostInvite) {
+      room.coHostInvite.isActive = false;
+      room.coHostInvite.expiresAt = endedAt;
+    }
+
+    if (room.guestCoHostInvite) {
+      room.guestCoHostInvite.isActive = false;
+      room.guestCoHostInvite.expiresAt = endedAt;
+    }
+
+    room.coHosts.forEach(c => {
+      c.isActive = false;
+    });
+
+    await room.save();
+
     pollSocket?.emitToRoom(code, 'room-ended', {
       message: 'Room has ended'
     });
-    return !!updated;
+    await pollSocket?.emitRoomDashboardUpdates(code);
+    return true;
   }
 
   async canJoinRoom(code: string): Promise<boolean> {
@@ -209,6 +321,38 @@ export class RoomService {
    * Map Mongoose Room Document to plain RoomType matching interface
    */
   private mapRoom(roomDoc: any): RoomType {
+    const students: RoomStudent[] = (roomDoc.students || [])
+      .map((student: any): RoomStudent | null => {
+        if (!student) {
+          return null;
+        }
+
+        if (typeof student === 'string') {
+          return { id: student };
+        }
+
+        const mongoId =
+          typeof student._id === 'string'
+            ? student._id
+            : student._id?.toString?.();
+
+        const rawId = typeof student.toString === 'function' ? student.toString() : undefined;
+        const firebaseUID = typeof student.firebaseUID === 'string' ? student.firebaseUID : undefined;
+        const normalizedId = firebaseUID || mongoId || rawId;
+
+        if (!normalizedId || normalizedId === '[object Object]') {
+          return null;
+        }
+
+        return {
+          id: normalizedId,
+          firebaseUID,
+          firstName: typeof student.firstName === 'string' ? student.firstName : undefined,
+          email: typeof student.email === 'string' ? student.email : undefined,
+        };
+      })
+      .filter((student): student is RoomStudent => Boolean(student?.id));
+
     return {
       roomCode: roomDoc.roomCode,
       name: roomDoc.name,
@@ -216,8 +360,9 @@ export class RoomService {
       createdAt: roomDoc.createdAt,
       endedAt: roomDoc.endedAt,
       status: roomDoc.status,
-      // Safely handle populated objects (s._id) or raw strings
-      totalStudents: new Set(roomDoc.students?.map((s: any) => s._id ? s._id.toString() : s.toString()) || []).size,
+      totalStudents: new Set(students.map(student => student.id)).size,
+      students,
+      joinedStudents: roomDoc.joinedStudents || [],
       coHosts: roomDoc.coHosts,
       controls: roomDoc.controls || { micBlocked: false, pollRestricted: false },
       polls: (roomDoc.polls || []).map((p: any): Poll => ({
@@ -226,7 +371,23 @@ export class RoomService {
         options: p.options,
         correctOptionIndex: p.correctOptionIndex,
         timer: p.timer,
+        maxPoints: p.maxPoints,
+        scheduledAt: p.scheduledAt,
+        isLaunched: p.isLaunched,
+        launchedAt: p.launchedAt,
         createdAt: p.createdAt,
+        approvalStatus: p.approvalStatus,
+        approvedBy: p.approvedBy,
+        approvedByType: p.approvedByType,
+        approvedByCohostType: p.approvedByCohostType,
+        approvedByName: p.approvedByName,
+        rejectedBy: p.rejectedBy,
+        rejectedByType: p.rejectedByType,
+        rejectedByCohostType: p.rejectedByCohostType,
+        rejectedByName: p.rejectedByName,
+        rejectedAt: p.rejectedAt,
+        rejectionReason: p.rejectionReason,
+        approvedAt: p.approvedAt,
         answers: (p.answers || []).map((a: any): PollAnswer => ({
           userId: a.userId,
           answerIndex: a.answerIndex,
@@ -281,6 +442,20 @@ export class RoomService {
       throw new NotFoundError("Room is not found");
     }
 
+    if (room.status !== 'active') {
+      return {
+        success: false,
+        message: 'Room is not active',
+      };
+    }
+
+    const isAuthorized = await this.isUserTeacherOrCohost(userId, roomCode);
+    if (!isAuthorized) {
+      throw new HttpError(403, 'Only host or cohost can use the microphone');
+    }
+
+    const moderatorContext = await this.resolveModeratorContext(room, userId);
+
     const activeCohost = room.coHosts.find(
       c => c.userId.toString() === userId && c.isActive
     );
@@ -314,7 +489,7 @@ export class RoomService {
       {
         recordingLock: {
           userId,
-          userName,
+          userName: userName || moderatorContext.actorName,
           lockedAt: new Date(),
           expiresAt: lockExpiresAt
         }
@@ -324,7 +499,7 @@ export class RoomService {
     // Notify all users in the room that recording has started
     pollSocket?.emitToRoom(roomCode, 'recording-started', {
       userId,
-      userName
+      userName: userName || moderatorContext.actorName
     });
 
     return {
@@ -407,9 +582,10 @@ export class RoomService {
     const token = jwt.sign(
       {
         roomId: room.roomCode,
-        jti: inviteId
+        jti: inviteId,
+        type: 'teacher-cohost'
       },
-      process.env.COHOST_INVITE_SECRET,
+      this.getTeacherCohostSecret(),
       { expiresIn: "30m" }
     );
 
@@ -422,8 +598,53 @@ export class RoomService {
 
     await room.save();
 
-    const inviteBaseUrl = appConfig.publicUrl.replace(/\/+$/, '');
+    const inviteBaseUrl = this.getInviteBaseUrl();
     return `${inviteBaseUrl}/teacher/cohost-invite/${token}`
+
+  }
+
+  async generateGuestCohostInvite(roomCode: string, userId: string): Promise<{ inviteLink: string; expiresAt: Date }> {
+    const room = await Room.findOne({ roomCode });
+    if (!room) {
+      throw new NotFoundError('Room is not found');
+    }
+
+    if (room.teacherId.toString() !== userId) {
+      throw new HttpError(403, 'Only host can generate invite');
+    }
+
+    if (room.status !== 'active') {
+      throw new HttpError(400, 'Invite can be generated only for active rooms');
+    }
+
+    const inviteId = uuidv4();
+    const ttlMinutes = this.getGuestInviteTtlMinutes();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+    const token = jwt.sign(
+      {
+        roomId: room.roomCode,
+        jti: inviteId,
+        type: 'guest-cohost'
+      },
+      this.getGuestCohostSecret(),
+      { expiresIn: `${ttlMinutes}m` }
+    );
+
+    room.guestCoHostInvite = {
+      createdAt: new Date(Date.now()),
+      inviteId,
+      expiresAt,
+      isActive: true
+    };
+
+    await room.save();
+
+    const inviteBaseUrl = this.getInviteBaseUrl();
+    return {
+      inviteLink: `${inviteBaseUrl}/guest-cohost-invite/${token}`,
+      expiresAt,
+    };
 
   }
 
@@ -432,15 +653,17 @@ export class RoomService {
 
     const decoded = jwt.verify(
       token,
-      process.env.COHOST_INVITE_SECRET
+      this.getTeacherCohostSecret()
     ) as CohostJwtPayload;
+
     const room = await Room.findOne({ roomCode: decoded.roomId });
     if (!room || room.status !== "active") {
       throw new HttpError(400, "Invalid room")
     }
     if (
-      !room.coHostInvite.isActive ||
-      room.coHostInvite.inviteId !== decoded.jti ||
+      !room.coHostInvite?.isActive ||
+      room.coHostInvite?.inviteId !== decoded.jti ||
+      !room.coHostInvite?.expiresAt ||
       room.coHostInvite.expiresAt < new Date()
     ) {
       throw new HttpError(400, "Invite invalid or expired")
@@ -465,7 +688,10 @@ export class RoomService {
     if (!already) {
       room.coHosts.push({
         userId,
-        addedBy: room.teacherId
+        addedBy: room.teacherId,
+        type: 'teacher',
+        displayName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+        email: user.email,
       });
     }
 
@@ -479,6 +705,57 @@ export class RoomService {
 
     return { message: "Joined as cohost", roomId: room.roomCode }
 
+  }
+
+  async joinAsGuestCohost(token: string, displayName: string): Promise<{ message: string; roomId: string; cohostId: string; displayName: string }> {
+    const cleanDisplayName = (displayName || '').trim();
+    if (!cleanDisplayName) {
+      throw new HttpError(400, 'Display name is required');
+    }
+
+    const decoded = jwt.verify(token, this.getGuestCohostSecret()) as GuestCohostJwtPayload;
+    if (decoded.type !== 'guest-cohost') {
+      throw new HttpError(400, 'Invalid guest invite token');
+    }
+
+    const room = await Room.findOne({ roomCode: decoded.roomId });
+    if (!room || room.status !== 'active') {
+      throw new HttpError(400, 'Invalid room');
+    }
+
+    if (
+      !room.guestCoHostInvite?.isActive ||
+      room.guestCoHostInvite?.inviteId !== decoded.jti ||
+      !room.guestCoHostInvite?.expiresAt ||
+      room.guestCoHostInvite.expiresAt < new Date()
+    ) {
+      throw new HttpError(400, 'Invite invalid or expired');
+    }
+
+    const cohostId = `guest-${uuidv4()}`;
+    room.coHosts.push({
+      userId: cohostId,
+      sessionId: cohostId,
+      addedBy: room.teacherId,
+      type: 'guest',
+      displayName: cleanDisplayName,
+      isActive: true,
+      isMicMuted: false,
+    });
+
+    await room.save();
+
+    const activeCohosts = await this.getRoomCohosts(room.teacherId, decoded.roomId);
+    pollSocket?.emitToRoom(decoded.roomId, 'cohost-joined', {
+      activeCohosts
+    });
+
+    return {
+      message: 'Joined as cohost',
+      roomId: room.roomCode,
+      cohostId,
+      displayName: cleanDisplayName,
+    };
   }
 
   //get cohost rooms
@@ -540,61 +817,53 @@ export class RoomService {
 
   //get room cohost
   async getRoomCohosts(host: string, roomCode: string): Promise<ActiveCohost[]> {
+    const room = await Room.findOne({ roomCode, teacherId: host }).lean();
+    if (!room) {
+      return [];
+    }
 
-    const coHosts = await Room.aggregate<ActiveCohost>([
-      {
-        $match: {
-          roomCode: roomCode,
-          teacherId: host,
-        }
-      },
-      {
-        $unwind: "$coHosts"
-      },
-      {
-        $match: {
-          "coHosts.isActive": true
-        }
-      },
-      {
-        $lookup: {
-          from: "users",
-          let: { uid: "$coHosts.userId" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$firebaseUID", "$$uid"] }
-              }
-            },
-            {
-              $project: {
-                _id: 0,
-                firebaseUID: 1,
-                firstName: 1,
-                lastName: 1,
-                email: 1
-              }
-            }
-          ],
-          as: "cohostUser"
-        }
-      },
-      {
-        $unwind: "$cohostUser"
-      },
-      {
-        $project: {
-          _id: 0,
-          userId: "$cohostUser.firebaseUID",
-          firstName: "$cohostUser.firstName",
-          lastName: "$cohostUser.lastName",
-          email: "$cohostUser.email",
-          addedAt: "$coHosts.addedAt",
-          isMicMuted: "$coHosts.isMicMuted"
-        }
+    const activeCohosts = (room.coHosts || []).filter((c: any) => c.isActive);
+    if (!activeCohosts.length) {
+      return [];
+    }
+
+    const teacherCohostIds = activeCohosts
+      .filter((c: any) => (c.type || 'teacher') === 'teacher')
+      .map((c: any) => c.userId);
+
+    const teacherUsers = teacherCohostIds.length
+      ? await UserModel.find(
+        { firebaseUID: { $in: teacherCohostIds } },
+        'firebaseUID firstName lastName email'
+      ).lean()
+      : [];
+
+    const userMap = new Map(teacherUsers.map((u: any) => [u.firebaseUID, u]));
+
+    return activeCohosts.map((cohost: any) => {
+      const cohostType: CohostType = cohost.type || 'teacher';
+      if (cohostType === 'guest') {
+        return {
+          userId: cohost.userId,
+          displayName: cohost.displayName || 'Guest Cohost',
+          addedAt: cohost.addedAt,
+          type: 'guest',
+          isMicMuted: cohost.isMicMuted,
+        };
       }
-    ]);
-    return coHosts
+
+      const user = userMap.get(cohost.userId);
+      return {
+        userId: cohost.userId,
+        firstName: user?.firstName || '',
+        lastName: user?.lastName || '',
+        email: user?.email || cohost.email || '',
+        displayName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || cohost.displayName || 'Cohost',
+        addedAt: cohost.addedAt,
+        type: 'teacher',
+        isMicMuted: cohost.isMicMuted,
+      };
+    });
   }
 
   //remove cohost
@@ -608,7 +877,7 @@ export class RoomService {
       throw new HttpError(400, "Invalid room")
     }
     room.coHosts.forEach(c => {
-      if (c.userId === userId) {
+      if (c.userId?.toString() === userId) {
         c.isActive = false;
       }
     });
@@ -675,6 +944,10 @@ export class RoomService {
       throw new NotFoundError("Room is not found");
     }
 
+    if (room.teacherId !== userId) {
+      throw new HttpError(403, 'Only host can update room controls');
+    }
+
     // Update the controls if they are provided in the request
     if (controlsUpdate.micBlocked !== undefined) {
       room.controls.micBlocked = controlsUpdate.micBlocked;
@@ -701,6 +974,10 @@ export class RoomService {
     const room = await Room.findOne({ roomCode });
     if (!room) return false;
 
+    if (room.status !== 'active') {
+      return false;
+    }
+
     // Check if user is the teacher (host)
     if (room.teacherId === userId) {
       return true;
@@ -708,7 +985,7 @@ export class RoomService {
 
     // Check if user is an active cohost
     const isActiveCohost = room.coHosts.some(
-      c => c.userId === userId && c.isActive
+      c => c.userId?.toString() === userId && c.isActive
     );
 
     return isActiveCohost;
@@ -769,6 +1046,9 @@ export class RoomService {
   ): Promise<{ message: string; isMuted: boolean }> {
     const room = await Room.findOne({ roomCode });
     if (!room) throw new NotFoundError("Room not found");
+    if (room.status !== 'active') {
+      throw new HttpError(400, 'Room is not active');
+    }
 
     // Check if user has moderation permissions
     const isAuthorized = await this.isUserTeacherOrCohost(userId, roomCode);
@@ -776,12 +1056,16 @@ export class RoomService {
       throw new HttpError(403, "Only host or cohost can mute students");
     }
 
+    const moderator = await this.resolveModeratorContext(room, userId);
+
     // Check if student is already muted
     const alreadyMuted = room.mutedStudents.some(m => m.studentId === studentId);
     if (!alreadyMuted) {
       room.mutedStudents.push({
         studentId,
         mutedBy: userId,
+        mutedByType: moderator.actorType,
+        mutedByName: moderator.actorName,
         mutedAt: new Date()
       });
     }
@@ -792,6 +1076,8 @@ export class RoomService {
     pollSocket?.emitToRoom(roomCode, 'student-muted', {
       studentId,
       mutedBy: userId,
+      mutedByType: moderator.actorType,
+      mutedByName: moderator.actorName,
       mutedAt: new Date()
     });
 
@@ -812,12 +1098,17 @@ export class RoomService {
   ): Promise<{ message: string; isMuted: boolean }> {
     const room = await Room.findOne({ roomCode });
     if (!room) throw new NotFoundError("Room not found");
+    if (room.status !== 'active') {
+      throw new HttpError(400, 'Room is not active');
+    }
 
     // Check if user has moderation permissions
     const isAuthorized = await this.isUserTeacherOrCohost(userId, roomCode);
     if (!isAuthorized) {
       throw new HttpError(403, "Only host or cohost can unmute students");
     }
+
+    const moderator = await this.resolveModeratorContext(room, userId);
 
     // Remove from muted students
     const mutedEntryIndex = room.mutedStudents.findIndex(m => m.studentId === studentId);
@@ -828,7 +1119,10 @@ export class RoomService {
 
     // Emit events
     pollSocket?.emitToRoom(roomCode, 'student-unmuted', {
-      studentId
+      studentId,
+      unmutedBy: userId,
+      unmutedByType: moderator.actorType,
+      unmutedByName: moderator.actorName,
     });
 
     pollSocket?.emitToSocket(studentId, 'you-have-been-unmuted', {});

@@ -21,6 +21,7 @@ import socket from "@/lib/api/socket";
 import { CohostUser } from "@/shared/types";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useConfirmationModal } from "@/hooks/useConfirmationModal";
+import { clearGuestCohostSession, getGuestCohostSession, type GuestCohostSession } from "@/lib/guest-cohost-session";
 
 
 
@@ -33,17 +34,20 @@ const copyToClipboard = (text: string, message: string) => {
 };
 
 interface APIQuestionOption {
-  text: string;
-  correct: boolean;
+  text?: string;
+  correct?: boolean;
+  explanation?: string;
 }
 
 interface APIQuestion {
-  questionText: string;
-  options: APIQuestionOption[];
+  questionText?: string;
+  question?: string;
+  options?: Array<APIQuestionOption | string>;
+  correctOptionIndex?: number;
 }
 
 interface APIResponse {
-  questions: APIQuestion[];
+  questions?: APIQuestion[];
 }
 
 
@@ -94,12 +98,32 @@ type GeneratedQuestion = {
   correctOptionIndex: number;
 };
 
+type RoomStudent = {
+  id: string;
+  firebaseUID?: string;
+  firstName?: string;
+  email?: string;
+  _id?: string;
+};
+
 export default function TeacherPollRoom() {
   const params = useParams({ from: '/teacher/pollroom/$code' });
   const navigate = useNavigate();
   const { showModal, modalProps } = useConfirmationModal();
   const roomCode: string = params.code as string;
   const { user: currentUser } = useAuthStore();
+  const [guestSession, setGuestSession] = useState<GuestCohostSession | null>(() => getGuestCohostSession());
+  const actorId = currentUser?.uid || guestSession?.cohostId || '';
+  const actorName = currentUser?.name || guestSession?.displayName || 'Cohost';
+
+  const clearGuestSession = useCallback(() => {
+    clearGuestCohostSession();
+    setGuestSession(null);
+  }, []);
+
+  useEffect(() => {
+    setGuestSession(getGuestCohostSession());
+  }, []);
   const [_isTranscriptionSettling, _setIsTranscriptionSettling] = useState(false);
   const [isCreating, setIsCreating] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
@@ -183,6 +207,7 @@ export default function TeacherPollRoom() {
 
         if (res.data.success && res.data.room?.controls) {
           const { micBlocked, pollRestricted } = res.data.room.controls;
+          setQuestionApprovalRequired(Boolean(res.data.room.questionApprovalRequired));
 
           if (micBlocked) {
             setRoomControlMode('mic-disabled');
@@ -229,8 +254,9 @@ export default function TeacherPollRoom() {
     }
   };
 
-
-  const isHost = currentUser?.uid === hostId;
+  const isHost = Boolean(currentUser?.uid && currentUser.uid === hostId);
+  const isGuestCohost = Boolean(!currentUser?.uid && guestSession?.cohostId);
+  const canModerate = isHost || Boolean(actorId && (isGuestCohost || cohosts.some(c => c.userId === actorId)));
 
   //handle invite cohost
   const handleInviteCohost = async () => {
@@ -242,12 +268,13 @@ export default function TeacherPollRoom() {
         return;
       }
 
-      const res = await api.post(`/livequizzes/rooms/cohost/${roomCode}`, {
+      const res = await api.post(`/livequizzes/rooms/cohost/guest/${roomCode}`, {
         userId: currentUser.uid
       });
       toast.success("Invite Link created successfully!");
       setInviteLink(res.data.inviteLink);
-      setInviteLinkExpiresAt(Date.now() + INVITE_TTL_MS);
+      const expiresAt = res.data.expiresAt ? new Date(res.data.expiresAt).getTime() : Date.now() + INVITE_TTL_MS;
+      setInviteLinkExpiresAt(expiresAt);
     } catch (error) {
       console.error("Error creating Invite link:", error);
       toast.error("Failed to create Invite Link");
@@ -269,6 +296,11 @@ export default function TeacherPollRoom() {
     if (!confirmed) return;
     socket.emit('cohost-leave', roomCode, cohostId)
     toast.info("Left the room.");
+    if (isGuestCohost) {
+      clearGuestSession();
+      navigate({ to: '/auth' });
+      return;
+    }
     navigate({ to: `/teacher/cohosted-rooms` });
   }
 
@@ -354,6 +386,81 @@ export default function TeacherPollRoom() {
     };
   }, []);
 
+  const mapApiQuestionsToGenerated = useCallback((rawQuestions: APIQuestion[] = []): GeneratedQuestion[] => {
+    const seenSignatures = new Set<string>();
+
+    return rawQuestions
+      .map((rawQuestion) => {
+        const questionText = typeof rawQuestion?.questionText === 'string'
+          ? rawQuestion.questionText
+          : typeof rawQuestion?.question === 'string'
+            ? rawQuestion.question
+            : '';
+
+        const normalizedQuestion = questionText.replace(/\s+/g, ' ').trim();
+        if (!normalizedQuestion) {
+          return null;
+        }
+
+        const rawOptions = Array.isArray(rawQuestion?.options) ? rawQuestion.options : [];
+        const normalizedOptions = rawOptions
+          .map((option) => {
+            if (typeof option === 'string') {
+              return option.replace(/\s+/g, ' ').trim();
+            }
+
+            if (option && typeof option.text === 'string') {
+              return option.text.replace(/\s+/g, ' ').trim();
+            }
+
+            return '';
+          })
+          .filter((optionText) => optionText.length > 0);
+
+        if (normalizedOptions.length < 2) {
+          return null;
+        }
+
+        let correctOptionIndex = Array.isArray(rawQuestion?.options)
+          ? rawQuestion.options.findIndex((option) => {
+            if (typeof option === 'string') {
+              return false;
+            }
+            return Boolean(option?.correct);
+          })
+          : -1;
+
+        if (
+          correctOptionIndex < 0
+          && Number.isInteger(rawQuestion?.correctOptionIndex)
+          && Number(rawQuestion.correctOptionIndex) >= 0
+        ) {
+          correctOptionIndex = Number(rawQuestion.correctOptionIndex);
+        }
+
+        if (correctOptionIndex < 0 || correctOptionIndex >= normalizedOptions.length) {
+          correctOptionIndex = 0;
+        }
+
+        return {
+          question: normalizedQuestion,
+          options: normalizedOptions,
+          correctOptionIndex,
+        } as GeneratedQuestion;
+      })
+      .filter((question): question is GeneratedQuestion => Boolean(question))
+      .filter((question) => {
+        const signature = `${question.question.toLowerCase()}::${question.options.join('|').toLowerCase()}`;
+        if (seenSignatures.has(signature)) {
+          return false;
+        }
+
+        seenSignatures.add(signature);
+        return true;
+      })
+      .map((question) => filterQuestionOptions(question));
+  }, [filterQuestionOptions]);
+
   // UI State
   const [showPollModal, setShowPollModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
@@ -364,6 +471,7 @@ export default function TeacherPollRoom() {
   const [correctOptionIndex, setCorrectOptionIndex] = useState<number>(0);
   const [timer, _setTimer] = useState<number>(30);
   const [maxPoints, setMaxPoints] = useState<number | ''>(20);
+  const [scheduledPollAt, setScheduledPollAt] = useState<string>('');
   const [pollResults, setPollResults] = useState<PollResults>({});
   // State for live poll results
   type LivePollResult = {
@@ -387,7 +495,8 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
+  const mvpDummyModel = "mvp-random-dummy-model";
+  const [selectedModel, setSelectedModel] = useState(mvpDummyModel);
   const [questionCount, setQuestionCount] = useState<number>(3);
 
   // Queue for auto-generated questions while live recording is ongoing.
@@ -454,7 +563,7 @@ export default function TeacherPollRoom() {
   const [isLiveRecordingActive, setIsLiveRecordingActive] = useState(false);
   const [_localVoiceActivity, _setLocalVoiceActivity] = useState(false);
   // const [showStudentsModal, setShowStudentsModal] = useState(false)
-  const [students, setStudents] = useState<Array<{ id?: string; name?: string }>>([]);
+  const [students, setStudents] = useState<RoomStudent[]>([]);
 
   // PHASE 2 & 3: Question Approval and Student Moderation States
   const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
@@ -476,10 +585,14 @@ export default function TeacherPollRoom() {
 
   // PHASE 2 & 3: Handlers for question approval and student muting
   const handleApproveQuestion = async (pollId: string) => {
+    if (!actorId || !canModerate) {
+      toast.error('Only host or cohost can approve questions');
+      return;
+    }
     try {
       const response = await api.patch(
         `/livequizzes/rooms/${roomCode}/questions/${pollId}/approve`,
-        { userId: currentUser?.uid }
+        { userId: actorId }
       );
       if (response.data.success) {
         toast.success('Question approved and sent to students');
@@ -492,10 +605,14 @@ export default function TeacherPollRoom() {
   };
 
   const handleRejectQuestion = async (pollId: string, reason: string) => {
+    if (!actorId || !canModerate) {
+      toast.error('Only host or cohost can reject questions');
+      return;
+    }
     try {
       const response = await api.patch(
         `/livequizzes/rooms/${roomCode}/questions/${pollId}/reject`,
-        { userId: currentUser?.uid, reason }
+        { userId: actorId, reason }
       );
       if (response.data.success) {
         toast.success('Question rejected');
@@ -508,10 +625,14 @@ export default function TeacherPollRoom() {
   };
 
   const handleToggleStudentMute = async (studentId: string, isMuted: boolean) => {
+    if (!actorId || !canModerate) {
+      toast.error('Only host or cohost can manage students');
+      return;
+    }
     try {
       const response = await api.patch(
         `/livequizzes/rooms/${roomCode}/students/${studentId}/mute`,
-        { userId: currentUser?.uid, isMuted }
+        { userId: actorId, isMuted }
       );
       if (response.data.success) {
         if (isMuted) {
@@ -616,6 +737,7 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('approval-setting-changed');
       // PHASE 2 & 3: Clear new event listeners
       socket.off('question-pending-approval');
       socket.off('question-approved');
@@ -656,18 +778,28 @@ export default function TeacherPollRoom() {
       });
       socket.on('cohost-removed', (data) => {
         setCohosts(data.activeCohosts || []);
-        if (currentUser?.uid === data.removedUserId) {
+        if (actorId && actorId === data.removedUserId) {
           toast.error('You have been removed as co-host');
-          navigate({ to: '/teacher/cohosted-rooms' });
+          if (isGuestCohost) {
+            clearGuestSession();
+            navigate({ to: '/auth' });
+          } else {
+            navigate({ to: '/teacher/cohosted-rooms' });
+          }
           return;
         }
         toast.info('A co-host was left the room');
       });
       socket.on('cohost-left', (data) => {
         setCohosts(data.activeCohosts || []);
-        if (currentUser?.uid === data.removedUserId) {
+        if (actorId && actorId === data.removedUserId) {
           toast.error('You left the room');
-          navigate({ to: '/teacher/cohosted-rooms' });
+          if (isGuestCohost) {
+            clearGuestSession();
+            navigate({ to: '/auth' });
+          } else {
+            navigate({ to: '/teacher/cohosted-rooms' });
+          }
           return;
         }
         toast.info('A co-host left the room');
@@ -677,13 +809,23 @@ export default function TeacherPollRoom() {
         setShowEndRoomConfirm(false);
         setIsEndingRoom(false);
         toast.info(data.message ?? 'Room has ended');
-        if (!isHost) navigate({ to: '/teacher/cohosted-rooms' });
+        if (!isHost) {
+          if (isGuestCohost) {
+            clearGuestSession();
+            navigate({ to: '/auth' });
+          } else {
+            navigate({ to: '/teacher/cohosted-rooms' });
+          }
+        }
 
       });
 
       socket.on('room-updated', (updatedRoom) => {
         // console.log('Room updated:', updatedRoom);
-        setStudents(updatedRoom.students || []);
+        const liveStudents: RoomStudent[] = Array.isArray(updatedRoom?.students)
+          ? updatedRoom.students
+          : [];
+        setStudents(liveStudents);
 
         // Save Host ID for conditional UI rendering
         if (updatedRoom.teacherId) {
@@ -695,9 +837,17 @@ export default function TeacherPollRoom() {
         if (Array.isArray(data?.activeCohosts)) {
           setCohosts(data.activeCohosts);
         }
-        if (data?.cohostId === currentUser?.uid) {
+        if (data?.cohostId === actorId) {
           if (data?.isMicMuted) toast.error('Host muted your microphone');
           else toast.success('Host unmuted your microphone');
+        }
+      });
+
+      socket.on('approval-setting-changed', (data) => {
+        const enabled = Boolean(data?.questionApprovalRequired);
+        setQuestionApprovalRequired(enabled);
+        if (!enabled && activeSidebarTab === 'pending-questions') {
+          setActiveSidebarTab('students');
         }
       });
 
@@ -780,6 +930,7 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('approval-setting-changed');
       // PHASE 2 & 3: Cleanup new event listeners
       socket.off('question-pending-approval');
       socket.off('question-approved');
@@ -822,12 +973,12 @@ export default function TeacherPollRoom() {
 
   const isMicLockedByOtherUser =
     recordingLockStatus.isLocked &&
-    recordingLockStatus.currentRecorder?.userId !== currentUser?.uid;
+    recordingLockStatus.currentRecorder?.userId !== actorId;
   const displayTranscript =
     liveTranscript + (interimTranscript ? " " + interimTranscript : "");
 
   const isCurrentUserCohostMuted = Boolean(
-    cohosts.find(c => c.userId === currentUser?.uid)?.isMicMuted
+    cohosts.find(c => c.userId === actorId)?.isMicMuted
   );
   const isMicMutedByHost = !isHost && isCurrentUserCohostMuted;
   const isMicUnavailable = isMicLockedByOtherUser || isMicMutedByHost;
@@ -853,26 +1004,8 @@ export default function TeacherPollRoom() {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
 
-        const rawQuestions = response.data.questions || [];
-
-        const cleanQuestions = rawQuestions
-          .filter((q: APIQuestion) => typeof q.questionText === 'string' && q.questionText.trim() !== '')
-          .map((q: APIQuestion): GeneratedQuestion => {
-            const options = Array.isArray(q.options) ? q.options.map((opt) => opt.text ?? '') : [];
-            const correctOptionIndex = Array.isArray(q.options) ? q.options.findIndex((opt) => opt.correct) : 0;
-
-            const validCorrectOptionIndex = correctOptionIndex >= 0 && correctOptionIndex < options.length
-              ? correctOptionIndex
-              : 0;
-
-            return {
-              question: q.questionText,
-              options: options,
-              correctOptionIndex: validCorrectOptionIndex,
-            };
-          });
-
-        const filteredQuestions = cleanQuestions.map((q: GeneratedQuestion) => filterQuestionOptions(q));
+        const rawQuestions = Array.isArray(response.data?.questions) ? response.data.questions : [];
+        const filteredQuestions = mapApiQuestionsToGenerated(rawQuestions);
 
         if (filteredQuestions.length > 0) {
           queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
@@ -884,7 +1017,7 @@ export default function TeacherPollRoom() {
     }
 
     processingQueueRef.current = false;
-  }, [questionSpec, selectedModel, questionCount, roomCode, filterQuestionOptions]);
+  }, [questionSpec, selectedModel, questionCount, roomCode, mapApiQuestionsToGenerated]);
 
   // Enqueue a text chunk and start processing the queue
   const enqueueTextChunk = useCallback((textChunk: string) => {
@@ -1006,9 +1139,9 @@ export default function TeacherPollRoom() {
 
       // Release recording lock
       try {
-        if (currentUser?.uid) {
+        if (actorId) {
           await api.post(`/livequizzes/rooms/${roomCode}/recording/stop`, {
-            userId: currentUser.uid
+            userId: actorId
           });
         }
       } catch (error) {
@@ -1069,10 +1202,10 @@ export default function TeacherPollRoom() {
           return;
         }
         // Try to acquire recording lock before starting
-        if (currentUser?.uid) {
+        if (actorId) {
           const lockResponse = await api.post(`/livequizzes/rooms/${roomCode}/recording/start`, {
-            userId: currentUser.uid,
-            userName: currentUser.name || "Unknown"
+            userId: actorId,
+            userName: actorName || "Unknown"
           });
 
           if (!lockResponse.data.success) {
@@ -1118,9 +1251,9 @@ export default function TeacherPollRoom() {
         // Error accessing microphone
         // Ensure lock is released if there was an error
         try {
-          if (currentUser?.uid) {
+          if (actorId) {
             await api.post(`/livequizzes/rooms/${roomCode}/recording/stop`, {
-              userId: currentUser.uid
+              userId: actorId
             });
           }
         } catch (releaseError) {
@@ -1463,6 +1596,19 @@ export default function TeacherPollRoom() {
   };
 
   const createPoll = async () => {
+    const normalizedScheduledAt = scheduledPollAt ? new Date(scheduledPollAt) : undefined;
+    if (normalizedScheduledAt) {
+      if (Number.isNaN(normalizedScheduledAt.getTime())) {
+        toast.error('Please provide a valid schedule date and time');
+        return;
+      }
+
+      if (normalizedScheduledAt.getTime() <= Date.now()) {
+        toast.error('Scheduled poll time must be in the future');
+        return;
+      }
+    }
+
     try {
       const response = await api.post(`/livequizzes/rooms/${roomCode}/polls`, {
         question,
@@ -1472,16 +1618,18 @@ export default function TeacherPollRoom() {
         // creatorId: currentUser?.userId,
         timer: Number(questionTimers[currentQuestionIndex]?.initialTime || timer || 30),
         maxPoints: Number(maxPoints || 20),
-        correctOptionIndex
+        correctOptionIndex,
+        scheduledAt: normalizedScheduledAt?.toISOString()
       });
 
       localStorage.setItem('livepollresults', JSON.stringify(response.data));
 
-      toast.success("Poll created!");
+      toast.success(normalizedScheduledAt ? "Poll scheduled!" : "Poll created!");
       setQuestion("");
       setOptions(["", "", "", ""]);
       setCorrectOptionIndex(0);
       setMaxPoints(20);
+      setScheduledPollAt('');
       // setShowPreview(false);
       fetchResults()
     } catch (error) {
@@ -1544,32 +1692,14 @@ export default function TeacherPollRoom() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      const rawQuestions = response.data.questions || [];
+      const rawQuestions = Array.isArray(response.data?.questions) ? response.data.questions : [];
+      const filteredQuestions = mapApiQuestionsToGenerated(rawQuestions);
 
-      const cleanQuestions = rawQuestions
-        .filter((q) => typeof q.questionText === 'string' && q.questionText.trim() !== '')
-        .map((q): GeneratedQuestion => {
-          const options = Array.isArray(q.options) ? q.options.map((opt) => opt.text ?? '') : [];
-          const correctOptionIndex = Array.isArray(q.options) ? q.options.findIndex((opt) => opt.correct) : 0;
-
-          const validCorrectOptionIndex = correctOptionIndex >= 0 && correctOptionIndex < options.length
-            ? correctOptionIndex
-            : 0;
-
-          setLaunchedQuestions(new Set());
-
-          return {
-            question: q.questionText,
-            options: options,
-            correctOptionIndex: validCorrectOptionIndex,
-          };
-        });
-
-      if (cleanQuestions.length <= 0) {
+      if (filteredQuestions.length <= 0) {
         toast.error("No questions generated")
         return
       }
-      const filteredQuestions = cleanQuestions.map((q: GeneratedQuestion) => filterQuestionOptions(q));
+      setLaunchedQuestions(new Set());
       setGeneratedQuestions(filteredQuestions);
       setShowPreview(true);
       toast.success(`Generated ${filteredQuestions.length} questions successfully!`);
@@ -1593,7 +1723,7 @@ export default function TeacherPollRoom() {
     isRecording,
     isListening,
     setIsGenerating,
-    filterQuestionOptions,
+    mapApiQuestionsToGenerated,
     questionCount,
     questionSpec,
     roomCode,
@@ -1860,10 +1990,7 @@ export default function TeacherPollRoom() {
     const [isOpen, setIsOpen] = useState(false);
 
     const models = [
-      { value: "gemma3", label: "Gemma 3" },
-      { value: "gpt-4", label: "GPT-4" },
-      { value: "claude-3", label: "Claude 3" },
-      { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
+      { value: mvpDummyModel, label: "MVP Random Dummy" },
     ];
 
     const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
@@ -2134,6 +2261,10 @@ export default function TeacherPollRoom() {
   const handleRemoveStudent = async(studentEmail: string) => {
 
     if (!studentEmail) return;
+    if (!actorId || !canModerate) {
+      toast.error('Only host or cohost can remove students');
+      return;
+    }
 
     //confirmation before proceeding
     const confirmed = await showModal({
@@ -2149,11 +2280,16 @@ export default function TeacherPollRoom() {
     socket.emit("remove-student", {
       roomCode,
       email: studentEmail,
+      actorId,
     });
 
   };
 
   const handleControlModeChange = async (newMode: 'full' | 'mic-disabled' | 'poll-disabled') => {
+    if (!isHost || !currentUser?.uid) {
+      toast.error('Only host can update room controls');
+      return;
+    }
     setRoomControlMode(newMode);
 
     try {
@@ -2263,7 +2399,7 @@ export default function TeacherPollRoom() {
               </div>
 
               {/* Capsule Toggle Button (Only show if not collapsed) */}
-              {isHost && !isSidebarCollapsed && (
+              {!isSidebarCollapsed && (
                 <div className="px-3 py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex bg-[#9b51e0] dark:bg-purple-700 rounded-full p-1 text-sm font-semibold shadow-inner">
                     <button
@@ -2275,17 +2411,19 @@ export default function TeacherPollRoom() {
                     >
                       Students
                     </button>
-                    <button
-                      onClick={() => setActiveSidebarTab('cohosts')}
-                      className={`flex-1 text-center py-1.5 px-3 rounded-full transition-all duration-300 ${activeSidebarTab === 'cohosts'
-                        ? 'bg-white text-[#9b51e0] shadow-sm'
-                        : 'text-white hover:bg-white/20'
-                        }`}
-                    >
-                      Cohosts
-                    </button>
+                    {isHost && (
+                      <button
+                        onClick={() => setActiveSidebarTab('cohosts')}
+                        className={`flex-1 text-center py-1.5 px-3 rounded-full transition-all duration-300 ${activeSidebarTab === 'cohosts'
+                          ? 'bg-white text-[#9b51e0] shadow-sm'
+                          : 'text-white hover:bg-white/20'
+                          }`}
+                      >
+                        Cohosts
+                      </button>
+                    )}
                     {/* PHASE 2: Pending Questions Tab */}
-                    {questionApprovalRequired && (
+                    {questionApprovalRequired && canModerate && (
                       <button
                         onClick={() => setActiveSidebarTab('pending-questions')}
                         className={`flex-1 text-center py-1.5 px-3 rounded-full transition-all duration-300 relative ${activeSidebarTab === 'pending-questions'
@@ -2311,13 +2449,14 @@ export default function TeacherPollRoom() {
                   {/* STUDENTS TAB */}
                   {activeSidebarTab === 'students' && (
                     students.length > 0 ? (
-                      students.map((student: any, index: number) => {
-                        const studentName = student?.firstName;
-                        const studentId = student?._id || student?.id;
-                        const isMuted = mutedStudents.has(studentId);
+                      students.map((student: RoomStudent, index: number) => {
+                        const studentName = student?.firstName || 'Student';
+                        const studentId = student?.firebaseUID || student?.id || student?._id;
+                        const isMuted = studentId ? mutedStudents.has(studentId) : false;
+                        const canRemoveStudent = Boolean(student?.email);
                         return (
                           <div
-                            key={index}
+                            key={studentId || index}
                             className="
               group flex items-center justify-between
               w-full
@@ -2337,31 +2476,33 @@ export default function TeacherPollRoom() {
                               )}
 
                             </div>
-                            {!isSidebarCollapsed && (
+                            {!isSidebarCollapsed && canModerate && (
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
                                 {/* PHASE 3: Mute Button */}
                                 <button
-                                  onClick={() => handleToggleStudentMute(studentId, !isMuted)}
+                                  onClick={() => studentId && handleToggleStudentMute(studentId, !isMuted)}
                                   className={`${
                                     isMuted
                                       ? 'text-red-500 hover:text-red-700'
                                       : 'text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400'
-                                  } cursor-pointer transition-all hover:scale-110 flex-shrink-0`}
+                                  } transition-all hover:scale-110 flex-shrink-0 ${
+                                    studentId ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+                                  }`}
                                   title={isMuted ? 'Unmute' : 'Mute'}
+                                  disabled={!studentId}
                                 >
                                   {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
                                 </button>
                                 <Trash2
                                   size={18}
-                                  className="
+                                  className={`
                   text-red-500
-                  cursor-pointer
                   opacity-100
                   transition-all duration-200
-                  hover:text-red-700 hover:scale-110
+                  ${canRemoveStudent ? 'cursor-pointer hover:text-red-700 hover:scale-110' : 'cursor-not-allowed opacity-50'}
                   flex-shrink-0
-                "
-                                  onClick={() => handleRemoveStudent(student.email)}
+                `}
+                                  onClick={() => canRemoveStudent && handleRemoveStudent(student.email as string)}
                                 />
                               </div>
                             )}
@@ -2395,7 +2536,7 @@ export default function TeacherPollRoom() {
                             <div className="w-2 h-2 rounded-full bg-green-500 mr-2 shrink-0"></div>
                             {!isSidebarCollapsed && (
                               <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
-                                {cohost.firstName || "Cohost"}
+                                {cohost.displayName || cohost.firstName || "Cohost"}
                               </span>
                             )}
                           </div>
@@ -2441,7 +2582,7 @@ export default function TeacherPollRoom() {
                   )}
 
                   {/* PHASE 2: PENDING QUESTIONS TAB */}
-                  {activeSidebarTab === 'pending-questions' && (
+                  {canModerate && activeSidebarTab === 'pending-questions' && (
                     pendingQuestions.length > 0 ? (
                       pendingQuestions.map((poll, index) => (
                         <Card key={index} className="mb-3 p-3 border border-amber-200 dark:border-amber-900">
@@ -2503,8 +2644,8 @@ export default function TeacherPollRoom() {
                   variant="ghost"
                   size="icon"
                   className="mr-2"
-                  onClick={() => navigate({ to: isHost ? '/teacher/manage-rooms' : '/teacher/cohosted-rooms' })}
-                  title={isHost ? "Back to Manage Rooms" : "Back to Home"}
+                  onClick={() => navigate({ to: isHost ? '/teacher/manage-rooms' : (isGuestCohost ? '/auth' : '/teacher/cohosted-rooms') })}
+                  title={isHost ? "Back to Manage Rooms" : (isGuestCohost ? "Back to Login" : "Back to Home")}
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -2645,9 +2786,9 @@ export default function TeacherPollRoom() {
                     </Button>
                   </>
                 )}
-                {!isHost && currentUser && (
+                {!isHost && actorId && (
                   <Button
-                    onClick={() => LeaveCohost(roomCode, currentUser?.uid)}
+                    onClick={() => LeaveCohost(roomCode, actorId)}
                     variant="destructive"
                     className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
                   // disabled={isEndingRoom}
@@ -3584,7 +3725,7 @@ export default function TeacherPollRoom() {
                                       <label className="text-sm font-medium text-muted-foreground">AI Model</label>
                                       <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
                                       <p className="text-xs text-muted-foreground">
-                                        Select the AI model to use for generation
+                                        MVP mode uses a dummy token here; backend maps it to the configured model.
                                       </p>
                                     </div>
                                   </div>
@@ -4189,6 +4330,22 @@ export default function TeacherPollRoom() {
                         />
                         <p className="text-xs text-muted-foreground mt-1">
                           Maximum score awarded for a correct answer.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Schedule Poll (optional)
+                        </label>
+                        <Input
+                          type="datetime-local"
+                          value={scheduledPollAt}
+                          onChange={(e) => setScheduledPollAt(e.target.value)}
+                          className="dark:bg-gray-800/50 text-sm w-64"
+                          aria-label="Schedule poll date and time"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Leave empty to launch immediately when created.
                         </p>
                       </div>
 

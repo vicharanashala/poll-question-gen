@@ -15,12 +15,23 @@ const PollSchema = new mongoose.Schema({
   timer: { type: Number, default: 30 },
   lockedActiveUsers: [{ type: String }],
   maxPoints: { type: Number, default: 20 },
+  scheduledAt: { type: Date },
+  isLaunched: { type: Boolean, default: true },
+  launchedAt: { type: Date },
   createdAt: { type: Date, default: Date.now },
   answers: [AnswerSchema],
   // PHASE 2: Question Approval Workflow
   approvalStatus: { type: String, enum: ['approved', 'pending', 'rejected'], default: 'approved' },
   approvedBy: { type: String },
+  approvedByType: { type: String, enum: ['host', 'cohost'] },
+  approvedByCohostType: { type: String, enum: ['teacher', 'guest'] },
+  approvedByName: { type: String },
   requestedBy: { type: String },
+  rejectedBy: { type: String },
+  rejectedByType: { type: String, enum: ['host', 'cohost'] },
+  rejectedByCohostType: { type: String, enum: ['teacher', 'guest'] },
+  rejectedByName: { type: String },
+  rejectedAt: { type: Date },
   rejectionReason: { type: String },
   approvedAt: { type: Date }
 });
@@ -29,6 +40,23 @@ const CoHostSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true },
     addedBy: { type: String, required: true },
+    type: {
+      type: String,
+      enum: ['teacher', 'guest'],
+      default: 'teacher'
+    },
+    displayName: {
+      type: String,
+      default: null
+    },
+    email: {
+      type: String,
+      default: null
+    },
+    sessionId: {
+      type: String,
+      default: null
+    },
     addedAt: {
       type: Date,
       default: Date.now
@@ -70,6 +98,29 @@ const CoHostInviteSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const GuestCoHostInviteSchema = new mongoose.Schema(
+  {
+    inviteId: {
+      type: String   // JWT jti
+    },
+
+    expiresAt: {
+      type: Date
+    },
+
+    isActive: {
+      type: Boolean,
+      default: false
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  { _id: false }
+);
+
 const RecordingLockSchema = new mongoose.Schema(
   {
     userId: { type: String, required: true },
@@ -85,6 +136,8 @@ const MutedStudentSchema = new mongoose.Schema(
   {
     studentId: { type: String, required: true },
     mutedBy: { type: String, required: true },
+    mutedByType: { type: String, enum: ['host', 'cohost'] },
+    mutedByName: { type: String },
     mutedAt: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -104,6 +157,7 @@ const RoomSchema = new mongoose.Schema({
   recordingLock: RecordingLockSchema,
   coHosts: [CoHostSchema],
   coHostInvite: CoHostInviteSchema,
+  guestCoHostInvite: GuestCoHostInviteSchema,
   controls: {
     micBlocked: { type: Boolean, default: false },
     pollRestricted: { type: Boolean, default: false }

@@ -1,11 +1,12 @@
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Bar } from "recharts";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { BookOpen, TrendingUp, Calendar, Trophy, Clock, CheckCircle, BarChart2, AlertCircle, ShieldCheck, ArrowRightCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useNavigate } from "@tanstack/react-router";
 import api from "@/lib/api/api";
+import socket from "@/lib/api/socket";
 
 export interface StudentData {
   pollStats: {
@@ -31,6 +32,13 @@ export interface StudentData {
   activePolls: {
     name: string;
     status: string;
+    pollId?: string;
+    roomCode?: string;
+    roomName?: string;
+    question?: string;
+    hasAnswered?: boolean;
+    timer?: number;
+    launchedAt?: string | Date | null;
   }[];
   upcomingPolls: {
     name: string;
@@ -70,89 +78,156 @@ export default function StudentDashboard() {
   const [localActiveRoom, setLocalActiveRoom] = useState<string | null>(null);
   const navigate = useNavigate();
   const [achievementProgress, setAchievementProgress] = useState({ earned: 0, total: 0, percent: 0 });
+  const isRefreshingRef = useRef(false);
 
-  useEffect(() => {
+  const syncLocalActiveRoom = useCallback(async () => {
     const activeRoomCode = localStorage.getItem("activeRoomCode");
     const joinedRoom = localStorage.getItem("joinedRoom");
-    if (activeRoomCode && joinedRoom === "true") {
-      setLocalActiveRoom(activeRoomCode);
+
+    if (!(activeRoomCode && joinedRoom === "true")) {
+      setLocalActiveRoom(null);
+      return;
+    }
+
+    try {
+      const response = await api.get(`/livequizzes/rooms/${activeRoomCode}`);
+      if (response.data?.success && response.data.room?.status === 'active') {
+        setLocalActiveRoom(activeRoomCode);
+      } else {
+        localStorage.removeItem("activeRoomCode");
+        localStorage.removeItem("joinedRoom");
+        setLocalActiveRoom(null);
+      }
+    } catch {
+      localStorage.removeItem("activeRoomCode");
+      localStorage.removeItem("joinedRoom");
+      setLocalActiveRoom(null);
     }
   }, []);
 
-  const fetchDashboardData = async () => {
-    try {
+  const attendRoom = useCallback((roomCode: string) => {
+    if (!roomCode) {
+      return;
+    }
+
+    localStorage.setItem("activeRoomCode", roomCode);
+    localStorage.setItem("joinedRoom", "true");
+    navigate({ to: `/student/pollroom/${roomCode}` });
+  }, [navigate]);
+
+  const refreshDashboard = useCallback(async (silent = false) => {
+    const studentId = user?.uid;
+    if (!studentId || isRefreshingRef.current) {
+      return;
+    }
+
+    isRefreshingRef.current = true;
+    if (!silent) {
       setLoading(true);
+    }
+
+    try {
+      const [dashboardResponse, achievementResponse] = await Promise.all([
+        api.get(`/students/dashboard/${studentId}`),
+        api.get(`/students/dashboard/achievement/${studentId}/progress`)
+      ]);
+
+      setDashboardData(dashboardResponse.data);
+      setAchievementProgress({
+        earned: achievementResponse.data?.earned || 0,
+        total: achievementResponse.data?.total || 0,
+        percent: achievementResponse.data?.percent || 0,
+      });
       setError(null);
-
-      const studentId = user?.uid;
-      if (!studentId) {
-        throw new Error('No student ID found');
-      }
-
-      const response = await api.get(`/students/dashboard/${studentId}`);
-      setDashboardData(response.data);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
     } finally {
+      isRefreshingRef.current = false;
       setLoading(false);
-    }
-  };
-
-  const fetchAchievementProgress = async () => {
-      if (!user?.uid) return;
-  
-      try {
-        const res = await api.get(`/students/dashboard/achievement/${user.uid}/progress`);
-        setAchievementProgress({
-          earned: res.data?.earned || 0,
-          total: res.data?.total || 0,
-          percent: res.data?.percent || 0,
-        });
-      } catch (e) {
-        console.error("Failed to load achievement progress:", e);
-      }
-    };
-
-  useEffect(() => {
-    if (user?.uid) {
-      fetchDashboardData();
-      fetchAchievementProgress();
     }
   }, [user?.uid]);
 
   useEffect(() => {
-    const handleWindowFocus = () => {
-      if (user?.uid) {
-        const activeRoomCode = localStorage.getItem("activeRoomCode");
-        const joinedRoom = localStorage.getItem("joinedRoom");
-        if (activeRoomCode && joinedRoom === "true") {
-          api.get(`/livequizzes/rooms/${activeRoomCode}`)
-            .then((res) => {
-              if (res.data?.success && res.data.room?.status === 'active') {
-                setLocalActiveRoom(activeRoomCode);
-              } else {
-                localStorage.removeItem("activeRoomCode");
-                localStorage.removeItem("joinedRoom");
-                setLocalActiveRoom(null);
-              }
-            })
-            .catch(() => {
-              localStorage.removeItem("activeRoomCode");
-              localStorage.removeItem("joinedRoom");
-              setLocalActiveRoom(null);
-            });
-        } else {
-          setLocalActiveRoom(null);
-        }
-        
-        fetchDashboardData();
+    if (!user?.uid) {
+      setDashboardData(null);
+      setLoading(false);
+      return;
+    }
+
+    void syncLocalActiveRoom();
+    void refreshDashboard();
+  }, [user?.uid, refreshDashboard, syncLocalActiveRoom]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      return;
+    }
+
+    const studentId = user.uid;
+
+    const handleConnect = () => {
+      socket.emit('subscribe-student-dashboard', studentId);
+    };
+
+    const handleDashboardUpdated = (payload: any) => {
+      if (payload?.studentId !== studentId) {
+        return;
       }
+
+      if (payload?.dashboardData) {
+        setDashboardData(payload.dashboardData);
+      }
+
+      if (payload?.achievementProgress) {
+        setAchievementProgress({
+          earned: payload.achievementProgress.earned || 0,
+          total: payload.achievementProgress.total || 0,
+          percent: payload.achievementProgress.percent || 0,
+        });
+      }
+
+      setError(null);
+      setLoading(false);
+      void syncLocalActiveRoom();
+    };
+
+    socket.emit('subscribe-student-dashboard', studentId);
+    socket.on('student-dashboard-updated', handleDashboardUpdated);
+    socket.on('connect', handleConnect);
+
+    return () => {
+      socket.emit('unsubscribe-student-dashboard', studentId);
+      socket.off('student-dashboard-updated', handleDashboardUpdated);
+      socket.off('connect', handleConnect);
+    };
+  }, [user?.uid, syncLocalActiveRoom]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshDashboard(true);
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [user?.uid, refreshDashboard]);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (!user?.uid) {
+        return;
+      }
+
+      void syncLocalActiveRoom();
+      void refreshDashboard(true);
     };
 
     window.addEventListener('focus', handleWindowFocus);
     return () => window.removeEventListener('focus', handleWindowFocus);
-  }, [user?.uid]);
+  }, [user?.uid, refreshDashboard, syncLocalActiveRoom]);
 
   // Loading state
   if (loading) {
@@ -212,7 +287,7 @@ export default function StudentDashboard() {
     pollStats,
     pollResults,
     pollDetails,
-    //activePolls,
+    activePolls,
     upcomingPolls,
     scoreProgression,
     performanceSummary,
@@ -363,12 +438,12 @@ export default function StudentDashboard() {
             </CardContent>
           </Card>
 
-          {/* Active Rooms */}
+          {/* Active Polls */}
           <Card className="shadow-md dark:shadow-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700">
             <CardHeader className="pb-3">
               <CardTitle className="text-blue-700 dark:text-blue-400 flex items-center gap-2 text-sm sm:text-base">
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                Active Rooms
+                Active Polls
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -376,7 +451,7 @@ export default function StudentDashboard() {
               {localActiveRoom && (
                 <div
                   className="flex items-center justify-between p-3 rounded-lg bg-green-50 dark:bg-green-900/40 border border-green-100 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-800 transition-colors cursor-pointer"
-                  onClick={() => navigate({ to: `/student/pollroom/${localActiveRoom}` })}
+                  onClick={() => attendRoom(localActiveRoom)}
                 >
                   <div>
                     <div className="font-semibold text-green-800 dark:text-green-300 text-sm sm:text-base">Room {localActiveRoom}</div>
@@ -389,17 +464,53 @@ export default function StudentDashboard() {
                 </div>
               )}
               
-              {/* Show backend active rooms */}
-              {roomWiseScores && roomWiseScores.filter(r => r.status === 'active').length > 0 ? (
+              {/* Show backend active polls with direct attendance actions */}
+              {activePolls && activePolls.filter(p => p.roomCode).length > 0 ? (
+                activePolls
+                  .filter((poll) => Boolean(poll.roomCode))
+                  .filter((poll) => poll.roomCode !== localActiveRoom)
+                  .slice(0, 5)
+                  .map((poll, idx) => {
+                    const targetRoomCode = String(poll.roomCode || '');
+                    const pollTitle = poll.question || poll.name || 'Active Poll';
+                    const roomLabel = poll.roomName ? `${poll.roomName} (${targetRoomCode})` : `Room ${targetRoomCode}`;
+                    const buttonLabel = poll.hasAnswered ? 'View Room' : 'Attend';
+
+                    return (
+                    <div
+                      key={`${targetRoomCode}-${poll.pollId || idx}`}
+                      className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/40 border border-blue-100 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors"
+                    >
+                      <div className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base truncate">
+                        {pollTitle}
+                      </div>
+                      <div className="text-xs text-blue-700 dark:text-blue-300 mt-1 truncate">{roomLabel}</div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <div className="text-xs text-green-600 dark:text-green-400">
+                          {poll.hasAnswered ? 'Answered' : 'Ongoing'}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => attendRoom(targetRoomCode)}
+                        >
+                          {buttonLabel}
+                        </Button>
+                      </div>
+                    </div>
+                    );
+                  })
+              ) : roomWiseScores && roomWiseScores.filter(r => r.status === 'active').length > 0 ? (
                 roomWiseScores
                   .filter(r => r.status === 'active')
-                  .filter(r => r.roomCode !== localActiveRoom) // Avoid duplicates
+                  .filter(r => r.roomCode !== localActiveRoom)
                   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                   .map((room, idx) => (
                     <div
                       key={`${room.roomCode}-${idx}`}
                       className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-900/40 border border-blue-100 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors cursor-pointer"
-                      onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
+                      onClick={() => attendRoom(room.roomCode)}
                     >
                       <div className="font-semibold text-blue-800 dark:text-blue-300 text-sm sm:text-base truncate">{room.roomName}</div>
                       <div className="text-xs text-green-600 dark:text-green-400 flex-shrink-0">Active</div>
@@ -408,7 +519,7 @@ export default function StudentDashboard() {
               ) : !localActiveRoom ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   <div className="w-2 h-2 rounded-full bg-gray-400 mx-auto mb-2"></div>
-                  <p>No active rooms</p>
+                  <p>No active polls</p>
                   <Button
                     onClick={() => navigate({ to: '/student/pollroom' })}
                     variant="outline"

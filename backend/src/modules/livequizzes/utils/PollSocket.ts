@@ -1,11 +1,11 @@
 import { Server } from 'socket.io';
 import { RoomService } from '../services/RoomService.js';  // adjust the path as needed
 import dotenv from 'dotenv';
-import { UserService } from '#root/modules/users/services/UserService.js';
-import { getFromContainer, NotFoundError } from 'routing-controllers';
+import { NotFoundError } from 'routing-controllers';
 import { UserRepository } from '#root/shared/index.js';
 import { Room } from '#root/shared/database/models/Room.js';
 import { appConfig } from '../../../config/app.js';
+import { DashboardService } from '../services/DashboardService.js';
 
 dotenv.config();
 const appOrigins = appConfig.origins;
@@ -18,9 +18,14 @@ class PollSocket {
 
 
   constructor(private readonly roomService: RoomService,
-    private readonly userRepo: UserRepository
+    private readonly userRepo: UserRepository,
+    private readonly dashboardService: DashboardService
     // private readonly userService:UserService
   ) { }
+
+  private getStudentDashboardRoom(studentId: string): string {
+    return `student-dashboard:${studentId}`;
+  }
 
   init(server: import('http').Server) {
     this.io = new Server(server, {
@@ -31,6 +36,33 @@ class PollSocket {
 
     this.io.on('connection', socket => {
       console.log('Client connected', socket.id);
+
+      socket.on('subscribe-student-dashboard', async (studentId: string) => {
+        if (typeof studentId !== 'string' || !studentId.trim()) {
+          socket.emit('error', 'Invalid student dashboard subscription payload');
+          return;
+        }
+
+        socket.data.userId = socket.data.userId || studentId;
+        socket.data.dashboardStudentId = studentId;
+        socket.join(this.getStudentDashboardRoom(studentId));
+        await this.emitStudentDashboardUpdate(studentId);
+      });
+
+      socket.on('unsubscribe-student-dashboard', (studentId?: string) => {
+        const targetStudentId =
+          (typeof studentId === 'string' && studentId.trim()) ||
+          (typeof socket.data.dashboardStudentId === 'string' ? socket.data.dashboardStudentId : '');
+
+        if (!targetStudentId) {
+          return;
+        }
+
+        socket.leave(this.getStudentDashboardRoom(targetStudentId));
+        if (socket.data.dashboardStudentId === targetStudentId) {
+          delete socket.data.dashboardStudentId;
+        }
+      });
 
       socket.on('join-room', async (roomCode: string, email: string) => {
         try {
@@ -55,10 +87,10 @@ class PollSocket {
               }
               this.activeUsersPerRoom.get(roomCode)!.add(socket.data.userId);
             }
-            const room = await this.roomService.getRoomByCode(roomCode)
-            // socket.emit('room-data',room)
-            this.emitToRoom(roomCode, 'room-updated', room)
-            console.log('room:', room)
+            await this.emitRoomUpdated(roomCode);
+            if (socket.data.userId) {
+              await this.emitStudentDashboardUpdate(socket.data.userId);
+            }
             console.log(`Socket ${socket.id} joined active room: ${roomCode}`);
             console.log(`Active connections: ${this.activeConnections.size}`);
           } else {
@@ -72,8 +104,10 @@ class PollSocket {
       });
 
       socket.on('leave-room', async (roomCode: string, email: string) => {
+        let leavingStudentId: string | undefined;
         if (email) {
           const user = await this.userRepo.findByEmail(email)
+          leavingStudentId = user?.firebaseUID;
           const userId = user._id as string
           await this.roomService.unEnrollStudent(userId, roomCode)
         }
@@ -81,8 +115,7 @@ class PollSocket {
         if (socket.data.userId) {
           this.activeUsersPerRoom.get(roomCode)?.delete(socket.data.userId);
         }
-        const room = await this.roomService.getRoomByCode(roomCode)
-        this.emitToRoom(roomCode, 'room-updated', room)
+        await this.emitRoomUpdated(roomCode);
         const rooms = this.activeConnections.get(socket.id) || [];
         const updatedRooms = rooms.filter(r => r !== roomCode);
         if (updatedRooms.length > 0) {
@@ -91,17 +124,33 @@ class PollSocket {
           this.activeConnections.delete(socket.id);
         }
 
+        if (leavingStudentId) {
+          await this.emitStudentDashboardUpdate(leavingStudentId);
+        }
+
         console.log(`Socket ${socket.id} left room: ${roomCode}`);
       });
 
-      socket.on("remove-student", async ({ roomCode, email }) => {
+      socket.on("remove-student", async ({ roomCode, email, actorId }) => {
 
         try {
+          if (!roomCode || !email || !actorId) {
+            socket.emit('error', 'Missing remove-student payload');
+            return;
+          }
+
+          const isAuthorized = await this.roomService.isUserTeacherOrCohost(actorId, roomCode);
+          if (!isAuthorized) {
+            socket.emit('error', 'Only host or cohost can remove students');
+            return;
+          }
+
           const user = await this.userRepo.findByEmail(email);
 
           if (!user) return;
 
           const userId = user._id.toString();
+          const removedStudentId = user.firebaseUID;
 
           await this.roomService.unEnrollStudent(userId, roomCode);
 
@@ -138,9 +187,10 @@ class PollSocket {
             }
 
           }
-          const updatedRoom = await this.roomService.getRoomByCode(roomCode);
-
-          this.io.to(roomCode).emit("room-updated", updatedRoom);
+          await this.emitRoomUpdated(roomCode);
+          if (removedStudentId) {
+            await this.emitStudentDashboardUpdate(removedStudentId);
+          }
 
         }
         catch (err) {
@@ -149,8 +199,19 @@ class PollSocket {
 
       });
 
-      socket.on('update-room-control', ({ roomCode, mode }) => {
+      socket.on('update-room-control', async ({ roomCode, mode, actorId }) => {
         try {
+          if (!roomCode || !actorId) {
+            socket.emit('error', 'Missing room control payload');
+            return;
+          }
+
+          const room = await Room.findOne({ roomCode }).lean();
+          if (!room || room.teacherId !== actorId) {
+            socket.emit('error', 'Only host can update room controls');
+            return;
+          }
+
           console.log(`Room ${roomCode} control updated to: ${mode} by socket ${socket.id}`);
 
           socket.to(roomCode).emit('room-control-updated', { mode });
@@ -161,12 +222,12 @@ class PollSocket {
 
       socket.on('cohost-leave', async (roomCode: string, cohostId: string) => {
         const room = await Room.findOne({ roomCode });
-        const teacherId = room.teacherId
         if (!room) {
           throw new NotFoundError("Room is not found")
         }
+        const teacherId = room.teacherId
         room.coHosts.forEach(c => {
-          if (c.userId === cohostId) {
+          if (c.userId?.toString() === cohostId) {
             c.isActive = false;
           }
         });
@@ -179,7 +240,7 @@ class PollSocket {
         });
       })
 
-      socket.on('disconnect', () => {
+      socket.on('disconnect', async () => {
         const rooms = this.activeConnections.get(socket.id) || [];
         const firebaseUID = socket.data.userId;
         for (const roomCode of rooms) {
@@ -188,9 +249,66 @@ class PollSocket {
           }
         }
         this.activeConnections.delete(socket.id);
+        for (const roomCode of rooms) {
+          await this.emitRoomUpdated(roomCode);
+        }
         console.log(`Socket ${socket.id} disconnected. Active connections: ${this.activeConnections.size}`);
       });
     });
+  }
+
+  private async emitRoomUpdated(roomCode: string) {
+    const room = await this.roomService.getRoomByCode(roomCode);
+    if (!room) {
+      return;
+    }
+
+    const activeUsers = new Set(this.getActiveUsersInRoom(roomCode));
+    const roomStudents = Array.isArray(room.students) ? room.students : [];
+
+    const activeStudents = roomStudents.filter((student) => {
+      const ids = [student?.firebaseUID, student?.id].filter(
+        (id): id is string => typeof id === 'string' && id.length > 0
+      );
+      return ids.some(id => activeUsers.has(id));
+    });
+
+    room.students = activeStudents;
+    room.totalStudents = activeStudents.length;
+
+    this.emitToRoom(roomCode, 'room-updated', room);
+  }
+
+  async emitStudentDashboardUpdate(studentId: string) {
+    if (!this.io || !studentId) {
+      return;
+    }
+
+    try {
+      const [dashboardData, achievementProgress] = await Promise.all([
+        this.dashboardService.getStudentDashboardData(studentId),
+        this.dashboardService.getUserAchievementProgress(studentId)
+      ]);
+
+      this.io.to(this.getStudentDashboardRoom(studentId)).emit('student-dashboard-updated', {
+        studentId,
+        dashboardData,
+        achievementProgress,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error(`Failed to emit dashboard update for student ${studentId}:`, error);
+    }
+  }
+
+  async emitRoomDashboardUpdates(roomCode: string) {
+    const room = await Room.findOne({ roomCode }, 'joinedStudents').lean();
+    if (!room || !Array.isArray(room.joinedStudents) || room.joinedStudents.length === 0) {
+      return;
+    }
+
+    const uniqueStudents = [...new Set(room.joinedStudents)];
+    await Promise.all(uniqueStudents.map((studentId) => this.emitStudentDashboardUpdate(studentId)));
   }
 
   getActiveUsersInRoom(roomCode: string): string[] {
@@ -227,6 +345,8 @@ class PollSocket {
     });
   }
 }
-const userService = getFromContainer(UserService)
-export const pollSocket = new PollSocket(new RoomService(), new UserRepository()
+export const pollSocket = new PollSocket(
+  new RoomService(),
+  new UserRepository(),
+  new DashboardService()
 );

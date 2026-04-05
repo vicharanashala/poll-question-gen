@@ -1,11 +1,11 @@
-import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import axios, { AxiosRequestConfig } from 'axios';
 import { injectable } from 'inversify';
 import { HttpError, InternalServerError } from 'routing-controllers';
 import { questionSchemas } from '../schemas/index.js';
 import { extractJSONFromMarkdown } from '../utils/extractJSONFromMarkdown.js';
 import { cleanTranscriptLines } from '../utils/cleanTranscriptLines.js';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-import { aiConfig } from '#root/config/ai.js';
+import { aiConfig, type AIProvider } from '#root/config/ai.js';
 
 // --- Type Definitions ---
 export interface TranscriptSegment {
@@ -29,56 +29,240 @@ export type QuestionSpec = Partial<Record<QuestionType, number>>;
 
 @injectable()
 export class AIContentService {
-  //private readonly ollimaApiBaseUrl = 'http://localhost:11434/api';
-  private readonly ollimaApiBaseUrl = `http://${aiConfig.serverIP}:${aiConfig.serverPort}/api`;
-  private readonly llmApiUrl = `${this.ollimaApiBaseUrl}/generate`;
-  
+  private readonly ollamaApiBaseUrl = `http://${aiConfig.serverIP}:${aiConfig.serverPort}/api`;
+  private readonly ollamaGenerateUrl = `${this.ollamaApiBaseUrl}/generate`;
+
+  private get provider(): AIProvider {
+    return aiConfig.provider;
+  }
+
+  private resolveModel(requestedModel?: string): string {
+    const requested = (requestedModel || '').trim();
+
+    if (this.provider === 'openrouter') {
+      if (!requested || requested === aiConfig.mvpDummyModelToken || requested.toLowerCase().includes('dummy')) {
+        return aiConfig.openRouterModel;
+      }
+      return requested;
+    }
+
+    if (!requested || requested === aiConfig.mvpDummyModelToken || requested.toLowerCase().includes('dummy')) {
+      return aiConfig.ollamaDefaultModel;
+    }
+
+    return requested;
+  }
+
   private createProxyAgent() {
     try {
-      return new SocksProxyAgent('socks5://localhost:1055');
+      return new SocksProxyAgent(aiConfig.proxyAddress);
     } catch (error) {
       console.error(`Failed to create SOCKS proxy agent: ${error}`);
       return undefined;
     }
   }
-  
-  private getRequestConfig(): AxiosRequestConfig {
+
+  private getRequestConfig(provider: AIProvider): AxiosRequestConfig {
     const config: AxiosRequestConfig = {
       timeout: 180000, // 3 min request timeout
     };
-    
+
+    if (provider === 'openrouter') {
+      if (!aiConfig.openRouterApiKey) {
+        throw new InternalServerError('OPENROUTER_API_KEY is not configured on the backend.');
+      }
+
+      config.headers = {
+        Authorization: `Bearer ${aiConfig.openRouterApiKey}`,
+        'Content-Type': 'application/json',
+      };
+
+      if (aiConfig.openRouterReferer) {
+        (config.headers as Record<string, string>)['HTTP-Referer'] = aiConfig.openRouterReferer;
+      }
+      if (aiConfig.openRouterAppName) {
+        (config.headers as Record<string, string>)['X-Title'] = aiConfig.openRouterAppName;
+      }
+
+      return config;
+    }
+
     try {
-      const isLocal = this.ollimaApiBaseUrl.includes('localhost') || this.ollimaApiBaseUrl.includes('127.0.0.1');
+      const isLocal = this.ollamaApiBaseUrl.includes('localhost') || this.ollamaApiBaseUrl.includes('127.0.0.1');
       if (aiConfig.useProxy && !isLocal) {
         const proxyAgent = this.createProxyAgent();
         if (proxyAgent) {
-          console.log(`[AIContentService] Using SOCKS proxy for connection to ${this.ollimaApiBaseUrl}`);
+          console.log(`[AIContentService] Using SOCKS proxy for connection to ${this.ollamaApiBaseUrl}`);
           config.httpAgent = proxyAgent;
           config.httpsAgent = proxyAgent;
         } else {
           console.warn(`[AIContentService] Failed to create proxy agent, falling back to direct connection`);
         }
       } else {
-        console.log(`[AIContentService] Direct connection to ${this.ollimaApiBaseUrl} (proxy disabled)`);
+        console.log(`[AIContentService] Direct connection to ${this.ollamaApiBaseUrl} (proxy disabled)`);
       }
     } catch (error) {
       console.error(`[AIContentService] Error configuring request: ${error}`);
     }
-    
+
     return config;
+  }
+
+  private extractOpenRouterText(data: any): string {
+    const content = data?.choices?.[0]?.message?.content;
+
+    if (typeof content === 'string') {
+      return content.trim();
+    }
+
+    if (Array.isArray(content)) {
+      const merged = content.map((part: any) => {
+        if (typeof part === 'string') {
+          return part;
+        }
+        if (typeof part?.text === 'string') {
+          return part.text;
+        }
+        return '';
+      }).join('');
+
+      return merged.trim();
+    }
+
+    return '';
+  }
+
+  private extractApiErrorMessage(data: any): string {
+    if (!data) {
+      return '';
+    }
+    if (typeof data === 'string') {
+      return data;
+    }
+    if (typeof data?.error === 'string') {
+      return data.error;
+    }
+    if (typeof data?.message === 'string') {
+      return data.message;
+    }
+    if (typeof data?.error?.message === 'string') {
+      return data.error.message;
+    }
+
+    try {
+      return JSON.stringify(data);
+    } catch {
+      return '';
+    }
+  }
+
+  private throwProviderError(context: string, provider: AIProvider, error: any): never {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const apiError = this.extractApiErrorMessage(error.response?.data);
+
+      console.error(`[${context}] ${provider} error:`, {
+        status,
+        code: error.code,
+        message: error.message,
+        apiError,
+      });
+
+      if (provider === 'openrouter') {
+        if (status === 401 || status === 403) {
+          throw new InternalServerError('OpenRouter authentication failed. Check OPENROUTER_API_KEY.');
+        }
+        if (status === 429) {
+          throw new InternalServerError('OpenRouter rate limit exceeded. Please retry in a moment.');
+        }
+        if (error.code === 'ETIMEDOUT') {
+          throw new InternalServerError('OpenRouter request timed out. Try again or use a shorter transcript.');
+        }
+        throw new InternalServerError(`OpenRouter API error: ${apiError || error.message}`);
+      }
+
+      if (error.code === 'ETIMEDOUT') {
+        throw new InternalServerError('Connection to Ollama server timed out. Please check connectivity.');
+      }
+      if (error.code === 'ECONNREFUSED') {
+        throw new InternalServerError('Connection to Ollama server refused. Server may be down.');
+      }
+      throw new InternalServerError(`Ollama API error: ${apiError || error.message}`);
+    }
+
+    throw new InternalServerError(`${context} failed: ${error.message || 'Unknown error'}`);
+  }
+
+  private async requestLLMCompletion(args: {
+    context: string;
+    prompt: string;
+    model?: string;
+    temperature: number;
+    format?: unknown;
+  }): Promise<string> {
+    const provider = this.provider;
+    const resolvedModel = this.resolveModel(args.model);
+    const config = this.getRequestConfig(provider);
+
+    try {
+      if (provider === 'openrouter') {
+        console.log(`[${args.context}] Calling OpenRouter with model ${resolvedModel}`);
+        const response = await axios.post(
+          aiConfig.openRouterBaseUrl,
+          {
+            model: resolvedModel,
+            messages: [
+              { role: 'system', content: 'You are a precise quiz-generation assistant. Follow output format exactly.' },
+              { role: 'user', content: args.prompt },
+            ],
+            temperature: args.temperature,
+          },
+          config,
+        );
+
+        const text = this.extractOpenRouterText(response.data);
+        if (!text) {
+          throw new InternalServerError('OpenRouter returned an empty response.');
+        }
+        return text;
+      }
+
+      console.log(`[${args.context}] Calling Ollama with model ${resolvedModel}`);
+      const response = await axios.post(
+        this.ollamaGenerateUrl,
+        {
+          model: resolvedModel,
+          prompt: args.prompt,
+          stream: false,
+          format: args.format,
+          options: { temperature: args.temperature, top_p: 0.9 },
+        },
+        config,
+      );
+
+      const text = response.data?.response;
+      if (typeof text !== 'string') {
+        throw new InternalServerError('Unexpected Ollama response format.');
+      }
+
+      return text;
+    } catch (error: any) {
+      this.throwProviderError(args.context, provider, error);
+    }
   }
 
   // --- Segmentation Logic ---
   public async segmentTranscript(
     transcript: string,
-    model = 'gemma3',
+    model = aiConfig.mvpDummyModelToken,
     desiredSegments = 3 // <-- make fallback segments configurable
   ): Promise<Record<string, string>> {
     if (!transcript?.trim()) {
       throw new HttpError(400, 'Transcript text is required and must be non-empty.');
     }
 
-    console.log(`[segmentTranscript] Processing transcript length: ${transcript.length} chars, model: ${model}`);
+    const resolvedModel = this.resolveModel(model);
+    console.log(`[segmentTranscript] Provider: ${this.provider}, transcript length: ${transcript.length}, requested model: ${model}, resolved model: ${resolvedModel}`);
 
     const prompt = `Analyze the following timed lecture transcript. Segment into meaningful subtopics (max ${desiredSegments} segments).
 Format: each line as [start_time --> end_time] text OR start_time --> end_time text.
@@ -101,20 +285,12 @@ JSON:`;
     let segments: TranscriptSegment[] = [];
 
     try {
-      console.log(`[segmentTranscript] Connecting to Ollama API at ${this.llmApiUrl} with model ${model}`);
-      const config = this.getRequestConfig();
-      
-      const response = await axios.post(this.llmApiUrl, {
-        model,
+      const generatedText = await this.requestLLMCompletion({
+        context: 'segmentTranscript',
         prompt,
-        stream: false,
-        options: { temperature: 0.1, top_p: 0.9 },
-      }, config);
-
-      const generatedText = response.data?.response;
-      if (typeof generatedText !== 'string') {
-        throw new InternalServerError('Unexpected Ollima response format.');
-      }
+        model,
+        temperature: 0.1,
+      });
 
       console.log('[segmentTranscript] Response preview:', generatedText.slice(0, 300));
 
@@ -182,27 +358,8 @@ JSON:`;
         }
       }
     } catch (error: any) {
-      if (axios.isAxiosError(error)) {
-        console.error('[segmentTranscript] Ollama API error:', error.message);
-        console.error('[segmentTranscript] Error details:', {
-          code: error.code,
-          // Access network error details safely
-          networkError: (error as any).cause,
-          config: error.config ? {
-            url: error.config.url,
-            method: error.config.method,
-            timeout: error.config.timeout,
-            hasProxy: !!(error.config.httpAgent || error.config.httpsAgent)
-          } : 'No config'
-        });
-        
-        if (error.code === 'ETIMEDOUT') {
-          throw new InternalServerError(`Connection to Ollama server timed out. Please check network connectivity and Tailscale status.`);
-        } else if (error.code === 'ECONNREFUSED') {
-          throw new InternalServerError(`Connection to Ollama server refused. Server may be down or unreachable.`);
-        } else {
-          throw new InternalServerError(`Ollama API error: ${(error.response?.data as any)?.error || error.message}`);
-        }
+      if (error instanceof HttpError) {
+        throw error;
       }
       throw new InternalServerError(`Segmentation failed: ${error.message}`);
     }
@@ -222,6 +379,432 @@ JSON:`;
 
     console.log(`[segmentTranscript] Done. Returning ${Object.keys(result).length} segments.`);
     return result;
+  }
+
+  private normalizeQuestion(raw: any, segmentId: string, questionType: string): GeneratedQuestion | null {
+    const questionText = typeof raw?.questionText === 'string'
+      ? raw.questionText
+      : typeof raw?.question?.text === 'string'
+        ? raw.question.text
+        : typeof raw?.question === 'string'
+          ? raw.question
+          : '';
+
+    if (!questionText.trim()) {
+      return null;
+    }
+
+    let options: Array<{ text: string; correct?: boolean; explanation?: string }> = [];
+
+    if (Array.isArray(raw?.options)) {
+      options = raw.options
+        .map((opt: any) => {
+          if (typeof opt === 'string') {
+            return { text: opt };
+          }
+          return {
+            text: String(opt?.text ?? '').trim(),
+            correct: typeof opt?.correct === 'boolean' ? opt.correct : undefined,
+            explanation: typeof opt?.explanation === 'string'
+              ? opt.explanation
+              : typeof opt?.explaination === 'string'
+                ? opt.explaination
+                : undefined,
+          };
+        })
+        .filter((opt) => opt.text);
+    } else {
+      if (raw?.solution?.incorrectLotItems) {
+        options = raw.solution.incorrectLotItems.map((item: any) => ({
+          text: String(item?.text ?? '').trim(),
+          correct: false,
+          explanation: item?.explaination || item?.explanation || '',
+        })).filter((opt: { text: string }) => opt.text);
+      }
+
+      if (raw?.solution?.correctLotItem?.text) {
+        options.push({
+          text: String(raw.solution.correctLotItem.text).trim(),
+          correct: true,
+          explanation: raw.solution.correctLotItem.explaination || raw.solution.correctLotItem.explanation || '',
+        });
+      }
+    }
+
+    const optionMap = new Map<string, { text: string; correct?: boolean; explanation?: string }>();
+    options.forEach((opt) => {
+      const normalizedText = String(opt?.text ?? '').replace(/\s+/g, ' ').trim();
+      if (!normalizedText) {
+        return;
+      }
+
+      const key = normalizedText.toLowerCase();
+      const existing = optionMap.get(key);
+      if (!existing) {
+        optionMap.set(key, {
+          text: normalizedText,
+          correct: Boolean(opt?.correct),
+          explanation: typeof opt?.explanation === 'string' ? opt.explanation.trim() : undefined,
+        });
+        return;
+      }
+
+      if (!existing.correct && opt?.correct) {
+        existing.correct = true;
+      }
+      if (!existing.explanation && typeof opt?.explanation === 'string' && opt.explanation.trim()) {
+        existing.explanation = opt.explanation.trim();
+      }
+    });
+
+    let normalizedOptions = [...optionMap.values()];
+    if (normalizedOptions.length < 2) {
+      return null;
+    }
+
+    const trueCorrectOption = normalizedOptions.find((opt) => opt.correct === true);
+    let trimmedOptions = normalizedOptions.slice(0, 4);
+    if (trueCorrectOption && !trimmedOptions.some((opt) => opt.text.toLowerCase() === trueCorrectOption.text.toLowerCase())) {
+      if (trimmedOptions.length === 4) {
+        trimmedOptions[3] = trueCorrectOption;
+      } else {
+        trimmedOptions.push(trueCorrectOption);
+      }
+    }
+
+    let correctIndex = trimmedOptions.findIndex((opt) => opt.correct === true);
+    if (correctIndex < 0) {
+      correctIndex = 0;
+    }
+
+    if (questionType === 'SOL') {
+      trimmedOptions = trimmedOptions.map((opt, index) => ({
+        ...opt,
+        correct: index === correctIndex,
+      }));
+    }
+
+    const parsedTimeLimitSeconds = Number(raw?.question?.timeLimitSeconds ?? raw?.timeLimitSeconds ?? 60);
+    const parsedPoints = Number(raw?.question?.points ?? raw?.points ?? 5);
+
+    return {
+      questionText: questionText.replace(/\s+/g, ' ').trim(),
+      options: trimmedOptions,
+      solution: raw?.solution ?? '',
+      isParameterized: raw?.question?.isParameterized ?? raw?.isParameterized ?? false,
+      timeLimitSeconds: Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
+        ? parsedTimeLimitSeconds
+        : 60,
+      points: Number.isFinite(parsedPoints) && parsedPoints > 0 ? parsedPoints : 5,
+      segmentId,
+      questionType,
+    };
+  }
+
+  private extractBalancedJSONSnippet(text: string, open: '[' | '{', close: ']' | '}'): string | null {
+    const start = text.indexOf(open);
+    if (start < 0) {
+      return null;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < text.length; i++) {
+      const char = text[i];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === open) {
+        depth++;
+      } else if (char === close) {
+        depth--;
+        if (depth === 0) {
+          return text.slice(start, i + 1);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private toJSONParseCandidates(rawText: string): string[] {
+    const cleaned = extractJSONFromMarkdown(rawText || '').trim();
+    if (!cleaned) {
+      return [];
+    }
+
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+
+    const pushCandidate = (candidate?: string | null) => {
+      if (!candidate) {
+        return;
+      }
+
+      const trimmed = candidate.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        return;
+      }
+
+      seen.add(trimmed);
+      candidates.push(trimmed);
+    };
+
+    pushCandidate(cleaned);
+    pushCandidate(this.extractBalancedJSONSnippet(cleaned, '[', ']'));
+    pushCandidate(this.extractBalancedJSONSnippet(cleaned, '{', '}'));
+
+    return candidates;
+  }
+
+  private tryParseJSON(candidate: string): any | null {
+    const parseAttempts = [
+      candidate,
+      candidate
+        .replace(/^\uFEFF/, '')
+        .replace(/,\s*([}\]])/g, '$1')
+        .trim(),
+    ];
+
+    for (const attempt of parseAttempts) {
+      try {
+        return JSON.parse(attempt);
+      } catch {
+        // Try next candidate
+      }
+    }
+
+    return null;
+  }
+
+  private isQuestionLikePayload(payload: any): boolean {
+    if (!payload || typeof payload !== 'object') {
+      return false;
+    }
+
+    if (typeof payload.questionText === 'string' && payload.questionText.trim()) {
+      return true;
+    }
+
+    if (typeof payload.question === 'string' && payload.question.trim()) {
+      return true;
+    }
+
+    if (typeof payload?.question?.text === 'string' && payload.question.text.trim()) {
+      return true;
+    }
+
+    if (Array.isArray(payload.options)) {
+      return true;
+    }
+
+    if (payload?.solution?.correctLotItem || payload?.solution?.incorrectLotItems) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private collectQuestionPayloads(payload: any, depth = 0): any[] {
+    if (!payload || depth > 6) {
+      return [];
+    }
+
+    if (Array.isArray(payload)) {
+      return payload.flatMap((item) => this.collectQuestionPayloads(item, depth + 1));
+    }
+
+    if (typeof payload !== 'object') {
+      return [];
+    }
+
+    const collected: any[] = [];
+    if (this.isQuestionLikePayload(payload)) {
+      collected.push(payload);
+    }
+
+    const knownContainerKeys = ['questions', 'items', 'data', 'result', 'results', 'output', 'response', 'content'];
+    for (const key of knownContainerKeys) {
+      if (Object.prototype.hasOwnProperty.call(payload, key)) {
+        collected.push(...this.collectQuestionPayloads(payload[key], depth + 1));
+      }
+    }
+
+    if (collected.length > 0) {
+      return collected;
+    }
+
+    for (const value of Object.values(payload)) {
+      if (Array.isArray(value) || (value && typeof value === 'object')) {
+        collected.push(...this.collectQuestionPayloads(value, depth + 1));
+      }
+    }
+
+    return collected;
+  }
+
+  private parseQuestionPayloadsFromText(rawText: string): any[] {
+    const candidates = this.toJSONParseCandidates(rawText);
+
+    for (const candidate of candidates) {
+      const parsed = this.tryParseJSON(candidate);
+      if (parsed === null || parsed === undefined) {
+        continue;
+      }
+
+      const extracted = this.collectQuestionPayloads(parsed);
+      if (extracted.length > 0) {
+        return extracted;
+      }
+
+      if (this.isQuestionLikePayload(parsed)) {
+        return [parsed];
+      }
+    }
+
+    return [];
+  }
+
+  private questionSignature(question: GeneratedQuestion): string {
+    const normalizedQuestion = question.questionText.replace(/\s+/g, ' ').trim().toLowerCase();
+    const normalizedOptions = (question.options || [])
+      .map((option) => String(option?.text ?? '').replace(/\s+/g, ' ').trim().toLowerCase())
+      .join('|');
+
+    return `${normalizedQuestion}::${normalizedOptions}`;
+  }
+
+  private dedupeQuestions(questions: GeneratedQuestion[]): GeneratedQuestion[] {
+    const seen = new Set<string>();
+    return questions.filter((question) => {
+      const signature = this.questionSignature(question);
+      if (seen.has(signature)) {
+        return false;
+      }
+      seen.add(signature);
+      return true;
+    });
+  }
+
+  private async requestQuestionsForSpec(args: {
+    segmentId: string;
+    transcript: string;
+    questionType: string;
+    count: number;
+    model?: string;
+    schema?: unknown;
+    context: string;
+  }): Promise<GeneratedQuestion[]> {
+    const { segmentId, transcript, questionType, count, model, schema, context } = args;
+    const prompt = this.createQuestionPrompt(questionType, count, transcript);
+    const format = schema
+      ? (count === 1
+        ? schema
+        : { type: 'array', items: schema, minItems: count, maxItems: count })
+      : undefined;
+
+    const text = await this.requestLLMCompletion({
+      context,
+      prompt,
+      model,
+      temperature: 0.2,
+      format,
+    });
+
+    const parsedPayloads = this.parseQuestionPayloadsFromText(text);
+    const normalizedQuestions = parsedPayloads
+      .map((payload) => this.normalizeQuestion(payload, segmentId, questionType))
+      .filter((question): question is GeneratedQuestion => Boolean(question));
+
+    const deduped = this.dedupeQuestions(normalizedQuestions);
+    console.log(
+      `[${context}] Type=${questionType}, segment=${segmentId}, requested=${count}, parsed=${parsedPayloads.length}, valid=${deduped.length}`
+    );
+
+    return deduped;
+  }
+
+  private async generateQuestionsForSpecWithFallback(args: {
+    segmentId: string;
+    transcript: string;
+    questionType: string;
+    count: number;
+    model?: string;
+    schema?: unknown;
+  }): Promise<GeneratedQuestion[]> {
+    const { segmentId, transcript, questionType, count, model, schema } = args;
+
+    const initial = await this.requestQuestionsForSpec({
+      segmentId,
+      transcript,
+      questionType,
+      count,
+      model,
+      schema,
+      context: 'generateQuestions',
+    });
+
+    if (initial.length >= count) {
+      return initial.slice(0, count);
+    }
+
+    if (count === 1) {
+      return initial.slice(0, 1);
+    }
+
+    const recovered = [...initial];
+    const maxRetries = Math.max(count * 2, 3);
+    let retries = 0;
+
+    console.warn(
+      `[generateQuestions] Incomplete parse for type=${questionType}, segment=${segmentId}. Requested=${count}, got=${initial.length}. Running fallback retries.`
+    );
+
+    while (recovered.length < count && retries < maxRetries) {
+      retries++;
+
+      const retryResult = await this.requestQuestionsForSpec({
+        segmentId,
+        transcript,
+        questionType,
+        count: 1,
+        model,
+        schema,
+        context: `generateQuestions:fallback:${questionType}:${retries}`,
+      });
+
+      const candidate = retryResult[0];
+      if (!candidate) {
+        continue;
+      }
+
+      const candidateSignature = this.questionSignature(candidate);
+      const exists = recovered.some((question) => this.questionSignature(question) === candidateSignature);
+      if (!exists) {
+        recovered.push(candidate);
+      }
+    }
+
+    return recovered.slice(0, count);
   }
 
   // --- Question Generation Logic ---
@@ -285,7 +868,7 @@ ${transcriptContent}
     globalQuestionSpecification: QuestionSpec[];
     model?: string;
   }): Promise<GeneratedQuestion[]> {
-    const { segments, globalQuestionSpecification, model = 'gemma3' } = args;
+    const { segments, globalQuestionSpecification, model = aiConfig.mvpDummyModelToken } = args;
 
     if (!segments || Object.keys(segments).length === 0) {
       throw new HttpError(400, 'segments must be a non-empty object.');
@@ -329,7 +912,8 @@ ${transcriptContent}
 
     const questionSpecs = globalQuestionSpecification[0];
     const allQuestions: GeneratedQuestion[] = [];
-    console.log(`[generateQuestions] Model: ${model}`);
+    const resolvedModel = this.resolveModel(model);
+    console.log(`[generateQuestions] Provider: ${this.provider}, requested model: ${model}, resolved model: ${resolvedModel}`);
 
     for (const rawSegmentId in segments) {
       const segmentId = String(rawSegmentId); // normalize
@@ -342,84 +926,23 @@ ${transcriptContent}
             const schema = (questionSchemas as any)[type];
             if (!schema) console.warn(`[generateQuestions] No schema for type ${type}.`);
 
-            const format = count === 1 ? schema : { type: 'array', items: schema, minItems: count, maxItems: count };
-            const prompt = this.createQuestionPrompt(type, count, transcript);
-
-            console.log(`[generateQuestions] Connecting to Ollama API at ${this.llmApiUrl} with model ${model} for ${type} questions`);
-            const config = this.getRequestConfig();
-            
-            const response = await axios.post(this.llmApiUrl, {
+            const generatedForSpec = await this.generateQuestionsForSpecWithFallback({
+              segmentId,
+              transcript,
+              questionType: type,
+              count,
               model,
-              prompt,
-              stream: false,
-              format: schema ? format : undefined,
-              options: { temperature: 0.2 }
-            }, config);
-            
-            console.log(`[generateQuestions] Successfully received response for ${type} questions`);
-
-            const text = response.data?.response;
-            if (typeof text !== 'string') {
-              console.warn(`[generateQuestions] Unexpected response for type ${type}, segment ${segmentId}.`);
-              continue;
-            }
-
-            const cleaned = extractJSONFromMarkdown(text);
-            const parsed = JSON.parse(cleaned);
-            const questions = Array.isArray(parsed) ? parsed : [parsed];
-
-            questions.forEach(q => {
-              let questionText = q.question?.text || q.questionText || '';
-              let options = [];
-              // Extract options
-              if (q.solution?.incorrectLotItems) {
-                options = q.solution.incorrectLotItems.map((item: any) => ({
-                  text: item.text,
-                  correct: false,
-                  explanation: item.explaination || item.explanation || ''
-                }));
-              }
-              if (q.solution?.correctLotItem) {
-                options.push({
-                  text: q.solution.correctLotItem.text,
-                  correct: true,
-                  explanation: q.solution.correctLotItem.explaination || q.solution.correctLotItem.explanation || ''
-                });
-              }
-              allQuestions.push({
-                questionText,
-                options,
-                solution: '', // Optional: create from q.solution or leave empty
-                isParameterized: q.question?.isParameterized ?? false,
-                timeLimitSeconds: q.question?.timeLimitSeconds ?? 60,
-                points: q.question?.points ?? 5,
-                segmentId,
-                questionType: type
-              });
+              schema,
             });
-            allQuestions.push(...questions);
-            console.log(`[generateQuestions] Generated ${questions.length} ${type} questions for segment ${segmentId}`);
-            console.log(`[generateQuestions] Raw LLM text for type ${type}, segment ${segmentId}:`, text.slice(0, 500));
+
+            allQuestions.push(...generatedForSpec);
+            console.log(
+              `[generateQuestions] Finalized ${generatedForSpec.length}/${count} ${type} questions for segment ${segmentId}`
+            );
           } catch (e: any) {
             console.error(`[generateQuestions] Failed for type ${type}, segment ${segmentId}:`, e.message);
-            if (axios.isAxiosError(e)) {
-              console.error('[generateQuestions] Ollama API error details:', {
-                code: e.code,
-                // Access network error details safely
-                networkError: (e as any).cause,
-                config: e.config ? {
-                  url: e.config.url,
-                  method: e.config.method,
-                  timeout: e.config.timeout,
-                  hasProxy: !!(e.config.httpAgent || e.config.httpsAgent)
-                } : 'No config'
-              });
-              
-              if (e.code === 'ETIMEDOUT') {
-                console.error(`[generateQuestions] Connection to Ollama server timed out. Please check network connectivity and Tailscale status.`);
-              } else if (e.code === 'ECONNREFUSED') {
-                console.error(`[generateQuestions] Connection to Ollama server refused. Server may be down or unreachable.`);
-              }
+            if (e instanceof HttpError) {
+              throw e;
             }
           }
         }

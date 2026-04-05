@@ -34,7 +34,9 @@ import StudentPollAnalysis from '@/pages/student/StudentPollAnalysis'
 import MyPolls from '@/pages/student/MyPolls'
 import RoleSelectionPage from '@/pages/roleselect'
 import CohostInvite from '@/pages/teacher/CohostInvite'
+import GuestCohostInvite from '@/pages/teacher/GuestCohostInvite'
 import Badges from '@/pages/student/Badges'
+import { getGuestCohostSession } from '@/lib/guest-cohost-session'
 
 // Root route with error and notFound handling
 const rootRoute = createRootRoute({
@@ -225,12 +227,24 @@ const cohostInviteRoute = createRoute({
   component: CohostInvite,
 });
 
+const guestCohostInviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/guest-cohost-invite/$token',
+  component: GuestCohostInvite,
+});
+
 // Teacher poll room route
 export const teacherPollRoomRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/teacher/pollroom/$code',
-  beforeLoad: () => {
+  beforeLoad: ({ params }) => {
     const { isAuthenticated, user } = useAuthStore.getState();
+    const guestSession = getGuestCohostSession();
+
+    if (guestSession && guestSession.roomCode === params.code) {
+      return;
+    }
+
     if (!isAuthenticated) {
       throw redirect({ to: '/auth' });
     }
@@ -339,6 +353,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
   roleSelectRoute,
+  guestCohostInviteRoute,
   teacherLayoutRoute.addChildren([
     // teacherGenAIHomeRoute,
     teacherPollRoomRoute,

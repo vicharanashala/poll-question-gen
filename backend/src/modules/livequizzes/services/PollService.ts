@@ -9,6 +9,7 @@ import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
 import { calculateScore } from '../utils/calculateScore.js';
 import { HttpError, NotFoundError } from 'routing-controllers';
+import type { CohostType, ModerationActorType } from '../interfaces/PollRoom.js';
 
 interface InMemoryPoll {
   pollId: string;
@@ -23,6 +24,7 @@ interface InMemoryPoll {
   timeLeft: number;
   roomCode: string;
   createdAt?: Date;
+  scheduledAt?: Date;
   lockedActiveUsers?: string[];
   maxPoints?: number;
 }
@@ -32,22 +34,183 @@ export class PollService {
   private pollSocket = pollSocket;
   private activePolls = new Map<string, InMemoryPoll>(); // pollId -> InMemoryPoll
   private pollTimers = new Map<string, NodeJS.Timeout>(); // pollId -> timer
+  private scheduledPollTimers = new Map<string, NodeJS.Timeout>();
+
+  constructor() {
+    this.recoverScheduledPolls().catch((error) => {
+      console.error('Failed to recover scheduled polls:', error);
+    });
+  }
+
+  private async resolveModeratorContext(room: any, actorId: string): Promise<{
+    actorType: ModerationActorType;
+    cohostType?: CohostType;
+    actorName: string;
+  }> {
+    if (room.status !== 'active') {
+      throw new HttpError(400, 'Room is not active');
+    }
+
+    if (room.teacherId === actorId) {
+      const host = await UserModel.findOne({ firebaseUID: actorId }, 'firstName lastName').lean();
+      const actorName = host
+        ? `${host.firstName || ''} ${host.lastName || ''}`.trim() || room.teacherName || 'Host'
+        : room.teacherName || 'Host';
+      return { actorType: 'host', actorName };
+    }
+
+    const cohost = room.coHosts.find((c: any) => c.userId?.toString() === actorId && c.isActive);
+    if (!cohost) {
+      throw new HttpError(403, 'Only host or cohost can moderate questions');
+    }
+
+    const cohostType: CohostType = (cohost.type as CohostType) || 'teacher';
+    if (cohostType === 'guest') {
+      return {
+        actorType: 'cohost',
+        cohostType,
+        actorName: cohost.displayName || 'Guest Cohost',
+      };
+    }
+
+    const user = await UserModel.findOne({ firebaseUID: actorId }, 'firstName lastName').lean();
+    const actorName = user
+      ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Cohost'
+      : cohost.displayName || 'Cohost';
+
+    return {
+      actorType: 'cohost',
+      cohostType,
+      actorName,
+    };
+  }
+
+  private normalizeScheduledAt(scheduledAt?: string | Date): Date | undefined {
+    if (!scheduledAt) {
+      return undefined;
+    }
+
+    const parsed = scheduledAt instanceof Date ? scheduledAt : new Date(scheduledAt);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
+  private createInMemoryPoll(roomCode: string, poll: any): InMemoryPoll {
+    const timer = Number(poll?.timer ?? 0);
+
+    return {
+      pollId: poll._id?.toString() || '',
+      question: poll.question,
+      options: poll.options || [],
+      correctOptionIndex: poll.correctOptionIndex,
+      responses: {},
+      totalResponses: 0,
+      userResponses: new Map(),
+      timer,
+      startTime: poll.createdAt ? new Date(poll.createdAt).getTime() : undefined,
+      timeLeft: timer,
+      roomCode,
+      createdAt: poll.createdAt ? new Date(poll.createdAt) : new Date(),
+      scheduledAt: poll.scheduledAt ? new Date(poll.scheduledAt) : undefined,
+      lockedActiveUsers: [...(poll.lockedActiveUsers || [])],
+      maxPoints: poll.maxPoints ?? 20,
+    };
+  }
+
+  private clearScheduledLaunch(pollId: string): void {
+    const existing = this.scheduledPollTimers.get(pollId);
+    if (existing) {
+      clearTimeout(existing);
+      this.scheduledPollTimers.delete(pollId);
+    }
+  }
+
+  private schedulePollLaunch(roomCode: string, pollId: string, scheduledAt: Date): void {
+    this.clearScheduledLaunch(pollId);
+
+    const delayMs = Math.max(0, scheduledAt.getTime() - Date.now());
+    const timer = setTimeout(() => {
+      this.launchScheduledPoll(roomCode, pollId).catch((error) => {
+        console.error(`Failed to launch scheduled poll ${pollId}:`, error);
+      });
+    }, delayMs);
+
+    this.scheduledPollTimers.set(pollId, timer);
+  }
+
+  private async launchScheduledPoll(roomCode: string, pollId: string): Promise<void> {
+    this.clearScheduledLaunch(pollId);
+
+    const room = await Room.findOne({ roomCode });
+    if (!room || room.status !== 'active') {
+      return;
+    }
+
+    const poll = room.polls.find((roomPoll) => roomPoll._id === pollId);
+    if (!poll || poll.approvalStatus !== 'approved' || poll.isLaunched) {
+      return;
+    }
+
+    const activeUsers = pollSocket.getActiveUsersInRoom(roomCode);
+    poll.isLaunched = true;
+    poll.launchedAt = new Date();
+    poll.lockedActiveUsers = [...activeUsers];
+
+    await room.save();
+
+    const pollPayload = typeof (poll as any).toObject === 'function' ? (poll as any).toObject() : poll;
+    this.activePolls.set(pollId, this.createInMemoryPoll(roomCode, pollPayload));
+    pollSocket.emitToRoom(roomCode, 'new-poll', pollPayload);
+    await pollSocket.emitRoomDashboardUpdates(roomCode);
+  }
+
+  private async recoverScheduledPolls(): Promise<void> {
+    const rooms = await Room.find({
+      status: 'active',
+      'polls.isLaunched': false,
+      'polls.approvalStatus': 'approved',
+      'polls.scheduledAt': { $exists: true }
+    }).lean();
+
+    for (const room of rooms) {
+      for (const poll of room.polls || []) {
+        const pollId = poll?._id?.toString();
+        const scheduledAt = this.normalizeScheduledAt(poll?.scheduledAt as Date | string | undefined);
+        const isLaunched = poll?.isLaunched !== false;
+        const isApproved = poll?.approvalStatus === 'approved';
+
+        if (!pollId || !scheduledAt || isLaunched || !isApproved) {
+          continue;
+        }
+
+        if (scheduledAt.getTime() <= Date.now()) {
+          await this.launchScheduledPoll(room.roomCode, pollId);
+        } else {
+          this.schedulePollLaunch(room.roomCode, pollId, scheduledAt);
+        }
+      }
+    }
+  }
+
   async createPoll(roomCode: string, data: {
     question: string;
     options: string[];
     correctOptionIndex: number;
     timer?: number;
     maxPoints?: number;
+    scheduledAt?: string | Date;
   }) {
     const pollId = crypto.randomUUID();
     const createdAt = new Date();
     const lockedActiveUsers: string[] = pollSocket.getActiveUsersInRoom(roomCode);
+    const scheduledAt = this.normalizeScheduledAt(data.scheduledAt);
 
     // PHASE 2: Check if room requires question approval
     const room = await Room.findOne({ roomCode });
     if (!room) throw new NotFoundError("Room not found");
 
     const approvalRequired = room.questionApprovalRequired || false;
+    const shouldSchedule = Boolean(scheduledAt && scheduledAt.getTime() > Date.now());
+    const shouldLaunchImmediately = !approvalRequired && !shouldSchedule;
 
     const poll = {
       _id: pollId,
@@ -56,27 +219,14 @@ export class PollService {
       correctOptionIndex: data.correctOptionIndex,
       timer: data.timer ?? 30,
       maxPoints: data.maxPoints ?? 20,
+      scheduledAt,
+      isLaunched: shouldLaunchImmediately,
+      launchedAt: shouldLaunchImmediately ? createdAt : undefined,
       createdAt,
-      lockedActiveUsers,
+      lockedActiveUsers: shouldLaunchImmediately ? lockedActiveUsers : [],
       answers: [],
       // PHASE 2: Set approval status
       approvalStatus: approvalRequired ? 'pending' : 'approved'
-    };
-
-    const livepoll: InMemoryPoll = {
-      pollId,
-      question: data.question,
-      options: data.options,
-      correctOptionIndex: data.correctOptionIndex,
-      responses: {},
-      totalResponses: 0,
-      userResponses: new Map(),
-      timer: data.timer ?? 0, // 0 means no timer
-      timeLeft: data.timer ?? 0,
-      roomCode,
-      createdAt,
-      lockedActiveUsers: [...lockedActiveUsers],
-      maxPoints: data.maxPoints ?? 20,
     };
 
     await Room.updateOne(
@@ -84,14 +234,16 @@ export class PollService {
       { $push: { polls: poll } }
     );
 
-    this.activePolls.set(pollId, livepoll);
-
-    // PHASE 2: Emit appropriate event based on approval requirement
-    if (approvalRequired) {
-      pollSocket.emitToRoom(roomCode, 'question-pending-approval', poll);
-    } else {
+    if (shouldLaunchImmediately) {
+      this.activePolls.set(pollId, this.createInMemoryPoll(roomCode, poll));
       pollSocket.emitToRoom(roomCode, 'new-poll', poll);
+    } else if (approvalRequired) {
+      pollSocket.emitToRoom(roomCode, 'question-pending-approval', poll);
+    } else if (scheduledAt) {
+      this.schedulePollLaunch(roomCode, pollId, scheduledAt);
     }
+
+    await pollSocket.emitRoomDashboardUpdates(roomCode);
 
     return poll;
   }
@@ -175,6 +327,8 @@ export class PollService {
         badges: newlyUnlockedBadges,
       });
     }
+
+    await pollSocket.emitStudentDashboardUpdate(userId);
   }
 
   async getPollResults(roomCode: string) {
@@ -284,6 +438,8 @@ export class PollService {
     const room = await Room.findOne({ roomCode });
     if (!room) throw new NotFoundError("Room not found");
 
+    const moderator = await this.resolveModeratorContext(room, userId);
+
     const poll = room.polls.find(p => p._id === pollId);
     if (!poll) throw new NotFoundError("Poll not found");
 
@@ -294,22 +450,50 @@ export class PollService {
     // Update poll approval status
     poll.approvalStatus = 'approved';
     poll.approvedBy = userId;
+    poll.approvedByType = moderator.actorType;
+    poll.approvedByCohostType = moderator.cohostType;
+    poll.approvedByName = moderator.actorName;
     poll.approvedAt = new Date();
 
+    const scheduledAt = this.normalizeScheduledAt(poll.scheduledAt as Date | string | undefined);
+    const shouldSchedule = Boolean(scheduledAt && scheduledAt.getTime() > Date.now());
+
+    if (shouldSchedule) {
+      poll.isLaunched = false;
+      poll.launchedAt = undefined;
+      poll.lockedActiveUsers = [];
+    } else {
+      poll.isLaunched = true;
+      poll.launchedAt = new Date();
+      poll.lockedActiveUsers = pollSocket.getActiveUsersInRoom(roomCode);
+    }
+
     await room.save();
+
+    const pollPayload = typeof (poll as any).toObject === 'function' ? (poll as any).toObject() : poll;
 
     // Emit event to broadcast poll to students
     pollSocket?.emitToRoom(roomCode, 'question-approved', {
       pollId,
-      poll
+      poll: pollPayload,
+      approvedBy: userId,
+      approvedByType: moderator.actorType,
+      approvedByName: moderator.actorName,
     });
 
-    // Also emit new-poll so students see it
-    pollSocket?.emitToRoom(roomCode, 'new-poll', poll);
+    if (shouldSchedule && scheduledAt) {
+      this.schedulePollLaunch(roomCode, pollId, scheduledAt);
+    } else {
+      this.activePolls.set(pollId, this.createInMemoryPoll(roomCode, pollPayload));
+      // Also emit new-poll so students see it
+      pollSocket?.emitToRoom(roomCode, 'new-poll', pollPayload);
+    }
+
+    await pollSocket.emitRoomDashboardUpdates(roomCode);
 
     return {
       message: 'Poll approved successfully',
-      poll
+      poll: pollPayload
     };
   }
 
@@ -322,6 +506,8 @@ export class PollService {
     const room = await Room.findOne({ roomCode });
     if (!room) throw new NotFoundError("Room not found");
 
+    const moderator = await this.resolveModeratorContext(room, userId);
+
     const pollIndex = room.polls.findIndex(p => p._id === pollId);
     if (pollIndex === -1) throw new NotFoundError("Poll not found");
 
@@ -332,18 +518,29 @@ export class PollService {
 
     // Mark as rejected
     poll.approvalStatus = 'rejected';
+    poll.rejectedBy = userId;
+    poll.rejectedByType = moderator.actorType;
+    poll.rejectedByCohostType = moderator.cohostType;
+    poll.rejectedByName = moderator.actorName;
+    poll.rejectedAt = new Date();
     poll.rejectionReason = reason;
 
     // Remove from activePolls so it's not shown to students
     this.activePolls.delete(pollId);
+    this.clearScheduledLaunch(pollId);
 
     await room.save();
 
     // Emit event to notify rejection
     pollSocket?.emitToRoom(roomCode, 'question-rejected', {
       pollId,
-      reason: reason || 'No reason provided'
+      reason: reason || 'No reason provided',
+      rejectedBy: userId,
+      rejectedByType: moderator.actorType,
+      rejectedByName: moderator.actorName,
     });
+
+    await pollSocket.emitRoomDashboardUpdates(roomCode);
 
     return {
       message: 'Poll rejected successfully'

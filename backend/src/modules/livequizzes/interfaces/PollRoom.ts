@@ -14,15 +14,36 @@ export interface Poll {
   correctOptionIndex: number;
   timer: number;
   maxPoints?: number;
+  scheduledAt?: Date;
+  isLaunched?: boolean;
+  launchedAt?: Date;
   lockedActiveUsers?: string[];
   createdAt: Date;
   answers: PollAnswer[];
   // PHASE 2: Question Approval Workflow
   approvalStatus?: 'approved' | 'pending' | 'rejected';
   approvedBy?: string;
+  approvedByType?: ModerationActorType;
+  approvedByCohostType?: CohostType;
+  approvedByName?: string;
   requestedBy?: string;
+  rejectedBy?: string;
+  rejectedByType?: ModerationActorType;
+  rejectedByCohostType?: CohostType;
+  rejectedByName?: string;
+  rejectedAt?: Date;
   rejectionReason?: string;
   approvedAt?: Date;
+}
+
+export type CohostType = 'teacher' | 'guest';
+export type ModerationActorType = 'host' | 'cohost';
+
+export interface RoomStudent {
+  id: string;
+  firebaseUID?: string;
+  firstName?: string;
+  email?: string;
 }
 
 export interface Room {
@@ -35,6 +56,7 @@ export interface Room {
   status: 'active' | 'ended';
   polls: Poll[];
   totalStudents?: number;
+  students?: RoomStudent[];
   coHosts?: ActiveCohost[];
   controls?: {
     micBlocked: boolean;
@@ -46,6 +68,13 @@ export interface Room {
 export interface CohostJwtPayload extends JwtPayload {
   roomId: string;
   jti: string;
+  type?: 'teacher-cohost';
+}
+
+export interface GuestCohostJwtPayload extends JwtPayload {
+  roomId: string;
+  jti: string;
+  type: 'guest-cohost';
 }
 
 export interface GetCohostRoom {
@@ -55,9 +84,12 @@ export interface GetCohostRoom {
 
 export interface ActiveCohost {
   userId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  displayName?: string;
+  type?: CohostType;
   addedAt: Date;
+  isMicMuted?: boolean;
 }
 

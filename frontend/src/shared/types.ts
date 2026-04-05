@@ -1,8 +1,10 @@
 export type CohostUser = {
   userId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  displayName?: string;
+  type?: 'teacher' | 'guest';
   addedAt: Date;
   isMicMuted?: boolean;
 };

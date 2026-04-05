@@ -9,6 +9,7 @@ export class DashboardService {
     async getStudentDashboardData(studentId: string) {
        
         const joinedRooms = await Room.find({ joinedStudents: studentId }).lean();
+        const now = Date.now();
 
         let totalPolls = 0;
         let takenPolls = 0;
@@ -21,7 +22,7 @@ export class DashboardService {
         let pollResults: any[] = [];
         let pollDetails: any[] = [];
         let activePolls: any[] = [];
-        let upcomingPolls: any[] = [];  // leave empty if you don’t have upcoming logic
+        let upcomingPolls: any[] = [];
         let scoreProgression: any[] = [];
         let roomWiseScores: any[] = [];
 
@@ -31,8 +32,37 @@ export class DashboardService {
             let roomMaxPoints = 0;
             let attendedPolls = 0;
             let roomUnattemptedPolls = 0;
+            let launchedRoomPolls = 0;
 
             for (const poll of room.polls ?? []) {
+                const isLaunched = poll.isLaunched !== false;
+                const scheduledAt = poll.scheduledAt ? new Date(poll.scheduledAt) : null;
+                const isFutureScheduled = Boolean(
+                    scheduledAt && !Number.isNaN(scheduledAt.getTime()) && scheduledAt.getTime() > now
+                );
+
+                if (!isLaunched) {
+                    const canShowUpcoming = room.status === 'active'
+                        && poll.approvalStatus === 'approved'
+                        && isFutureScheduled;
+
+                    if (canShowUpcoming) {
+                        const alreadyAnswered = Boolean(
+                            poll.answers?.some((answer: any) => answer.userId === studentId)
+                        );
+
+                        if (!alreadyAnswered) {
+                            upcomingPolls.push({
+                                name: `${room.name}: ${poll.question || 'Untitled Poll'}`,
+                                time: scheduledAt!.toLocaleString(),
+                                scheduledAtMs: scheduledAt!.getTime(),
+                            });
+                        }
+                    }
+                    continue;
+                }
+
+                launchedRoomPolls++;
                 totalPolls++;
 
                 const answer = poll.answers?.find((a: any) => a.userId === studentId);
@@ -98,15 +128,30 @@ export class DashboardService {
                     timer: poll.timer?.toString() || 'N/A'
                 });
 
-                // Active polls: based on room.status
+                // Active polls for student attendance in current room flow
                 if (room.status === 'active') {
+                    const pollId = typeof (poll as any)?._id === 'string'
+                        ? (poll as any)._id
+                        : (poll as any)?._id?.toString?.() || '';
+
                     activePolls.push({
-                        name: poll.question || 'Active Poll',
-                        status: 'Ongoing'
+                        pollId,
+                        roomCode: room.roomCode,
+                        roomName: room.name,
+                        question: poll.question || 'Active Poll',
+                        name: `${room.name}: ${poll.question || 'Active Poll'}`,
+                        status: answer ? 'Answered' : 'Ongoing',
+                        hasAnswered: Boolean(answer),
+                        timer: poll.timer ?? 30,
+                        launchedAt: poll.launchedAt || poll.createdAt || null,
+                        launchedAtMs: (() => {
+                            const source = poll.launchedAt || poll.createdAt;
+                            if (!source) return 0;
+                            const date = new Date(source);
+                            return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+                        })(),
                     });
                 }
-
-                // (optional) upcoming polls: you could add logic if you store startTime
             }
 
             // Add room-wise score if student has any activity in the room (taken or unattempted polls)
@@ -115,7 +160,7 @@ export class DashboardService {
                 roomWiseScores.push({
                     roomName: room.name,
                     roomCode: room.roomCode,
-                    totalPolls: room.polls.length,
+                    totalPolls: launchedRoomPolls,
                     attendedPolls,
                     taken: attendedPolls,
                     score: roomScore,
@@ -141,8 +186,12 @@ export class DashboardService {
             },
             pollResults,
             pollDetails,
-            activePolls,
-            upcomingPolls,
+            activePolls: activePolls
+                .sort((a, b) => b.launchedAtMs - a.launchedAtMs)
+                .map(({ launchedAtMs, ...poll }) => poll),
+            upcomingPolls: upcomingPolls
+                .sort((a, b) => a.scheduledAtMs - b.scheduledAtMs)
+                .map(({ scheduledAtMs, ...poll }) => poll),
             scoreProgression,
             performanceSummary: {
                 avgScore: `${avgScore}%`,
