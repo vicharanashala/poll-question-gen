@@ -49,3 +49,21 @@
   font-size: 12px;
   color: #666;
 }
+
+.speech-confidence-container {
+  background-color: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.speech-score-bar {
+  background-color: var(--border);
+}
+
+.speech-score-label {
+  color: var(--text);
+}
+
+.speech-score-indicator {
+  color: var(--text);
+}
