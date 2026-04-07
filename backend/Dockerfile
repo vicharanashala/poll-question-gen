@@ -5,12 +5,13 @@ FROM node:22-alpine AS builder
 
 # Install git & pnpm
 RUN apk add --no-cache git dos2unix
-RUN corepack enable && corepack prepare pnpm@10.4.1 --activate && npm install -g rimraf
+RUN npm install -g pnpm@10.4.1 rimraf
 
 WORKDIR /app
 
 # Copy package files & scripts
 COPY package.json pnpm-lock.yaml* ./
+COPY .npmrc ./                          
 COPY scripts ./scripts
 
 # Ensure Unix line endings for scripts
@@ -35,6 +36,7 @@ WORKDIR /app
 
 # Copy package files & scripts
 COPY package.json ./ 
+COPY .npmrc ./                          
 COPY scripts ./scripts
 
 # Ensure Unix line endings for scripts

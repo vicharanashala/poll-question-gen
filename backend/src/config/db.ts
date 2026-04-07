@@ -2,20 +2,22 @@ import { env } from '../utils/env.js';
 import mongoose from 'mongoose';
 
 export const dbConfig = {
-  url: env('DB_URL'),
+  // ✅ FIXED: use correct env variable
+  url: env('MONGO_URI'),
   dbName: env('DB_NAME') || 'PollDB',
 };
 
 export async function connectToDatabase() {
   try {
-    // Runtime validation
-    if (typeof dbConfig.url !== 'string') {
-      throw new Error(`Invalid DB_URL: expected string, got ${typeof dbConfig.url}`);
+    // ✅ Strong validation
+    if (!dbConfig.url || typeof dbConfig.url !== 'string') {
+      throw new Error(`Invalid MONGO_URI: ${dbConfig.url}`);
     }
 
     await mongoose.connect(dbConfig.url, {
       dbName: dbConfig.dbName,
     });
+
     console.log('✅ Connected to MongoDB:', dbConfig.dbName);
   } catch (error) {
     console.error('❌ Failed to connect to MongoDB:', error);

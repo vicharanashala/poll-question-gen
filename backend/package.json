@@ -16,13 +16,13 @@
     "test:ci": "vitest run --coverage --reporter=html"
   },
   "imports": {
-    "#root/*.js": "./build/*.js",
-    "#shared/*.js": "./build/shared/*.js",
-    "#auth/*.js": "./build/modules/auth/*.js",
-    "#genai/*.js": "./build/modules/genai/*.js",
-    "#livequizzes/*.js": "./build/modules/livequizzes/*.js",
-    "#temp/*.js": "./build/modules/temp/*.js",
-    "#users/*.js": "./build/modules/users/*.js"
+  "#root/*": "./build/*",
+  "#shared/*": "./build/shared/*",
+  "#auth/*": "./build/modules/auth/*",
+  "#genai/*": "./build/modules/genai/*",
+  "#livequizzes/*": "./build/modules/livequizzes/*",
+  "#temp/*": "./build/modules/temp/*",
+  "#users/*": "./build/modules/users/*"
   },
   "type": "module",
   "keywords": [],
