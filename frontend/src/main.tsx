@@ -1,21 +1,21 @@
-import { StrictMode, useEffect } from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/App";
 import "@/styles/globals.css";
+import { RouterProvider } from '@tanstack/react-router';
+import { router } from './routes/router'; // relative import
 
 // Register service worker in production
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  // Dynamically import the service worker registration for code-splitting
-  import("./serviceWorkerRegistration").then(({ register }) => {
-    register();
-  });
+  import("./serviceWorkerRegistration").then(({ register }) => register());
 }
 
-// Initialize the app
 const root = createRoot(document.getElementById("root")!);
 
 root.render(
   <StrictMode>
-    <App />
+    <RouterProvider router={router}>
+      <App />
+    </RouterProvider>
   </StrictMode>
 );

@@ -7,13 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useNavigate } from "@tanstack/react-router";
 import api from "@/lib/api/api";
+import SpeechConfidenceScore from '@/components/ui/SpeechConfidenceScore/SpeechConfidenceScore';
 
 export interface TeacherData {
   summary: {
     totalAssessmentRooms: number;
     totalPolls: number;
     totalResponses: number;
-    participationRate: string; // e.g. '85%'
+    participationRate: string;
   };
   activeRooms: RoomPreview[];
   recentRooms: RoomPreview[];
@@ -23,11 +24,11 @@ export interface TeacherData {
 export interface RoomPreview {
   roomName: string;
   roomCode: string;
-  totalPolls?: number;         // present in recentRooms
-  totalResponses?: number;     // now present in both recentRooms & activeRooms
+  totalPolls?: number;
+  totalResponses?: number;
   totalStudents?: number;
-  status?: 'active' | 'ended'; // optional, present in recentRooms
-  createdAt: string;           // ISO date string
+  status?: 'active' | 'ended';
+  createdAt: string;
 }
 
 export interface FAQ {
@@ -44,8 +45,8 @@ export default function TeacherDashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (user?.uid) fetchDashboardData();
+  }, [user]);
 
   const fetchDashboardData = async () => {
     try {
@@ -53,9 +54,7 @@ export default function TeacherDashboard() {
       setError(null);
 
       const teacherId = user?.uid;
-      if (!teacherId) {
-        throw new Error('No teacher ID found');
-      }
+      if (!teacherId) throw new Error('No teacher ID found');
 
       const response = await api.get(`/teachers/dashboard/${teacherId}`);
       setDashboardData(response.data);
@@ -66,6 +65,8 @@ export default function TeacherDashboard() {
       setLoading(false);
     }
   };
+
+  if (!user) return <div className="p-6">Loading user...</div>;
 
   if (loading) {
     return (
@@ -85,10 +86,7 @@ export default function TeacherDashboard() {
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <h2 className="text-red-800 font-semibold mb-2">Error Loading Dashboard</h2>
             <p className="text-red-600">{error}</p>
-            <Button
-              onClick={fetchDashboardData}
-              className="mt-4 bg-red-600 hover:bg-red-700"
-            >
+            <Button onClick={fetchDashboardData} className="mt-4 bg-red-600 hover:bg-red-700">
               Try Again
             </Button>
           </div>
@@ -97,7 +95,7 @@ export default function TeacherDashboard() {
     );
   }
 
-  const stats: TeacherData["summary"] = dashboardData?.summary ?? {
+  const stats = dashboardData?.summary ?? {
     totalAssessmentRooms: 0,
     totalPolls: 0,
     totalResponses: 0,
@@ -107,14 +105,11 @@ export default function TeacherDashboard() {
   const recentRooms = dashboardData?.recentRooms || [];
   const faqs = dashboardData?.faqs || [];
 
-  // Calculate participation rate for pie chart
   const participationData = [
     { name: "Responses", value: stats.totalResponses || 0 },
     { name: "No Response", value: Math.max(0, (stats.totalPolls || 0) - (stats.totalResponses || 0)) }
   ];
 
-  // Enhanced bar chart data for recent rooms with both polls and responses
-  // Sort by date (newest first) and then reverse to show latest on the right
   const roomsBarData = recentRooms
     .sort((b, a) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     .slice(0, 4)
@@ -125,30 +120,17 @@ export default function TeacherDashboard() {
       responses: room.totalResponses || 0
     }));
 
-  // Combine active and recent rooms, with active rooms marked
   const combinedRooms = [
     ...activeRooms.map(room => ({ ...room, status: 'active' as const })),
     ...recentRooms.filter(room => room.status !== 'active')
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateString: string): string =>
+    new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
-  };
-
-  /* const getStatusColor = (status: 'active' | 'ended' | undefined): string => {
-     switch (status) {
-       case 'active':
-         return 'bg-green-500';
-       case 'ended':
-         return 'bg-red-500';
-       default:
-         return 'bg-gray-500';
-     }
-   };*/
 
   return (
     <div className="w-full">
@@ -162,9 +144,7 @@ export default function TeacherDashboard() {
         </div>
         <Button
           className="bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base w-full sm:w-auto"
-          onClick={() => {
-            navigate({ to: '/teacher/pollroom' });
-          }}
+          onClick={() => navigate({ to: '/teacher/pollroom' })}
           data-tour="create-room-btn"
         >
           Create New Room
@@ -181,12 +161,6 @@ export default function TeacherDashboard() {
               <p className="mb-4 opacity-90 text-sm sm:text-base">
                 Track, analyze, and enhance student learning outcomes
               </p>
-              {/* <Button
-                variant="secondary"
-                className="bg-white text-blue-800 hover:bg-white/90 text-sm sm:text-base"
-              >
-                Quick Start Guide
-              </Button> */}
             </div>
             <div className="lg:w-1/2 flex justify-center">
               <div className="w-24 h-24 sm:w-32 sm:h-32 lg:w-40 lg:h-40 bg-white/20 rounded-full flex items-center justify-center">
@@ -244,19 +218,21 @@ export default function TeacherDashboard() {
               variant="outline"
               size="sm"
               className="text-blue-600 hover:text-blue-700 text-sm w-full sm:w-auto"
-              onClick={() => {
-                navigate({ to: '/teacher/manage-rooms' });
-              }}
+              onClick={() => navigate({ to: '/teacher/manage-rooms' })}
             >
               View All <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 ml-1" />
             </Button>
           </CardHeader>
           <CardContent className="space-y-3 sm:space-y-4">
             {combinedRooms.slice(0, 3).map((room, idx) => (
-              <div key={idx} className={`p-3 sm:p-4 rounded-lg border transition-all hover:shadow-md ${room.status === 'active'
-                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                : 'bg-blue-50 dark:bg-slate-700 border-blue-100 dark:border-slate-600'
-                }`}>
+              <div
+                key={idx}
+                className={`p-3 sm:p-4 rounded-lg border transition-all hover:shadow-md ${
+                  room.status === 'active'
+                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                    : 'bg-blue-50 dark:bg-slate-700 border-blue-100 dark:border-slate-600'
+                }`}
+              >
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-0">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
@@ -289,18 +265,20 @@ export default function TeacherDashboard() {
                   <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2">
                     <Badge
                       variant="outline"
-                      className={`text-xs ${room.status === 'active'
-                        ? 'text-green-600 border-green-200 dark:text-green-400'
-                        : 'text-gray-500 border-gray-200'
-                        }`}
+                      className={`text-xs ${
+                        room.status === 'active'
+                          ? 'text-green-600 border-green-200 dark:text-green-400'
+                          : 'text-gray-500 border-gray-200'
+                      }`}
                     >
                       {room.status === 'active' ? 'Active' : 'Ended'}
                     </Badge>
                     {room.status === 'active' && (
-                      <Button size="sm" variant="outline" className="text-xs"
-                        onClick={() => {
-                          navigate({ to: `/teacher/pollroom/${room.roomCode}` });
-                        }}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs"
+                        onClick={() => navigate({ to: `/teacher/pollroom/${room.roomCode}` })}
                       >
                         Go to Room
                       </Button>
@@ -328,21 +306,10 @@ export default function TeacherDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 sm:space-y-3">
-            {/* <Button
-              variant="outline"
-              className="w-full justify-start text-sm sm:text-base"
-              onClick={() => {
-                navigate({ to: '/teacher/pollroom' });
-              }}
-            >
-              Create New Room
-            </Button> */}
             <Button
               variant="outline"
               className="w-full justify-start text-sm sm:text-base"
-              onClick={() => {
-                navigate({ to: '/teacher/manage-rooms' });
-              }}
+              onClick={() => navigate({ to: '/teacher/manage-rooms' })}
             >
               Generate Reports
             </Button>
@@ -376,14 +343,13 @@ export default function TeacherDashboard() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col items-center">
-              <ResponsiveContainer width="100%" height={250} className="sm:h-[300px]">
+              <ResponsiveContainer width="100%" height={250}>
                 <PieChart>
                   <Pie
                     data={participationData}
                     cx="50%"
                     cy="50%"
                     outerRadius={60}
-                    className="sm:outerRadius={80}"
                     fill="#8884d8"
                     label
                   >
@@ -396,24 +362,30 @@ export default function TeacherDashboard() {
               <div className="flex gap-4 sm:gap-6 mt-3 sm:mt-4">
                 <div className="text-center">
                   <div className="text-xs sm:text-sm text-gray-500">Responses</div>
-                  <div className="text-lg sm:text-xl font-bold text-blue-600">
-                    {stats.totalResponses || 0}
-                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-blue-600">{stats.totalResponses || 0}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs sm:text-sm text-gray-500">Total Polls</div>
-                  <div className="text-lg sm:text-xl font-bold text-green-600">
-                    {stats.totalPolls || 0}
-                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-green-600">{stats.totalPolls || 0}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs sm:text-sm text-gray-500">Rate</div>
-                  <div className="text-lg sm:text-xl font-bold text-orange-600">
-                    {stats.participationRate || '0%'}
-                  </div>
+                  <div className="text-lg sm:text-xl font-bold text-orange-600">{stats.participationRate || '0%'}</div>
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Speech Confidence Analyzer */}
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-blue-800 dark:text-blue-200 text-base sm:text-lg">
+              Speech Confidence Analyzer
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SpeechConfidenceScore />
           </CardContent>
         </Card>
 
@@ -425,17 +397,15 @@ export default function TeacherDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250} className="sm:h-[300px]">
+            <ResponsiveContainer width="100%" height={250}>
               <BarChart data={roomsBarData} margin={{ top: 20, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis
                   dataKey="name"
                   tick={{ fill: isDark ? '#9ca3af' : '#6b7280', fontSize: 10 }}
-                  className="sm:text-xs"
                 />
                 <YAxis
                   tick={{ fill: isDark ? '#9ca3af' : '#6b7280', fontSize: 10 }}
-                  className="sm:text-xs"
                 />
                 <Tooltip
                   contentStyle={{
@@ -446,18 +416,8 @@ export default function TeacherDashboard() {
                   }}
                 />
                 <Legend />
-                <Bar
-                  dataKey="polls"
-                  fill="#3b82f6"
-                  radius={[2, 2, 0, 0]}
-                  name="Polls"
-                />
-                <Bar
-                  dataKey="responses"
-                  fill="#10b981"
-                  radius={[2, 2, 0, 0]}
-                  name="Responses"
-                />
+                <Bar dataKey="polls" fill="#3b82f6" radius={[2, 2, 0, 0]} name="Polls" />
+                <Bar dataKey="responses" fill="#10b981" radius={[2, 2, 0, 0]} name="Responses" />
               </BarChart>
             </ResponsiveContainer>
             <div className="text-center mt-2 text-xs sm:text-sm text-gray-500">
@@ -481,9 +441,9 @@ export default function TeacherDashboard() {
               <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300">
                 You have created {stats.totalAssessmentRooms || 0} assessment rooms with a total of {stats.totalPolls || 0} polls.
                 Your polls have received {stats.totalResponses || 0} responses with a participation rate of {stats.participationRate || '0%'}.
-                {activeRooms.length > 0 ?
-                  ` You currently have ${activeRooms.length} active room${activeRooms.length > 1 ? 's' : ''}.` :
-                  ' Create a new room to start engaging with students.'
+                {activeRooms.length > 0
+                  ? ` You currently have ${activeRooms.length} active room${activeRooms.length > 1 ? 's' : ''}.`
+                  : ' Create a new room to start engaging with students.'
                 }
               </p>
             </div>
@@ -520,7 +480,3 @@ export default function TeacherDashboard() {
     </div>
   );
 }
-
-
-
-
