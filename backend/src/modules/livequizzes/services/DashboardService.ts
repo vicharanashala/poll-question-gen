@@ -193,12 +193,19 @@ export class DashboardService {
             });
         }
 
+        let totalPossibleResponses = 0;
+        for (const room of rooms) {
+            const pollCount = room.polls?.length || 0;
+            const studentCount = new Set(room.students?.map((s: any) => s.toString()) || []).size;
+            totalPossibleResponses += (pollCount * studentCount);
+        }
+
         // Sort recentRooms and activeRooms by createdAt descending
         recentRooms.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         activeRooms.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        responsesPerRoom.sort((a, b) => b.totalResponses - a.totalResponses); // Optional: Sort descending
+        responsesPerRoom.sort((a, b) => b.totalResponses - a.totalResponses);
 
-        const participationRate = totalPolls > 0 ? `${Math.round((totalResponses / totalPolls) * 100)}%` : '0%';
+        const participationRate = totalPossibleResponses > 0 ? `${Math.round((totalResponses / totalPossibleResponses) * 100)}%` : '0%';
 
         return {
             summary: {

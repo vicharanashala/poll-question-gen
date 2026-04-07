@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import {Users,HelpCircle,Trophy,Activity,ChevronRight,Search,Filter,Download,Settings,MoreVertical,CheckCircle2,Zap,ArrowUpRight,ArrowDownRight,Loader2,AlertCircle} from 'lucide-react';
-import { XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, AreaChart, Area} from 'recharts';
+import { Users, HelpCircle, Trophy, Activity, ChevronRight, Search, Filter, Download, Settings, CheckCircle2, Zap, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -132,7 +132,7 @@ export default function TeacherDashboard() {
         if (!user?.uid) return;
         const res = await api.get(`/teachers/dashboard/${user.uid}`);
         setDashboardData(res.data);
-        
+
         // Auto-select first active or first recent room
         const initialRoom = res.data.activeRooms[0]?.roomCode || res.data.recentRooms[0]?.roomCode;
         if (initialRoom) {
@@ -165,10 +165,10 @@ export default function TeacherDashboard() {
   useEffect(() => {
     if (selectedRoomCode) {
       fetchAnalysis(selectedRoomCode);
-      
+
       // Socket Integration
       socket.emit('join-room', selectedRoomCode);
-      
+
       const handleUpdate = () => {
         fetchAnalysis(selectedRoomCode);
       };
@@ -195,8 +195,8 @@ export default function TeacherDashboard() {
   // Filtered and sorted students
   const processedStudents = useMemo(() => {
     if (!analysisData) return [];
-    let filtered = analysisData.participants.filter(s => 
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    let filtered = analysisData.participants.filter(s =>
+      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.email.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -208,6 +208,29 @@ export default function TeacherDashboard() {
 
     return filtered;
   }, [analysisData, searchTerm, sortConfig]);
+
+  // Pre-calculate hardest and easiest questions to avoid in-place sorting of state
+  const { hardestQuestion, easiestQuestion } = useMemo(() => {
+    if (!analysisData?.questions || analysisData.questions.length === 0) {
+      return { hardestQuestion: null, easiestQuestion: null };
+    }
+
+    // Create a copy before sorting to avoid mutating state
+    const sorted = [...analysisData.questions].sort((a, b) => a.correctPct - b.correctPct);
+
+    return {
+      hardestQuestion: sorted[0],
+      easiestQuestion: sorted[sorted.length - 1]
+    };
+  }, [analysisData?.questions]);
+
+  // Pre-calculate top performers for the leaderboard
+  const topPerformers = useMemo(() => {
+    if (!analysisData?.participants) return [];
+    return [...analysisData.participants]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [analysisData?.participants]);
 
   const handleSort = (key: string) => {
     setSortConfig(prev => ({
@@ -234,7 +257,7 @@ export default function TeacherDashboard() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#020617] p-4 md:p-8 space-y-8 font-sans transition-colors duration-300">
-      
+
       {/* Header Section */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
@@ -251,8 +274,8 @@ export default function TeacherDashboard() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56 rounded-xl">
                   {allRooms.map((room) => (
-                    <DropdownMenuItem 
-                      key={room.roomCode} 
+                    <DropdownMenuItem
+                      key={room.roomCode}
                       onClick={() => setSelectedRoomCode(room.roomCode)}
                       className="flex justify-between"
                     >
@@ -272,7 +295,7 @@ export default function TeacherDashboard() {
             </span>
           </h1>
         </div>
-        
+
         <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800">
           <div className="flex flex-col items-end px-3">
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Current Time</span>
@@ -309,61 +332,78 @@ export default function TeacherDashboard() {
         {/* --- OVERVIEW TAB --- */}
         <TabsContent value="overview" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard 
-              title="Students Enrolled" 
-              value={analysisData?.totalStudents || 0} 
-              icon={Users} 
-              description={`${summary?.totalAssessmentRooms || 0} rooms total`} 
+            <StatCard
+              title="Students Enrolled"
+              value={analysisData?.totalStudents || 0}
+              icon={Users}
+              description={`${summary?.totalAssessmentRooms || 0} rooms total`}
               colorClass="bg-blue-600"
             />
-            <StatCard 
-              title="Room Questions" 
-              value={analysisData?.totalPolls || 0} 
-              icon={HelpCircle} 
-              description={`${summary?.totalPolls || 0} overall polls`} 
+            <StatCard
+              title="Room Questions"
+              value={analysisData?.totalPolls || 0}
+              icon={HelpCircle}
+              description={`${summary?.totalPolls || 0} overall polls`}
               colorClass="bg-indigo-600"
             />
-            <StatCard 
-              title="Points Distributed" 
-              value={(analysisData?.pointsDistributed || 0).toLocaleString()} 
-              icon={Zap} 
-              description="Point tally for room" 
+            <StatCard
+              title="Points Distributed"
+              value={(analysisData?.pointsDistributed || 0).toLocaleString()}
+              icon={Zap}
+              description="Point tally for room"
               colorClass="bg-amber-500"
             />
-            <StatCard 
-              title="Participation Rate" 
-              value={analysisData?.participants.length || 0} 
-              icon={Activity} 
-              description={`Out of ${analysisData?.totalStudents || 0} students`} 
+            <StatCard
+              title="Participation Rate"
+              value={analysisData?.participants.length || 0}
+              icon={Activity}
+              description={`Out of ${analysisData?.totalStudents || 0} students`}
               colorClass="bg-emerald-500"
             />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Class Engagement Chart */}
+            {/* Question Wise Success Rate Chart */}
             <Card className="lg:col-span-2 border-none shadow-lg bg-white dark:bg-slate-900">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-bold">Responses Per Room</CardTitle>
-                <CardDescription>Activity distribution across your teaching history</CardDescription>
+                <CardTitle className="text-lg font-bold">Question Wise Success Rate</CardTitle>
+                <CardDescription>Accuracy percentage for each question in this session</CardDescription>
               </CardHeader>
               <CardContent className="h-[350px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={dashboardData?.responsesPerRoom || []}>
-                    <defs>
-                      <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={analysisData?.questions.map((q, i) => ({ ...q, label: `Q${i + 1}` })) || []}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="roomName" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                      cursor={{ stroke: '#3b82f6', strokeWidth: 2 }}
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fontWeight: 600, fill: '#94a3b8' }}
                     />
-                    <Area type="monotone" dataKey="totalResponses" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
-                  </AreaChart>
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: '#94a3b8' }}
+                      unit="%"
+                      domain={[0, 100]}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{ backgroundColor: '#fff', borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      cursor={{ fill: '#f1f5f9' }}
+                      formatter={(value: any) => [`${value}%`, 'Accuracy']}
+                    />
+                    <Bar
+                      dataKey="correctPct"
+                      radius={[6, 6, 0, 0]}
+                      minPointSize={5} // for all wrong answers small offset
+                    >
+                      {analysisData?.questions.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.correctPct > 80 ? '#10b981' : entry.correctPct > 50 ? '#3b82f6' : '#ef4444'}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
@@ -376,7 +416,7 @@ export default function TeacherDashboard() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  {analysisData?.participants.slice(0, 5).map((student, idx) => (
+                  {topPerformers.map((student, idx) => (
                     <div key={student.id} className="flex items-center gap-4">
                       <div className="relative">
                         <Avatar className="w-10 h-10 ring-2 ring-white dark:ring-slate-800">
@@ -387,9 +427,9 @@ export default function TeacherDashboard() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{student.name}</p>
                         <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
-                          <motion.div 
+                          <motion.div
                             initial={{ width: 0 }}
-                            animate={{ width: `${Math.min(100, (student.score / (analysisData.totalPolls * 5 || 100)) * 100)}%` }}
+                            animate={{ width: `${Math.min(100, (student.score / ((analysisData?.totalPolls || 1) * 5 || 100)) * 100)}%` }}
                             transition={{ duration: 1, delay: 0.5 }}
                             className={`h-full rounded-full ${idx === 0 ? 'bg-amber-400' : 'bg-blue-500'}`}
                           />
@@ -407,22 +447,48 @@ export default function TeacherDashboard() {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-sm text-slate-500">Overall Participation</span>
                     <span className="text-sm font-bold">{summary?.participationRate || '0%'}</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-slate-500">Avg Points / Room</span>
-                    <span className="text-sm font-bold text-blue-600">
-                      {summary ? Math.round(summary.totalResponses * 5 / summary.totalAssessmentRooms) : 0}
-                    </span>
-                  </div>
                 </div>
               </CardContent>
             </Card>
           </div>
+
+          {/* Educator Resources / FAQs */}
+          <Card className="border-none shadow-lg bg-white dark:bg-slate-900 overflow-hidden">
+            <CardHeader className="bg-slate-50/50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+              <CardTitle className="flex items-center gap-2 text-slate-800 dark:text-slate-100 text-lg font-bold">
+                <HelpCircle className="h-5 w-5 text-blue-600" />
+                Educator Resources
+              </CardTitle>
+              <CardDescription>Common questions and platform guidance for instructors</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(dashboardData?.faqs || []).map((faq, idx) => (
+                  <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-100 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-900 transition-all group">
+                    <div className="font-bold text-slate-700 dark:text-slate-200 mb-2 flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0 group-hover:scale-125 transition-transform" />
+                      {faq.question}
+                    </div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400 pl-3.5 border-l border-slate-200 dark:border-slate-800">
+                      {faq.answer}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {(!dashboardData?.faqs || dashboardData.faqs.length === 0) && (
+                <div className="text-center text-slate-400 py-10">
+                  <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                  <p>No educator resources available at the moment.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* --- STUDENTS TAB --- */}
@@ -436,8 +502,8 @@ export default function TeacherDashboard() {
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input 
-                    placeholder="Search by name or email..." 
+                  <Input
+                    placeholder="Search by name or email..."
                     className="pl-10 h-10 border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -458,7 +524,6 @@ export default function TeacherDashboard() {
                       <TableHead className="font-bold cursor-pointer" onClick={() => handleSort('accuracy')}>Accuracy</TableHead>
                       <TableHead className="font-bold cursor-pointer" onClick={() => handleSort('score')}>Score</TableHead>
                       <TableHead className="font-bold cursor-pointer" onClick={() => handleSort('timeTaken')}>Total Time</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -489,7 +554,7 @@ export default function TeacherDashboard() {
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <div className="w-24 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                  <div 
+                                  <div
                                     className={`h-full rounded-full ${student.accuracy > 80 ? 'bg-emerald-500' : student.accuracy > 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
                                     style={{ width: `${student.accuracy}%` }}
                                   />
@@ -505,26 +570,13 @@ export default function TeacherDashboard() {
                             <TableCell className="text-sm text-slate-500 dark:text-slate-400">
                               {student.timeTaken}
                             </TableCell>
-                            <TableCell className="text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400">
-                                    <MoreVertical className="w-4 h-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="rounded-xl border-slate-200">
-                                  <DropdownMenuItem>View Profile</DropdownMenuItem>
-                                  <DropdownMenuItem>View Answer Log</DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
                           </motion.tr>
                         );
                       })}
                       {!processedStudents.length && (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-10 text-slate-400">
-                             No students found matching your criteria.
+                          <TableCell colSpan={5} className="text-center py-10 text-slate-400">
+                            No students found matching your criteria.
                           </TableCell>
                         </TableRow>
                       )}
@@ -538,51 +590,32 @@ export default function TeacherDashboard() {
 
         {/* --- QUESTIONS ANALYTICS TAB --- */}
         <TabsContent value="questions" className="space-y-6">
+          {/* Analytics Summary Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="border-none shadow-lg bg-white dark:bg-slate-900">
-              <CardHeader>
-                <CardTitle className="text-lg font-bold">Accuracy Trend</CardTitle>
-                <CardDescription>Performance across this session's questions</CardDescription>
-              </CardHeader>
-              <CardContent className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analysisData?.questions || []}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="id" axisLine={false} tickLine={false} tick={{fontSize: 10}} />
-                    <YAxis axisLine={false} tickLine={false} unit="%" />
-                    <RechartsTooltip cursor={{fill: '#f8fafc'}} />
-                    <Area type="monotone" dataKey="correctPct" stroke="#8b5cf6" fill="#c4b5fd" fillOpacity={0.3} />
-                  </AreaChart>
-                </ResponsiveContainer>
+            <Card className="border-none shadow-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white">
+              <CardContent className="p-6 flex flex-col items-center justify-center text-center h-full">
+                <div className="p-3 bg-white/20 rounded-full mb-3">
+                  <Activity className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-bold">Hardest Q</h3>
+                <p className="text-sm text-indigo-100 mt-2 truncate w-full px-2">
+                  {hardestQuestion?.text || 'N/A'}
+                </p>
+                <p className="text-xs text-indigo-200 mt-1">Accuracy: {hardestQuestion?.correctPct || 0}%</p>
               </CardContent>
             </Card>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Card className="border-none shadow-lg bg-gradient-to-br from-indigo-500 to-indigo-700 text-white">
-                <CardContent className="p-6 flex flex-col items-center justify-center text-center h-full">
-                  <div className="p-3 bg-white/20 rounded-full mb-3">
-                    <Activity className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold">Hardest Q</h3>
-                  <p className="text-sm text-indigo-100 mt-2 truncate w-full px-2">
-                    {analysisData?.questions.sort((a,b) => a.correctPct - b.correctPct)[0]?.text || 'N/A'}
-                  </p>
-                  <p className="text-xs text-indigo-200 mt-1">Accuracy: {analysisData?.questions.sort((a,b) => a.correctPct - b.correctPct)[0]?.correctPct || 0}%</p>
-                </CardContent>
-              </Card>
-              <Card className="border-none shadow-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white">
-                <CardContent className="p-6 flex flex-col items-center justify-center text-center h-full">
-                  <div className="p-3 bg-white/20 rounded-full mb-3">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold">Easiest Q</h3>
-                  <p className="text-sm text-emerald-100 mt-2 truncate w-full px-2">
-                     {analysisData?.questions.sort((a,b) => b.correctPct - a.correctPct)[0]?.text || 'N/A'}
-                  </p>
-                  <p className="text-xs text-emerald-200 mt-1">Accuracy: {analysisData?.questions.sort((a,b) => b.correctPct - a.correctPct)[0]?.correctPct || 0}%</p>
-                </CardContent>
-              </Card>
-            </div>
+            <Card className="border-none shadow-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white">
+              <CardContent className="p-6 flex flex-col items-center justify-center text-center h-full">
+                <div className="p-3 bg-white/20 rounded-full mb-3">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-bold">Easiest Q</h3>
+                <p className="text-sm text-emerald-100 mt-2 truncate w-full px-2">
+                  {easiestQuestion?.text || 'N/A'}
+                </p>
+                <p className="text-xs text-emerald-200 mt-1">Accuracy: {easiestQuestion?.correctPct || 0}%</p>
+              </CardContent>
+            </Card>
           </div>
 
           <Card className="border-none shadow-lg bg-white dark:bg-slate-900">
@@ -601,17 +634,16 @@ export default function TeacherDashboard() {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded">Q{idx + 1}</span>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                              q.difficulty === 'High' ? 'bg-rose-50 text-rose-500' : 
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${q.difficulty === 'High' ? 'bg-rose-50 text-rose-500' :
                               q.difficulty === 'Medium' ? 'bg-amber-50 text-amber-500' : 'bg-emerald-50 text-emerald-500'
-                            }`}>
+                              }`}>
                               {q.difficulty} DIFFICULTY
                             </span>
                           </div>
                           <h4 className="font-bold text-slate-800 dark:text-slate-200 text-lg mb-1">{q.text}</h4>
                           <p className="text-sm text-slate-500">Type: {q.type} • Points: {q.points}</p>
                         </div>
-                        
+
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 lg:gap-8">
                           <div className="text-center sm:text-left">
                             <p className="text-xs text-slate-400 font-medium">RESPONSES</p>
