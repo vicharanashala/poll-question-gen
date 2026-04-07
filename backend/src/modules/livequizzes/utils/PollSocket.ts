@@ -158,6 +158,40 @@ class PollSocket {
         }
       });
 
+      socket.on('update-pending-polls', async ({ roomCode, polls }) => {
+        try {
+          await this.roomService.updatePendingPolls(roomCode, polls);
+          socket.to(roomCode).emit('pending-polls-updated', { polls });
+        } catch (err) {
+          console.error("update-pending-polls error", err);
+        }
+      });
+
+      socket.on('update-queued-polls', async ({ roomCode, polls }) => {
+        try {
+          await this.roomService.updateQueuedPolls(roomCode, polls);
+          socket.to(roomCode).emit('queued-polls-updated', { polls });
+        } catch (err) {
+          console.error("update-queued-polls error", err);
+        }
+      });
+
+      socket.on('sync-room-ui', ({ roomCode, uiState }) => {
+        try {
+          socket.to(roomCode).emit('room-ui-synced', uiState);
+        } catch (err) {
+          console.error("sync-room-ui error", err);
+        }
+      });
+
+      socket.on('notify-polls-available', ({ roomCode }) => {
+        try {
+          socket.to(roomCode).emit('polls-available');
+        } catch (err) {
+          console.error("notify-polls-available error", err);
+        }
+      });
+
       socket.on('cohost-leave', async (roomCode: string, cohostId: string) => {
         const room = await Room.findOne({ roomCode });
         const teacherId = room.teacherId

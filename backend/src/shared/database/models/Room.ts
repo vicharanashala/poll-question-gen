@@ -8,7 +8,7 @@ const AnswerSchema = new mongoose.Schema({
 });
 
 const PollSchema = new mongoose.Schema({
-  _id: { type: String, required: true },
+  _id: { type: String, required: false },
   question: { type: String, required: true },
   options: [{ type: String }],
   correctOptionIndex: { type: Number, default: -1 },
@@ -47,6 +47,10 @@ const CoHostInviteSchema = new mongoose.Schema(
       type: String   // JWT jti
     },
 
+    inviteCode: {
+      type: String
+    },
+
     expiresAt: {
       type: Date
     },
@@ -83,6 +87,8 @@ const RoomSchema = new mongoose.Schema({
   endedAt: { type: Date }, 
   status: { type: String, enum: ['active', 'ended'], default: 'active' },
   polls: [PollSchema],
+  pendingPolls: [PollSchema],
+  queuedPolls: [PollSchema],
   joinedStudents: [{ type: String }],
   students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   recordingLock: RecordingLockSchema,

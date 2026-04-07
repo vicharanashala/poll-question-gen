@@ -288,17 +288,17 @@ export class PollRoomController {
   }
   //join as cohost
   @Post('/cohost')
-  async joinAsCohost(@Body() body: { token: string, userId: string }) {
-    const resp = await this.roomService.joinAsCohost(body.token, body.userId);
+  async joinAsCohost(@Body() body: { roomCode: string, inviteCode: string, userId: string }) {
+    const resp = await this.roomService.joinAsCohost(body.roomCode, body.inviteCode, body.userId);
     return { success: true, ...resp };
   }
 
-  //generate cohost invite link
+  //generate cohost invite code
   @Post('/cohost/:code')
   async generateCohostInvite(@Param('code') roomCode: string, @Body() body: { userId: string }) {
     console.log('roomCode:', roomCode);
-    const resp = await this.roomService.generateCohostInvite(roomCode, body.userId);
-    return { success: true, inviteLink: resp };
+    const code = await this.roomService.generateCohostInvite(roomCode, body.userId);
+    return { success: true, inviteCode: code };
   }
 
   //get cohosted rooms

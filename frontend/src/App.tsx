@@ -23,7 +23,7 @@ export function App() {
       <AuthProvider>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <RouterProvider router={router} />
-          <Toaster />
+          <Toaster position="bottom-right" expand={false} />
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>

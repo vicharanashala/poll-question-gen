@@ -11,7 +11,7 @@ import {
   updateProfile,
   User
 } from "firebase/auth";
-import { IUser, useAuthStore } from "./store/auth-store";
+import { useAuthStore } from "./store/auth-store";
 import { mapFirebaseUserToAppUser } from "./api/auth";
 // import { log } from "console";
 
@@ -109,14 +109,18 @@ export const createUserWithEmail = async (
     }
     const token = await firebaseUser.getIdToken(true);
 
-    const backendUser = await createBackendUser(firebaseUser);
+    // Pass displayName parts directly to ensure backend validation passes
+    const firstName = displayName?.split(' ')[0] || '';
+    const lastName = displayName?.split(' ').slice(1).join(' ') || '';
+
+    const backendUser = await createBackendUser(firebaseUser, firstName, lastName);
 
     const setAuthState = useAuthStore.getState();
     setAuthState.setToken(token);
     setAuthState.setUser({
       uid: firebaseUser.uid,
       email: firebaseUser.email,
-      name: `${backendUser.firstName} ${backendUser.lastName}`,
+      name: displayName || `${backendUser.firstName} ${backendUser.lastName}`,
       role: backendUser.role || null,
       avatar: backendUser.avatar || null,
       ...backendUser,
@@ -136,13 +140,21 @@ export const logout = () => {
   useAuthStore.getState().clearUser?.(); // safe call if function exists
 };
 
-export const createBackendUser = async (firebaseUser: User) => {
+export const createBackendUser = async (firebaseUser: User, firstNameOverride?: string, lastNameOverride?: string) => {
   const token = await firebaseUser.getIdToken(true);
   try {
+    const firstName = firstNameOverride || firebaseUser.displayName?.split(' ')[0] || 'User';
+    const lastName = lastNameOverride || firebaseUser.displayName?.split(' ').slice(1).join(' ') || '';
+
     const newUser = {
       firebaseUID: firebaseUser.uid,
+<<<<<<< Updated upstream
       firstName: firebaseUser.displayName?.split(' ')[0] || firebaseUser.email?.split('@')[0] || 'Unknown',
       lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || 'User',
+=======
+      firstName: firstName,
+      lastName: lastName,
+>>>>>>> Stashed changes
       email: firebaseUser.email || '',
       avatar: firebaseUser.photoURL || null,
       role: "", // null,

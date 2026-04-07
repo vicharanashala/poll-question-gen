@@ -10,12 +10,12 @@ import { useAuthStore } from '../store/auth-store';
 import { queryClient } from './client';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
+console.log("DEBUG: auth.ts API_URL =", API_URL);
 
 // Updated auth functions to pass role from UI to backend
 
 // In your auth page, modify the login functions to pass the selected role:
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null) => {
   if (!firebaseUser) return null;
@@ -25,19 +25,53 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
     useAuthStore.getState().setToken(token);
 
     // Fetch backend user info directly using fetch
-    let backendUser = null;
-    let attempts = 0;
-    const maxAttempts = 2;
+    let res = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
 
-    while (attempts < maxAttempts && !backendUser) {
-      attempts++;
-      const res = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}`, {
+    let backendUser = null;
+
+    if (res.ok) {
+      backendUser = await res.json();
+      console.log(`Fetched backend user:`, backendUser);
+    } else if (res.status === 404) {
+      console.warn(`User not found. Creating backend user...`);
+      
+      // Create user in backend MongoDB
+      const newUser = {
+        firebaseUID: firebaseUser.uid,
+        firstName: firebaseUser.displayName?.split(' ')[0] || 'User',
+        lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+        email: firebaseUser.email || '',
+        avatar: firebaseUser.photoURL || null,
+        role: "", // Initially empty, will be set in role selection page
+
+        // Additional profile fields
+        phoneNumber: null,
+        bio: null,
+        institution: null,
+        designation: null,
+        address: null,
+        emergencyContact: null,
+        dateOfBirth: null,
+
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const createRes = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}/profile`, {
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
+        body: JSON.stringify(newUser),
       });
 
+<<<<<<< Updated upstream
       if (res.ok) {
         backendUser = await res.json();
         console.log(`Fetched backend user on attempt ${attempts}:`, backendUser);
@@ -81,11 +115,20 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
           console.error('Failed to auto-create backend user:', errorText);
           throw new Error(`Failed to create user: ${errorText}`);
         }
+=======
+      if (createRes.ok) {
+        backendUser = await createRes.json();
+        console.log('Successfully created backend user:', backendUser);
+>>>>>>> Stashed changes
       } else {
-        const errorText = await res.text();
-        console.error('Failed to fetch backend user:', errorText);
-        throw new Error(`Failed to fetch user: ${errorText}`);
+        const errorText = await createRes.text();
+        console.error('Failed to create backend user:', errorText);
+        throw new Error(`Failed to create user: ${errorText}`);
       }
+    } else {
+      const errorText = await res.text();
+      console.error('Failed to fetch backend user:', errorText);
+      throw new Error(`Failed to fetch user: ${errorText}`);
     }
 
     console.log('Backend user data:', backendUser?.role);

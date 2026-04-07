@@ -215,10 +215,24 @@ export class RoomService {
     return rooms.map(room => this.mapRoom(room));
   }
 
-  async getEndedRooms(): Promise<RoomType[]> {
-    const rooms = await Room.find({ status: 'ended' }).lean();
-    return rooms.map(room => this.mapRoom(room));
+  async updatePendingPolls(roomCode: string, pendingPolls: any[]): Promise<boolean> {
+    const updated = await Room.findOneAndUpdate(
+      { roomCode },
+      { pendingPolls },
+      { new: true }
+    ).lean();
+    return !!updated;
   }
+
+  async updateQueuedPolls(roomCode: string, queuedPolls: any[]): Promise<boolean> {
+    const updated = await Room.findOneAndUpdate(
+      { roomCode },
+      { queuedPolls },
+      { new: true }
+    ).lean();
+    return !!updated;
+  }
+
   /**
    * Map Mongoose Room Document to plain RoomType matching interface
    */
@@ -227,6 +241,7 @@ export class RoomService {
       roomCode: roomDoc.roomCode,
       name: roomDoc.name,
       teacherId: roomDoc.teacherId,
+      teacherName: roomDoc.teacherName,
       createdAt: roomDoc.createdAt,
       endedAt: roomDoc.endedAt,
       status: roomDoc.status,
@@ -246,6 +261,22 @@ export class RoomService {
           answerIndex: a.answerIndex,
           answeredAt: a.answeredAt
         }))
+      })),
+      pendingPolls: (roomDoc.pendingPolls || []).map((p: any): Poll => ({
+        _id: p._id?.toString(),
+        question: p.question,
+        options: p.options,
+        correctOptionIndex: p.correctOptionIndex,
+        timer: p.timer,
+        createdAt: p.createdAt
+      })),
+      queuedPolls: (roomDoc.queuedPolls || []).map((p: any): Poll => ({
+        _id: p._id?.toString(),
+        question: p.question,
+        options: p.options,
+        correctOptionIndex: p.correctOptionIndex,
+        timer: p.timer,
+        createdAt: p.createdAt
       }))
     };
   }
@@ -416,44 +447,33 @@ export class RoomService {
       throw new HttpError(403, "Only host can generate invite")
     }
 
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const inviteId = uuidv4();
-
-    const token = jwt.sign(
-      {
-        roomId: room.roomCode,
-        jti: inviteId
-      },
-      process.env.COHOST_INVITE_SECRET,
-      { expiresIn: "30m" }
-    );
 
     room.coHostInvite = {
       createdAt: new Date(Date.now()),
       inviteId,
+      inviteCode,
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       isActive: true
     };
 
     await room.save();
 
-    return `${process.env.APP_ORIGINS}/teacher/cohost-invite/${token}`
+    return inviteCode;
 
   }
 
   //join as cohost
-  async joinAsCohost(token: string, userId: string): Promise<{ message: string, roomId: string }> {
+  async joinAsCohost(roomCode: string, inviteCode: string, userId: string): Promise<{ message: string, roomId: string }> {
 
-    const decoded = jwt.verify(
-      token,
-      process.env.COHOST_INVITE_SECRET
-    ) as CohostJwtPayload;
-    const room = await Room.findOne({ roomCode: decoded.roomId });
+    const room = await Room.findOne({ roomCode });
     if (!room || room.status !== "active") {
       throw new HttpError(400, "Invalid room")
     }
     if (
       !room.coHostInvite.isActive ||
-      room.coHostInvite.inviteId !== decoded.jti ||
+      room.coHostInvite.inviteCode !== inviteCode ||
       room.coHostInvite.expiresAt < new Date()
     ) {
       throw new HttpError(400, "Invite invalid or expired")
@@ -485,8 +505,8 @@ export class RoomService {
     await room.save();
 
     // Get updated cohost list with full details
-    const activeCohosts = await this.getRoomCohosts(room.teacherId, decoded.roomId);
-    pollSocket?.emitToRoom(decoded.roomId, 'cohost-joined', {
+    const activeCohosts = await this.getRoomCohosts(room.teacherId, roomCode);
+    pollSocket?.emitToRoom(roomCode, 'cohost-joined', {
       activeCohosts: activeCohosts
     });
 
