@@ -7,7 +7,6 @@ import { cleanTranscriptLines } from '../utils/cleanTranscriptLines.js';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { aiConfig } from '#root/config/ai.js';
 
-// --- Type Definitions ---
 export interface TranscriptSegment {
   end_time: string;
   transcript_lines: string[];
@@ -29,8 +28,9 @@ export type QuestionSpec = Partial<Record<QuestionType, number>>;
 
 @injectable()
 export class AIContentService {
-  private readonly ollimaApiBaseUrl = `http://${aiConfig.serverIP}:${aiConfig.serverPort}/api`;
+  private readonly ollimaApiBaseUrl = `http://127.0.0.1:11434/api`;
   private readonly llmApiUrl = `${this.ollimaApiBaseUrl}/generate`;
+  private readonly DEFAULT_MODEL = "llama3.2:latest";
   
   private createProxyAgent() {
     try {
@@ -43,7 +43,8 @@ export class AIContentService {
   
   private getRequestConfig(): AxiosRequestConfig {
     const config: AxiosRequestConfig = {
-      timeout: 180000, // 3 min request timeout
+      // Bumping to 15 mins to ensure 20-question batches don't timeout
+      timeout: 900000, 
     };
     
     try {
@@ -51,14 +52,11 @@ export class AIContentService {
       if (aiConfig.useProxy && !isLocal) {
         const proxyAgent = this.createProxyAgent();
         if (proxyAgent) {
-          console.log(`[AIContentService] Using SOCKS proxy for connection to ${this.ollimaApiBaseUrl}`);
           config.httpAgent = proxyAgent;
           config.httpsAgent = proxyAgent;
         } else {
           console.warn(`[AIContentService] Failed to create proxy agent, falling back to direct connection`);
         }
-      } else {
-        console.log(`[AIContentService] Direct connection to ${this.ollimaApiBaseUrl} (proxy disabled)`);
       }
     } catch (error) {
       console.error(`[AIContentService] Error configuring request: ${error}`);
@@ -67,10 +65,9 @@ export class AIContentService {
     return config;
   }
 
-  // --- Segmentation Logic ---
   public async segmentTranscript(
     transcript: string,
-    model = 'llama3.2',
+    model = this.DEFAULT_MODEL,
     desiredSegments = 3
   ): Promise<Record<string, string>> {
     if (!transcript?.trim()) {
@@ -92,9 +89,10 @@ JSON:`;
     try {
       const config = this.getRequestConfig();
       const response = await axios.post(this.llmApiUrl, {
-        model,
+        model: this.DEFAULT_MODEL,
         prompt,
         stream: false,
+        format: "json",
         options: { temperature: 0.1 },
       }, config);
 
@@ -103,7 +101,6 @@ JSON:`;
       segments = JSON.parse(cleaned);
 
     } catch (error: any) {
-      // Fallback segmentation logic remains the same
       const lines = transcript.split('\n').filter(line => line.trim() !== '');
       segments = [{ end_time: '00:00.000', transcript_lines: lines }];
     }
@@ -118,31 +115,38 @@ JSON:`;
     return result;
   }
 
-  // --- Question Generation Logic ---
   private createQuestionPrompt(
     questionType: string,
     count: number,
     transcriptContent: string
   ): string {
-    return `You are an AI question generator. Generate EXACTLY ${count} question(s) of type ${questionType} based on the transcript.
-Output ONLY a raw JSON array. No markdown, no conversational text.
+    return `You are an expert educational assessment generator. Your task is to generate EXACTLY ${count} unique, high-quality questions of type ${questionType} based STRICTLY on the provided transcript.
 
-Format:
-[
-  {
-    "questionText": "Question here?",
-    "options": [
-      { "text": "Option A", "correct": true, "explanation": "Why correct" },
-      { "text": "Option B", "correct": false, "explanation": "Why incorrect" },
-      { "text": "Option C", "correct": false, "explanation": "Why incorrect" },
-      { "text": "Option D", "correct": false, "explanation": "Why incorrect" }
-    ],
-    "solution": "Brief summary",
-    "isParameterized": false,
-    "timeLimitSeconds": 60,
-    "points": 5
-  }
-]
+CRITICAL INSTRUCTIONS:
+1. QUANTITY: You MUST generate exactly ${count} objects inside the "questions" array. Do not stop until you reach this number.
+2. NO PLACEHOLDERS: You are forbidden from using "Option A/B" or True/False placeholders. Options must be educational phrases.
+3. FULL QUESTIONS: 'questionText' must be a complete interrogative sentence ending in a question mark.
+4. STRICT JSON ONLY: Return a valid JSON object with the key "questions".
+
+Format Pattern:
+{
+  "questions": [
+    {
+      "questionText": "<Question 1 text?>",
+      "options": [
+        { "text": "<Correct answer>", "correct": true, "explanation": "<Why correct>" },
+        { "text": "<Distractor 1>", "correct": false, "explanation": "<Why wrong>" },
+        { "text": "<Distractor 2>", "correct": false, "explanation": "<Why wrong>" },
+        { "text": "<Distractor 3>", "correct": false, "explanation": "<Why wrong>" }
+      ],
+      "solution": "<Concept summary>",
+      "isParameterized": false,
+      "timeLimitSeconds": 60,
+      "points": 5
+    }
+    // ... CONTINUE GENERATING UNTIL THE ARRAY HAS EXACTLY ${count} OBJECTS ...
+  ]
+}
 
 Transcript:
 ${transcriptContent}`;
@@ -153,7 +157,7 @@ ${transcriptContent}`;
     globalQuestionSpecification: QuestionSpec[];
     model?: string;
   }): Promise<GeneratedQuestion[]> {
-    const { segments, globalQuestionSpecification, model = 'llama3.2' } = args;
+    const { segments, globalQuestionSpecification } = args;
 
     if (!segments || Object.keys(segments).length === 0) {
       throw new HttpError(400, 'segments must be a non-empty object.');
@@ -165,7 +169,11 @@ ${transcriptContent}`;
     for (const rawSegmentId in segments) {
       const segmentId = String(rawSegmentId);
       const transcript = segments[segmentId];
-      if (!transcript) continue;
+      
+      if (!transcript || transcript.trim().length < 150) {
+        console.warn(`[generateQuestions] Segment ${segmentId} too short. Skipping.`);
+        continue;
+      }
 
       for (const [type, count] of Object.entries(questionSpecs)) {
         if (typeof count === 'number' && count > 0) {
@@ -173,58 +181,134 @@ ${transcriptContent}`;
             const prompt = this.createQuestionPrompt(type, count, transcript);
             const config = this.getRequestConfig();
             
+            console.log(`[generateQuestions] Requesting ${count} questions...`);
+            
             const response = await axios.post(this.llmApiUrl, {
-              model,
+              model: this.DEFAULT_MODEL, 
               prompt,
               stream: false,
-              options: { temperature: 0.2 }
+              format: "json", 
+              options: { 
+                temperature: 0.3,
+                num_predict: 8192, // High token limit for large batches
+                num_ctx: 16384     // Large context window
+              }
             }, config);
             
             const text = response.data?.response;
             if (typeof text !== 'string') continue;
 
-            const cleaned = extractJSONFromMarkdown(text);
-            const parsed = JSON.parse(cleaned);
-            const rawQuestions = Array.isArray(parsed) ? parsed : [parsed];
+            let parsed;
+            try {
+              parsed = JSON.parse(text); 
+            } catch {
+              try {
+                const cleaned = extractJSONFromMarkdown(text);
+                parsed = JSON.parse(cleaned);
+              } catch (parseErr) {
+                const fixedStr = text.replace(/,\s*]/g, "]").replace(/,\s*}/g, "}");
+                try {
+                  parsed = JSON.parse(extractJSONFromMarkdown(fixedStr));
+                } catch (fallbackErr) {
+                  console.error("[generateQuestions] JSON Parse Error.");
+                  continue; 
+                }
+              }
+            }
+
+            let rawQuestions: any[] = [];
+            
+            // SMARTER JSON PARSING
+            if (Array.isArray(parsed)) {
+              rawQuestions = parsed;
+            } else if (parsed && typeof parsed === 'object') {
+              if (parsed.questions && Array.isArray(parsed.questions)) {
+                rawQuestions = parsed.questions;
+              } else if (parsed.questionText || parsed.question || parsed.options) {
+                rawQuestions = [parsed];
+              } else if (parsed.data && Array.isArray(parsed.data)) {
+                rawQuestions = parsed.data;
+              } else {
+                const arrayValues = Object.values(parsed).filter(v => Array.isArray(v));
+                if (arrayValues.length > 0 && arrayValues[0].length > 0 && 
+                   (arrayValues[0][0].questionText || arrayValues[0][0].question)) {
+                  rawQuestions = arrayValues[0] as any[];
+                } else {
+                  rawQuestions = [parsed];
+                }
+              }
+            }
 
             rawQuestions.forEach(q => {
-              // --- ROBUST EXTRACTION LOGIC ---
-              const questionText = q.questionText || q.question?.text || q.text || '';
+              const qObj = q || {};
+              const questionText = qObj.questionText || qObj.QuestionText || qObj.question || qObj.Question || qObj.text || '';
+              const solution = qObj.solution || qObj.Solution || qObj.explanation || '';
+              const isParameterized = qObj.isParameterized ?? qObj.IsParameterized ?? qObj.question?.isParameterized ?? false;
+              const timeLimitSeconds = qObj.timeLimitSeconds ?? qObj.TimeLimitSeconds ?? 60;
+              const points = qObj.points ?? qObj.Points ?? 5;
               
-              let finalOptions = [];
-              if (Array.isArray(q.options)) {
-                finalOptions = q.options;
-              } else if (q.solution?.incorrectLotItems && q.solution?.correctLotItem) {
-                // Handling Llama's common 'LotItem' nesting
+              let finalOptions: any[] = [];
+              const rawOptions = qObj.options || qObj.Options || qObj.choices || qObj.Choices || qObj.answers || [];
+              
+              if (Array.isArray(rawOptions) && rawOptions.length > 0) {
+                finalOptions = rawOptions.map(opt => {
+                  if (typeof opt === 'string') return { text: opt, correct: false, explanation: "" };
+                  return {
+                    text: opt.text || opt.Text || opt.value || opt.choice || opt.option || String(opt),
+                    correct: opt.correct === true || opt.Correct === true || opt.isCorrect === true || String(opt.correct).toLowerCase() === 'true',
+                    explanation: opt.explanation || opt.Explanation || opt.reason || ''
+                  };
+                });
+              } else if (typeof rawOptions === 'object' && Object.keys(rawOptions).length > 0) {
+                finalOptions = Object.values(rawOptions).map((opt: any) => {
+                  if (typeof opt === 'string') return { text: opt, correct: false, explanation: "" };
+                  return {
+                    text: opt.text || opt.Text || String(opt),
+                    correct: opt.correct === true || opt.Correct === true,
+                    explanation: opt.explanation || opt.Explanation || ''
+                  };
+                });
+              } else if (qObj.solution?.incorrectLotItems && qObj.solution?.correctLotItem) {
+                // Handling your specific fallback case
                 finalOptions = [
-                  ...q.solution.incorrectLotItems.map((item: any) => ({
+                  ...qObj.solution.incorrectLotItems.map((item: any) => ({
                     text: item.text,
                     correct: false,
                     explanation: item.explanation || item.explaination || ''
                   })),
                   {
-                    text: q.solution.correctLotItem.text,
+                    text: qObj.solution.correctLotItem.text,
                     correct: true,
-                    explanation: q.solution.correctLotItem.explanation || q.solution.correctLotItem.explaination || ''
+                    explanation: qObj.solution.correctLotItem.explanation || qObj.solution.correctLotItem.explaination || ''
                   }
                 ];
+              }
+
+              // Guardrails
+              const isFragment = questionText.split(' ').length < 3;
+              const hasLazyOptions = finalOptions.some(opt => /^option\s*[a-d1-4]$/i.test(opt.text));
+              const missingCorrect = !finalOptions.some(opt => opt.correct === true);
+
+              if (isFragment || hasLazyOptions || finalOptions.length < 2 || missingCorrect) {
+                 console.warn(`[generateQuestions] Rejected low-quality generation: "${questionText.substring(0, 20)}..."`);
+                 return; 
               }
 
               allQuestions.push({
                 questionText,
                 options: finalOptions,
-                solution: q.solution?.explanation || q.solution || '',
-                isParameterized: q.isParameterized ?? q.question?.isParameterized ?? false,
-                timeLimitSeconds: q.timeLimitSeconds ?? q.question?.timeLimitSeconds ?? 60,
-                points: q.points ?? q.question?.points ?? 5,
+                solution,
+                isParameterized,
+                timeLimitSeconds,
+                points,
                 segmentId,
                 questionType: type
               });
             });
 
-            console.log(`[generateQuestions] Generated ${rawQuestions.length} ${type} questions.`);
+            console.log(`[generateQuestions] Parsed ${allQuestions.length} valid questions so far.`);
           } catch (e: any) {
-            console.error(`[generateQuestions] Error: ${e.message}`);
+            console.error("[generateQuestions] Request Error:", e.message);
           }
         }
       }

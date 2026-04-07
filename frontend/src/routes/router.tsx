@@ -5,7 +5,6 @@ import {
   createRootRoute,
   createMemoryHistory,
   Outlet,
-  NotFoundRoute,
   useNavigate
 } from '@tanstack/react-router'
 import { useAuthStore } from '@/lib/store/auth-store'
@@ -66,7 +65,6 @@ const authRoute = createRoute({
   component: AuthPage,
   beforeLoad: () => {
     const { isAuthenticated, user } = useAuthStore.getState();
-    // Redirect to appropriate dashboard if already authenticated
     if (isAuthenticated && user?.role) {
       if (user.role === 'teacher') {
         throw redirect({ to: '/teacher' });
@@ -84,7 +82,6 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    // Redirect to appropriate dashboard or auth
     const { isAuthenticated, user } = useAuthStore.getState();
     if (isAuthenticated && user?.role) {
       if (user.role === 'teacher') {
@@ -95,7 +92,6 @@ const indexRoute = createRoute({
     } else if (isAuthenticated && user && !user.role) {
       throw redirect({ to: '/select-role' });
     }
-    // Default redirect to auth if not authenticated or role unknown
     throw redirect({ to: '/auth' });
   },
   component: () => null,
@@ -107,21 +103,17 @@ const teacherLayoutRoute = createRoute({
   path: '/teacher',
   notFoundComponent: NotFoundComponent,
   beforeLoad: ({ location }) => {
-    // Auth and role check
     const { isAuthenticated, user } = useAuthStore.getState();
     if (!isAuthenticated) {
       throw redirect({ to: '/auth' });
     }
-
-    // Role check - must be a teacher
     if (user?.role !== 'teacher') {
       if (user?.role === 'student') {
-        throw redirect({ to: '/student' }); // Redirect students to their dashboard
+        throw redirect({ to: '/student' });
       } else {
-        throw redirect({ to: '/auth' }); // Redirect others to auth
+        throw redirect({ to: '/auth' });
       }
     }
-    
     if (location.pathname === '/teacher' || location.pathname === '/teacher/') {
       throw redirect({ to: '/teacher/home' });
     }
@@ -135,21 +127,17 @@ const studentLayoutRoute = createRoute({
   path: '/student',
   notFoundComponent: NotFoundComponent,
   beforeLoad: ({ location }) => {
-    // Auth and role check
     const { isAuthenticated, user } = useAuthStore.getState();
     if (!isAuthenticated) {
       throw redirect({ to: '/auth' });
     }
-
-    // Role check - must be a student
     if (user?.role !== 'student') {
       if (user?.role === 'teacher') {
-        throw redirect({ to: '/teacher/home' }); // Redirect teachers to their dashboard
+        throw redirect({ to: '/teacher/home' });
       } else {
-        throw redirect({ to: '/auth' }); // Redirect others to auth
+        throw redirect({ to: '/auth' });
       }
     }
-    
     if (location.pathname === '/student' || location.pathname === '/student/') {
       throw redirect({ to: '/student/home' });
     }
@@ -159,13 +147,11 @@ const studentLayoutRoute = createRoute({
 
 // Role Select Page
 const roleSelectRoute = createRoute({
-  getParentRoute: () => rootRoute, 
+  getParentRoute: () => rootRoute,
   path: '/select-role',
   beforeLoad: () => {
     const { isAuthenticated, user } = useAuthStore.getState();
     if (!isAuthenticated) throw redirect({ to: '/auth' });
-    
-    // If user already has a role, redirect to appropriate dashboard
     if (user?.role === 'teacher') {
       throw redirect({ to: '/teacher/home' });
     } else if (user?.role === 'student') {
@@ -174,7 +160,6 @@ const roleSelectRoute = createRoute({
   },
   component: RoleSelectionPage,
 });
-
 
 // Teacher dashboard route
 const teacherDashboardRoute = createRoute({
@@ -202,7 +187,7 @@ const teacherManageRoomsRoute = createRoute({
   getParentRoute: () => teacherLayoutRoute,
   path: '/manage-rooms',
   component: ManageRoom,
-}); 
+});
 
 // Teacher cohosted rooms route
 const teacherCohostedRoomsRoute = createRoute({
@@ -225,7 +210,7 @@ const cohostInviteRoute = createRoute({
   component: CohostInvite,
 });
 
-// Teacher poll room route
+// Teacher poll room route — child of rootRoute, full path defined explicitly
 export const teacherPollRoomRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/teacher/pollroom/$code',
@@ -273,7 +258,7 @@ const studentProfileRoute = createRoute({
   component: StudentProfile,
 });
 
-// Student poll room route
+// Student poll room route — child of rootRoute, full path defined explicitly
 const studentPollRoomRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/student/pollroom/$code',
@@ -328,20 +313,17 @@ const studentSettingsRoute = createRoute({
   component: StudentSettings,
 });
 
-// Create a catch-all not found route
-const notFoundRoute = new NotFoundRoute({
-  getParentRoute: () => rootRoute,
-  component: NotFoundComponent,
-});
-
-// Create the router with the route tree
+// Build the route tree
+// Note: teacherPollRoomRoute and studentPollRoomRoute are at root level
+// because they define full absolute paths and don't use TeacherLayout/StudentLayout
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
   roleSelectRoute,
+  teacherPollRoomRoute,
+  studentPollRoomRoute,
   teacherLayoutRoute.addChildren([
     // teacherGenAIHomeRoute,
-    teacherPollRoomRoute,
     teacherCreateRoomRoute,
     teacherDashboardRoute,
     teacherProfileRoute,
@@ -352,7 +334,6 @@ const routeTree = rootRoute.addChildren([
     cohostInviteRoute,
   ]),
   studentLayoutRoute.addChildren([
-    studentPollRoomRoute,
     studentJoinRoomRoute,
     studentDashboardRoute,
     studentProfileRoute,
@@ -366,18 +347,15 @@ const routeTree = rootRoute.addChildren([
 // For server-side rendering compatibility
 const memoryHistory = typeof window !== 'undefined' ? undefined : createMemoryHistory();
 
-// Create router instance with additional options
+// Create router instance
 export const router = new Router({
   routeTree,
   defaultPreload: 'intent',
-  // Use memory history for SSR
   history: memoryHistory,
-  // Global not found component
   defaultNotFoundComponent: NotFoundComponent,
-  notFoundRoute,
 });
 
-// Add a navigation guard for redirecting based on roles
+// Navigation guard for redirecting based on roles
 export const useRedirectBasedOnRole = () => {
   const { user, isAuthenticated } = useAuthStore();
   const navigate = useNavigate();
@@ -386,13 +364,9 @@ export const useRedirectBasedOnRole = () => {
     if (isAuthenticated && user?.role) {
       const path = window.location.pathname;
 
-      // If the user is at root or auth page and already authenticated, redirect to their role's dashboard
       if (path === '/' || path === '/auth') {
         navigate({ to: `/${user.role.toLowerCase()}` });
-      }
-
-      // If user is trying to access a different role's route, redirect to their proper route
-      else if (
+      } else if (
         (path.startsWith('/teacher') && user.role !== 'teacher') ||
         (path.startsWith('/student') && user.role !== 'student')
       ) {
