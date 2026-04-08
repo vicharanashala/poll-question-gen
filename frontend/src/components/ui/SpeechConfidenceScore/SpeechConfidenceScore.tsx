@@ -162,7 +162,20 @@ const MetricCard: React.FC<{
 );
 
 // ── Main component ────────────────────────────────────────────────────────────
-const SpeechConfidenceScore: React.FC = () => {
+interface SpeechConfidenceScoreProps {
+  /** When provided, pre-fills the transcript and auto-triggers analysis (PollRoom mode) */
+  prefillTranscript?: string;
+  /** When provided along with prefillTranscript, pre-fills duration */
+  prefillDuration?: number;
+  /** When provided, pre-fills the topic field */
+  prefillTopic?: string;
+}
+
+const SpeechConfidenceScore: React.FC<SpeechConfidenceScoreProps> = ({
+  prefillTranscript,
+  prefillDuration,
+  prefillTopic,
+}) => {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -174,6 +187,41 @@ const SpeechConfidenceScore: React.FC = () => {
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // When prefill props arrive (PollRoom mode), fill fields and auto-analyze
+  useEffect(() => {
+    if (!prefillTranscript) return;
+    setTranscript(prefillTranscript);
+    if (prefillDuration && prefillDuration > 0) setDuration(prefillDuration);
+    if (prefillTopic) setTopic(prefillTopic);
+  }, [prefillTranscript, prefillDuration, prefillTopic]);
+
+  // Auto-analyze once transcript is pre-filled
+  useEffect(() => {
+    if (!prefillTranscript || !mounted) return;
+    const t = prefillTranscript.trim();
+    const d = prefillDuration && prefillDuration > 0 ? prefillDuration : 60;
+    if (!t) return;
+    setLoading(true);
+    setError('');
+    setResult(null);
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api'}/speech-scorer/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript: t, durationInSeconds: d, topic: prefillTopic?.trim() || undefined }),
+    })
+      .then(res => {
+        if (!res.ok) return res.json().then(e => { throw new Error(e.message || 'Backend error'); });
+        return res.json();
+      })
+      .then((data: SpeechAnalysisResult) => {
+        setResult(data);
+        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+      })
+      .catch((err: any) => setError(err.message || 'Failed to analyze. Make sure the backend is running.'))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, prefillTranscript]);
 
   // Prevent flash of wrong theme before mount
   if (!mounted) return null;
@@ -187,7 +235,7 @@ const SpeechConfidenceScore: React.FC = () => {
     setError('');
     setResult(null);
     try {
-      const res = await fetch('http://localhost:8000/api/speech-scorer/analyze', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080/api'}/speech-scorer/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript, durationInSeconds: duration, topic: topic.trim() || undefined }),
@@ -214,12 +262,13 @@ const SpeechConfidenceScore: React.FC = () => {
       fontFamily: "'Inter', system-ui, sans-serif",
       color: isDark ? '#f1f5f9' : '#1f2937',
     }}>
-      {/* ── Input panel ── */}
-      <div style={{
-        background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
-        border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e5e7eb',
-        borderRadius: 18, padding: '1.5rem', marginBottom: '1.5rem',
-      }}>
+      {/* ── Input panel — hidden in prefill/auto mode ── */}
+      {!prefillTranscript && (
+        <div style={{
+          background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+          border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e5e7eb',
+          borderRadius: 18, padding: '1.5rem', marginBottom: '1.5rem',
+        }}>
         {/* Topic */}
         <div style={{ marginBottom: '1rem' }}>
           <label style={{
@@ -336,6 +385,37 @@ const SpeechConfidenceScore: React.FC = () => {
           </div>
         )}
       </div>
+      )} {/* end !prefillTranscript input panel */}
+
+      {/* Loading state for prefill/auto mode */}
+      {prefillTranscript && loading && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '1.25rem',
+          background: isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb',
+          border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e5e7eb',
+          borderRadius: 14, marginBottom: 14,
+        }}>
+          <span style={{
+            display: 'inline-block', width: 18, height: 18,
+            border: '2px solid rgba(99,102,241,0.3)', borderTopColor: '#6366f1',
+            borderRadius: '50%', animation: 'spin 0.7s linear infinite', flexShrink: 0,
+          }} />
+          <span style={{ fontSize: 14, color: isDark ? '#9ca3af' : '#6b7280' }}>
+            Analyzing your session speech…
+          </span>
+        </div>
+      )}
+
+      {/* Error state for prefill/auto mode */}
+      {prefillTranscript && error && !loading && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 10, marginBottom: 14,
+          background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
+          color: '#fca5a5', fontSize: 13,
+        }}>
+          {error}
+        </div>
+      )}
 
       {/* ── Results ── */}
       {result && col && (

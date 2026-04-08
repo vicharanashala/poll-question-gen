@@ -21,6 +21,7 @@ import socket from "@/lib/api/socket";
 import { CohostUser } from "@/shared/types";
 import ConfirmationModal from "@/components/ConfirmationModal";
 import { useConfirmationModal } from "@/hooks/useConfirmationModal";
+import SpeechConfidenceScore from '@/components/ui/SpeechConfidenceScore/SpeechConfidenceScore';
 
 
 
@@ -415,6 +416,14 @@ export default function TeacherPollRoom() {
 
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
+
+  // Speech confidence score — populated when mic stops
+  const recordingStartRef = useRef<number | null>(null);
+  const [speechScoreData, setSpeechScoreData] = useState<{
+    transcript: string;
+    durationInSeconds: number;
+    show: boolean;
+  } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState("");
@@ -954,6 +963,17 @@ export default function TeacherPollRoom() {
         // Error finalizing queued question generation
       } finally {
         setIsProcessing(false);
+
+        // Trigger speech confidence score using the session transcript
+        const finalTranscript = (useWhisper || useWhisperGGML)
+          ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(' ').trim()
+          : displayTranscript.trim();
+
+        if (finalTranscript && recordingStartRef.current) {
+          const durationInSeconds = Math.round((Date.now() - recordingStartRef.current) / 1000);
+          setSpeechScoreData({ transcript: finalTranscript, durationInSeconds, show: true });
+          recordingStartRef.current = null;
+        }
       }
     } else {
       try {
@@ -975,6 +995,9 @@ export default function TeacherPollRoom() {
             return;
           }
         }
+
+        // Track when recording started for duration calculation
+        recordingStartRef.current = Date.now();
 
         if (useWhisper) {
           setShowRecordModal(true);
@@ -4191,6 +4214,38 @@ export default function TeacherPollRoom() {
                   )}
               </div>
 
+
+              {/* Speech Confidence Score — auto-shown after mic stops */}
+              {speechScoreData?.show && (
+                <div className="mx-4 mb-4">
+                  <Card className="border border-purple-300 dark:border-purple-700 bg-white dark:bg-slate-800 shadow-lg">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base sm:text-lg flex items-center gap-2 text-purple-600 dark:text-purple-300">
+                          <BarChart2 className="w-5 h-5" />
+                          Speech Confidence Score
+                        </CardTitle>
+                        <button
+                          onClick={() => setSpeechScoreData(null)}
+                          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-1 rounded"
+                          aria-label="Close"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Auto-analyzed from your session transcript ({speechScoreData.durationInSeconds}s recording)
+                      </p>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <SpeechConfidenceScore
+                        prefillTranscript={speechScoreData.transcript}
+                        prefillDuration={speechScoreData.durationInSeconds}
+                      />
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
 
               {/* <ShowStudentsModal
         isOpen={showStudentsModal}
