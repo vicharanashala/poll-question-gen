@@ -147,9 +147,9 @@ export class PollRoomController {
   @Post('/:code/polls/answer')
   async submitPollAnswer(
     @Param('code') roomCode: string,
-    @Body() body: { pollId: string; userId: string; answerIndex: number }
+    @Body() body: { pollId: string; userId: string; answerIndex: number; confidenceLevel?: string }
   ) {
-    await this.pollService.submitAnswer(roomCode, body.pollId, body.userId, body.answerIndex);
+    await this.pollService.submitAnswer(roomCode, body.pollId, body.userId, body.answerIndex, body.confidenceLevel);
     const updatedResults = await this.pollService.getPollResults(roomCode);
     pollSocket.emitToRoom(roomCode, 'poll-results-updated', updatedResults);
     return { success: true };

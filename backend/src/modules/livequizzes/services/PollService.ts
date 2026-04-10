@@ -82,7 +82,7 @@ export class PollService {
 
 
 
-  async submitAnswer(roomCode: string, pollId: string, userId: string, answerIndex: number) {
+  async submitAnswer(roomCode: string, pollId: string, userId: string, answerIndex: number, confidenceLevel: string = 'None') {
 
     const poll = this.activePolls.get(pollId);
     if (!poll || poll.roomCode !== roomCode) {
@@ -125,7 +125,7 @@ export class PollService {
 
     await Room.updateOne(
       { roomCode, "polls._id": pollId },
-      { $push: { "polls.$.answers": { userId, answerIndex, answeredAt, points } } }
+      { $push: { "polls.$.answers": { userId, answerIndex, answeredAt, points, confidenceLevel } } }
     );
 
 
@@ -154,18 +154,28 @@ export class PollService {
     const room = await Room.findOne({ roomCode });
     if (!room) return null;
 
-    const results: Record<string, Record<string, { count: number; users: { id: string; name: string }[] }>> = {};
+    const results: Record<string, any> = {};
 
     for (const poll of room.polls) {
       const counts = Array(poll.options.length).fill(0);
       const userIds = poll.options.map(() => [] as string[]);
+      
+      let highConfidenceCount = 0;
+      let totalAnswers = 0;
 
       for (const ans of poll.answers) {
+        totalAnswers++;
+        
+        // Track normal option counts
         if (ans.answerIndex >= 0 && ans.answerIndex < poll.options.length) {
           counts[ans.answerIndex]++;
           userIds[ans.answerIndex].push(ans.userId);
         }
+
+        // Track Confidence
+        if (ans.confidenceLevel === 'High') highConfidenceCount++;
       }
+
       const allUserIds = [...new Set(poll.answers.map(ans => ans.userId))];
       const users = await UserModel.find({ firebaseUID: { $in: allUserIds } }, { firebaseUID: 1, firstName: 1, lastName: 1 });
       const userMap = new Map(users.map(user => {
@@ -185,7 +195,10 @@ export class PollService {
         return acc;
       }, {} as Record<string, { count: number; users: { id: string; name: string }[] }>);
 
-      results[poll.question] = pollResult;
+      results[poll.question] = {
+        optionsData: pollResult,
+        highConfidencePercentage: totalAnswers > 0 ? Math.round((highConfidenceCount / totalAnswers) * 100) : 0
+      };
     }
 
     return results;

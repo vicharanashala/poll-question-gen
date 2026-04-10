@@ -1,0 +1,1 @@
+const fs=require("fs"); const parser=require("@babel/parser"); const file = fs.readFileSync("frontend/src/pages/student/StudentPollRoom.tsx", "utf8"); console.log("done");

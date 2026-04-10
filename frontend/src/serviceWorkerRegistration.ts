@@ -55,7 +55,7 @@ const registerServiceWorker = () => {
         }
       }
     },
-    onRegistered(registration) {
+    onRegistered(registration: ServiceWorkerRegistration | undefined) {
       if (registration) {
         console.log('Service Worker registered', registration);
         // Check for updates every hour

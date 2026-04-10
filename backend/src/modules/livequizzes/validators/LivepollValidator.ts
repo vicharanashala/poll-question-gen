@@ -63,4 +63,8 @@ export class SubmitInMemoryAnswerDto {
   @IsInt()
   @Min(0)
   answerIndex: number;
+
+  @IsOptional()
+  @IsString()
+  confidenceLevel?: string;
 }

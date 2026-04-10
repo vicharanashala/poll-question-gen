@@ -2,14 +2,20 @@ import { useState } from 'react';
 import { CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Users, X } from 'lucide-react';
+import { Users } from 'lucide-react';
 
-const dummyStudents = Array.from({ length: 25 }, (_, i) => ({
-  name: `Student ${i + 1}`,
-  email: `student${i + 1}@example.com`,
-}));
+export type ModalStudent = {
+  firstName: string;
+  email: string;
+};
 
-const ShowStudentsModal = ({ isOpen, onClose,students }) => {
+type ShowStudentsModalProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  students: ModalStudent[];
+};
+
+const ShowStudentsModal = ({ isOpen, onClose, students }: ShowStudentsModalProps) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const totalPages = Math.ceil(students.length / itemsPerPage);
@@ -40,7 +46,7 @@ const ShowStudentsModal = ({ isOpen, onClose,students }) => {
         </DialogHeader>
         <CardContent className="flex-1 pt-0 overflow-y-auto">
           <div className="space-y-3">
-            {currentStudents.map((student, index) => (
+            {currentStudents.map((student: ModalStudent, index: number) => (
               <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200/50 dark:border-gray-700/50">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center flex-shrink-0">

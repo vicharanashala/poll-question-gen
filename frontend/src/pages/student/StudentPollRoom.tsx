@@ -58,6 +58,8 @@ export default function StudentPollRoom() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [confidence, setConfidence] = useState<string>('None');
+
   const [joinedRoom, setJoinedRoom] = useState(false);
   const [livePolls, setLivePolls] = useState<Poll[]>([]);
   const [roomDetails, setRoomDetails] = useState<RoomDetails | null>(null);
@@ -72,6 +74,7 @@ export default function StudentPollRoom() {
   const [newBadgePopup, setNewBadgePopup] = useState<UserAchievement | null>(null);
   const [badgePopupQueue, setBadgePopupQueue] = useState<UserAchievement[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [confusedCooldown, setConfusedCooldown] = useState(false);
   const email = useAuthStore((state) => state.user?.email)
   useEffect(() => {
   socket.on("room-data", (room) => {
@@ -236,7 +239,7 @@ export default function StudentPollRoom() {
     setIsAnimating(true);
     try {
       await api.post(`/livequizzes/rooms/${roomCode}/polls/answer`, {
-        pollId, userId: user?.uid, answerIndex
+        pollId, userId: user?.uid, answerIndex, confidenceLevel: confidence
       });
       setTimeout(() => {
         setAnsweredPolls(prev => ({ ...prev, [pollId]: answerIndex }));
@@ -266,6 +269,15 @@ export default function StudentPollRoom() {
     cleanupRoom()
     toast.info("Left the room.");
     navigate({ to: `/student/pollroom` });
+  };
+
+  const handleConfusedClick = () => {
+    if (confusedCooldown) return;
+    socket.emit('student-confused', roomCode);
+    toast.info("Teacher notified to slow down!");
+    setConfusedCooldown(true);
+    // 15-second cooldown to prevent spamming
+    setTimeout(() => setConfusedCooldown(false), 15000);
   };
 
   const getTimerColor = (timeLeft: number) => {
@@ -423,6 +435,18 @@ export default function StudentPollRoom() {
 
             {joinedRoom && (
               <Button
+                onClick={handleConfusedClick}
+                disabled={confusedCooldown}
+                variant="outline"
+                size="lg"
+                className={`mr-3 transition-all duration-300 ${confusedCooldown ? 'opacity-50 cursor-not-allowed' : 'bg-gradient-to-r from-orange-400 to-red-500 text-white border-0 hover:from-orange-500 hover:to-red-600 hover:scale-105'}`}
+              >
+                <AlertCircle className="w-5 h-5 mr-2" />
+                {confusedCooldown ? "Notified..." : "I'm Confused"}
+              </Button>
+            )}
+            {joinedRoom && (
+              <Button
                 onClick={exitRoom}
                 variant="outline"
                 size="lg"
@@ -574,6 +598,27 @@ export default function StudentPollRoom() {
                         ))}
                       </div>
 
+                      {/* Confidence Selector */}
+                      <div className="mb-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+                        <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">
+                          Confidence Level (Required)
+                        </label>
+                        <div className="flex gap-2">
+                          {['Low', 'Medium', 'High'].map((level) => (
+                            <Button
+                              key={level}
+                              variant={confidence === level ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setConfidence(level)}
+                              disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined}
+                              className={`flex-1 transition-all ${confidence === level ? (level === 'High' ? 'bg-emerald-500 hover:bg-emerald-600' : level === 'Medium' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600') : ''}`}
+                            >
+                              {level}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="flex items-center justify-between">
                         {answeredPolls[poll._id] !== undefined ? (
                           <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
@@ -595,7 +640,7 @@ export default function StudentPollRoom() {
                                 toast.warning("Please select an option first");
                               }
                             }}
-                            disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined}
+                            disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined || confidence === 'None'}
                           >
                             <Trophy className="w-5 h-5 mr-2" />
                             Submit Vote

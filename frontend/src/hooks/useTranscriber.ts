@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef, useEffect } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import { useWorker, WorkerType } from "./useWorker";
 import Constants from "../utils/Constants";
 
@@ -180,8 +180,8 @@ export function useTranscriber(): Transcriber {
                         return uniqueChunks;
                     });
 
-                    // Build complete text from all chunks
-                    const completeText = accumulatedChunks
+                    // Build complete text from all chunks (reserved for richer transcript merge)
+                    void accumulatedChunks
                         .concat(finalChunks)
                         .map(c => c.text)
                         .join(' ')
@@ -275,7 +275,7 @@ export function useTranscriber(): Transcriber {
                 }
             };
             try {
-                webWorker.postMessage(message);
+                webWorker?.postMessage(message);
             } catch (error) {
                 // Error sending start_stream message
             }
@@ -287,7 +287,7 @@ export function useTranscriber(): Transcriber {
             isStreamingRef.current = false; // Set immediately
             setIsLiveMode(false);
             setStreamStatus("stopped");
-            webWorker.postMessage({
+            webWorker?.postMessage({
                 action: "stop_stream"
             });
         }
@@ -333,7 +333,7 @@ export function useTranscriber(): Transcriber {
                     model: model,
                 };
                 try {
-                    webWorker.postMessage(message);
+                    webWorker?.postMessage(message);
                 } catch (error) {
                     // Error sending stream_chunk message
                 }
@@ -351,7 +351,7 @@ export function useTranscriber(): Transcriber {
 
                 setIsBusy(true);
 
-                webWorker.postMessage({
+                webWorker?.postMessage({
                     audio,
                     model,
                     multilingual,

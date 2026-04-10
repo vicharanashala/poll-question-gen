@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import XenovaWorkerUrl from "../whisper/worker.js?worker&url";
 import GgmlWorkerUrl from "../whisper/worker-ggml.js?worker&url";
 
 export type WorkerType = "xenova" | "ggml";

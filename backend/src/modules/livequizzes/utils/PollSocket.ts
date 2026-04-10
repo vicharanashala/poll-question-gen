@@ -77,6 +77,16 @@ class PollSocket {
         }
       });
 
+      socket.on('student-confused', (roomCode: string) => {
+        try {
+          console.log(`Student confused pulse in room: ${roomCode}`);
+          // Broadcast a pulse to the teacher/room
+          this.emitToRoom(roomCode, 'confusion-pulse', { timestamp: Date.now() });
+        } catch (err) {
+          console.error('Error broadcasting confusion:', err);
+        }
+      });
+
       socket.on('leave-room', async (roomCode: string, email: string) => {
         if (email) {
           const user = await this.userRepo.findByEmail(email)
