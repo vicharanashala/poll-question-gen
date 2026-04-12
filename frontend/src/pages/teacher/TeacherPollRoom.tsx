@@ -624,7 +624,10 @@ export default function TeacherPollRoom() {
 
       socket.on('room-updated', (updatedRoom) => {
         // console.log('Room updated:', updatedRoom);
-        setStudents(updatedRoom.students || []);
+        setStudents((updatedRoom.students || []).map(student => ({
+          ...student,
+          confusionCount: updatedRoom.confusionTracking?.get(student.email) || 0
+        })));
 
         // Save Host ID for conditional UI rendering
         if (updatedRoom.teacherId) {
@@ -643,9 +646,14 @@ export default function TeacherPollRoom() {
       });
 
       socket.off('confusion-pulse');
-      socket.on('confusion-pulse', () => {
-        // Increase confusion by 15%, maxing out at 100%
-        setConfusionLevel(prev => Math.min(prev + 15, 100));
+      socket.on('confusion-pulse', (data: { timestamp: number, increment?: number, studentName?: string }) => {
+        const spikeAmount = data?.increment || 15;
+        setConfusionLevel(prev => Math.min(prev + spikeAmount, 100));
+
+        // Show toast notification with student name
+        if (data?.studentName) {
+          toast.info(`${data.studentName} has confusion. Please slow down`);
+        }
       });
 
       socket.on('connect', () => {
@@ -2353,18 +2361,21 @@ export default function TeacherPollRoom() {
                 </h2>
               </div>
 
+              {/* Live Confusion Meter */}
+              <div className="flex items-center gap-1.5 md:gap-2 bg-gray-50 dark:bg-gray-800 px-2 md:px-3 py-1 md:py-1.5 rounded-full border border-gray-200 dark:border-gray-700 mr-1 md:mr-2">
+                <span className="text-[10px] md:text-xs font-semibold text-gray-600 dark:text-gray-300">
+                  <span className="hidden sm:inline">Class </span>Confusion:
+                </span>
+                <div className="w-16 md:w-24 h-2 md:h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-500 ${confusionLevel > 70 ? 'bg-red-500' : confusionLevel > 40 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${confusionLevel}%` }}
+                  />
+                </div>
+              </div>
+
               {/* Desktop Navigation */}
               <div className="hidden md:flex items-center gap-2">
-                {/* Live Confusion Meter */}
-                <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 mr-2">
-                  <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Class Confusion:</span>
-                  <div className="w-24 h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div 
-                      className={`h-full transition-all duration-500 ${confusionLevel > 70 ? 'bg-red-500' : confusionLevel > 40 ? 'bg-orange-500' : 'bg-emerald-500'}`}
-                      style={{ width: `${confusionLevel}%` }}
-                    />
-                  </div>
-                </div>
                 <Button
                   variant={(!showPreview && !showPollModal && !showResultsModal) ? "default" : "outline"}
                   onClick={handleVoiceRecorderTab}

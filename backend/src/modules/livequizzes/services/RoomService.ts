@@ -108,13 +108,23 @@ export class RoomService {
       }
     }
 
-    // 3️⃣ Fetch user names (THIS IS WHERE to add)
+    // 3️⃣ Fetch user names using firebaseUID or email values as needed
     const userIds = Array.from(participantsMap.keys());
-    const users = await this.userModel.find({ firebaseUID: { $in: userIds } }, 'firebaseUID firstName').lean();
+    const users = await this.userModel.find(
+      {
+        $or: [
+          { firebaseUID: { $in: userIds } },
+          { email: { $in: userIds } }
+        ]
+      },
+      'firebaseUID email firstName lastName'
+    ).lean();
 
     // 4️⃣ Convert map to array and merge names
     const participants = Array.from(participantsMap.values()).map((p) => {
-      const user = users.find(u => u.firebaseUID === p.userId);
+      const user = users.find(
+        (u) => u.firebaseUID === p.userId || u.email === p.userId
+      );
 
       // Format time taken - convert seconds to minutes and seconds
       let timeDisplay = "N/A";
@@ -131,7 +141,8 @@ export class RoomService {
       }
 
       return {
-        name: user?.firstName ?? 'Anonymous',
+        userId: p.userId,
+        name: user?.firstName ?? p.userId ?? 'Anonymous',
         score: p.score,
         correct: p.correct,
         wrong: p.wrong,

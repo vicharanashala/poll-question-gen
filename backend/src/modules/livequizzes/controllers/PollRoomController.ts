@@ -20,6 +20,7 @@ import { pollSocket } from '../utils/PollSocket.js';
 import { inject, injectable } from 'inversify';
 import { RoomService } from '../services/RoomService.js';
 import { PollService } from '../services/PollService.js';
+import { ConfusionLog } from '#root/shared/database/models/ConfusionLog.js';
 import { LIVE_QUIZ_TYPES } from '../types.js';
 //import { TranscriptionService } from '#root/modules/genai/services/TranscriptionService.js';
 import { AIContentService } from '#root/modules/genai/services/AIContentService.js';
@@ -141,6 +142,12 @@ export class PollRoomController {
     // Fetch from service
     const analysis = await this.roomService.getPollAnalysis(roomId);
     return { success: true, data: analysis };
+  }
+
+  @Get('/:code/confusion-analytics')
+  async getConfusionAnalytics(@Req() req: Request, @Res() res: Response) {
+    const analytics = await ConfusionLog.find({ roomCode: req.params.code }).sort({ clicks: -1 });
+    return res.json(analytics);
   }
 
   //@Authorized()

@@ -273,7 +273,8 @@ export default function StudentPollRoom() {
 
   const handleConfusedClick = () => {
     if (confusedCooldown) return;
-    socket.emit('student-confused', roomCode);
+    const studentId = user?.uid || email || 'anonymous';
+    socket.emit('student-confused', { roomCode, studentId });
     toast.info("Teacher notified to slow down!");
     setConfusedCooldown(true);
     // 15-second cooldown to prevent spamming
