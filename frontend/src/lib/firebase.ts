@@ -11,8 +11,7 @@ import {
   updateProfile,
   User
 } from "firebase/auth";
-import { IUser, useAuthStore } from "./store/auth-store";
-import { mapFirebaseUserToAppUser } from "./api/auth";
+import { useAuthStore } from "./store/auth-store";
 // import { log } from "console";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
@@ -31,24 +30,68 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const provider = new GoogleAuthProvider();
 
+const getAuthToken = async () => {
+  if (auth.currentUser) {
+    return await auth.currentUser.getIdToken(true);
+  }
+  return useAuthStore.getState().token || null;
+};
+
+const getBackendProfile = async (firebaseUID: string, token?: string | null) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_URL}/users/firebase/${firebaseUID}/profile`, {
+    method: 'GET',
+    headers,
+  });
+  if (!response.ok) return null;
+  return await response.json();
+};
+
 // Function to update user role in MongoDB via your backend API
 export const updateUserRole = async (firebaseUID: string, role: string) => {
   try {
     const user = auth.currentUser;
-    if (!user) {
-      throw new Error("No authenticated user found");
+    const token = await getAuthToken();
+    // Ensure backend user exists before role update.
+    // This avoids "User not found" on first role selection or restored sessions.
+    if (user) {
+      await createBackendUser(user, token);
     }
-    const token = await user.getIdToken();
-    const response = await fetch(`${API_URL}/users/firebase/${firebaseUID}/role`, {
+    const updateRoleEndpoint = `${API_URL}/users/firebase/${firebaseUID}/role`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(updateRoleEndpoint, {
       method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({ role })
     });
     if (!response.ok) {
       const errorText = await response.text();
+      // Retry once by attempting profile creation again if backend reports missing user.
+      if ((response.status === 400 || response.status === 404) && errorText.toLowerCase().includes("user not found") && user) {
+        await createBackendUser(user, token);
+        const retryResponse = await fetch(updateRoleEndpoint, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ role })
+        });
+        if (!retryResponse.ok) {
+          const retryErrorText = await retryResponse.text();
+          throw new Error(`Failed to update user role after retry: ${retryErrorText}`);
+        }
+        const updatedUser = await retryResponse.json();
+        console.log("User role updated successfully after profile creation:", updatedUser);
+        return { success: true, user: updatedUser };
+      }
       throw new Error(`Failed to update user role: ${errorText}`);
     }
     const updatedUser = await response.json();
@@ -65,16 +108,16 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
 export const loginWithGoogle = async () => {
   const result = await signInWithPopup(auth, provider);
   const firebaseUser = result.user;
-  const idToken = await result.user.getIdToken();
+  const idToken = await result.user.getIdToken(true);
 
-  const backendUser = await createBackendUser(firebaseUser);
-  // const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
+  const backendUser = await createBackendUser(firebaseUser, idToken);
+  const profile = (await getBackendProfile(firebaseUser.uid, idToken)) || backendUser;
 
   const setAuthState = useAuthStore.getState();
   setAuthState.setToken(idToken);
-  setAuthState.setUserRole?.(backendUser?.role);
+  setAuthState.setUserRole?.(profile?.role || "");
 
-  return { result, role: backendUser?.role };
+  return { result, role: profile?.role };
 };
 
 export const loginWithEmail = async (
@@ -82,15 +125,16 @@ export const loginWithEmail = async (
   password: string,
 ) => {
   const result = await signInWithEmailAndPassword(auth, email, password);
-  const idToken = await result.user.getIdToken();
+  const idToken = await result.user.getIdToken(true);
   const firebaseUser = result.user;
 
-  const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
+  await createBackendUser(firebaseUser, idToken);
+  const backendUser = await getBackendProfile(firebaseUser.uid, idToken);
 
   // Store token and role in Zustand
   const setAuthState = useAuthStore.getState();
   setAuthState.setToken(idToken);
-  setAuthState.setUserRole?.(backendUser?.role);
+  setAuthState.setUserRole?.(backendUser?.role || "");
 
   return { result, role: backendUser?.role };
 };
@@ -136,8 +180,8 @@ export const logout = () => {
   useAuthStore.getState().clearUser?.(); // safe call if function exists
 };
 
-export const createBackendUser = async (firebaseUser: User) => {
-  const token = await firebaseUser.getIdToken(true);
+export const createBackendUser = async (firebaseUser: User, providedToken?: string | null) => {
+  const token = providedToken || await firebaseUser.getIdToken(true);
   try {
     const newUser = {
       firebaseUID: firebaseUser.uid,
@@ -159,12 +203,15 @@ export const createBackendUser = async (firebaseUser: User) => {
       updatedAt: new Date().toISOString(),
     };
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     const createRes = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}/profile`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify(newUser),
     });
 

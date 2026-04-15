@@ -368,36 +368,54 @@ ${transcriptContent}
             const parsed = JSON.parse(cleaned);
             const questions = Array.isArray(parsed) ? parsed : [parsed];
 
-            questions.forEach(q => {
-              let questionText = q.question?.text || q.questionText || '';
-              let options = [];
-              // Extract options
-              if (q.solution?.incorrectLotItems) {
-                options = q.solution.incorrectLotItems.map((item: any) => ({
-                  text: item.text,
-                  correct: false,
-                  explanation: item.explaination || item.explanation || ''
+            const normalizeOne = (q: any): GeneratedQuestion | null => {
+              const questionText = (q?.question?.text || q?.questionText || '').trim();
+              let options: Array<{ text: string; correct?: boolean; explanation?: string }> = [];
+
+              if (q?.solution?.incorrectLotItems && q?.solution?.correctLotItem) {
+                options = [
+                  ...q.solution.incorrectLotItems.map((item: any) => ({
+                    text: item.text,
+                    correct: false,
+                    explanation: item.explaination || item.explanation || '',
+                  })),
+                  {
+                    text: q.solution.correctLotItem.text,
+                    correct: true,
+                    explanation:
+                      q.solution.correctLotItem.explaination || q.solution.correctLotItem.explanation || '',
+                  },
+                ];
+              } else if (Array.isArray(q?.options)) {
+                options = q.options.map((opt: any) => ({
+                  text: typeof opt?.text === 'string' ? opt.text : String(opt?.text ?? ''),
+                  correct: !!opt?.correct,
+                  explanation: opt?.explanation || opt?.explaination || '',
                 }));
               }
-              if (q.solution?.correctLotItem) {
-                options.push({
-                  text: q.solution.correctLotItem.text,
-                  correct: true,
-                  explanation: q.solution.correctLotItem.explaination || q.solution.correctLotItem.explanation || ''
-                });
+
+              if (!questionText) {
+                return null;
               }
-              allQuestions.push({
+
+              return {
                 questionText,
                 options,
-                solution: '', // Optional: create from q.solution or leave empty
-                isParameterized: q.question?.isParameterized ?? false,
-                timeLimitSeconds: q.question?.timeLimitSeconds ?? 60,
-                points: q.question?.points ?? 5,
+                solution: typeof q?.solution === 'string' ? q.solution : '',
+                isParameterized: q?.question?.isParameterized ?? q?.isParameterized ?? false,
+                timeLimitSeconds: q?.question?.timeLimitSeconds ?? q?.timeLimitSeconds ?? 60,
+                points: q?.question?.points ?? q?.points ?? 5,
                 segmentId,
-                questionType: type
-              });
-            });
-            allQuestions.push(...questions);
+                questionType: type,
+              };
+            };
+
+            for (const q of questions) {
+              const normalized = normalizeOne(q);
+              if (normalized) {
+                allQuestions.push(normalized);
+              }
+            }
             console.log(`[generateQuestions] Generated ${questions.length} ${type} questions for segment ${segmentId}`);
             console.log(`[generateQuestions] Raw LLM text for type ${type}, segment ${segmentId}:`, text.slice(0, 500));
           } catch (e: any) {
@@ -427,6 +445,12 @@ ${transcriptContent}
     }
 
     console.log(`[generateQuestions] Done. Total questions: ${allQuestions.length}`);
+    if (allQuestions.length === 0) {
+      throw new HttpError(
+        503,
+        'No questions could be generated. Ensure Ollama is running, the model matches a name you have pulled (for example `ollama pull gemma3`), and select that model in the teacher settings.',
+      );
+    }
     return allQuestions;
   }
 }

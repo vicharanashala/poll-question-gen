@@ -397,7 +397,7 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
+  const [selectedModel, setSelectedModel] = useState("gemma3");
   const [questionCount, setQuestionCount] = useState<number>(3);
 
   // Queue for auto-generated questions while live recording is ongoing.
@@ -424,6 +424,12 @@ export default function TeacherPollRoom() {
   const [isIntervalLocked, setIsIntervalLocked] = useState(false);
   const [customIntervalInput, setCustomIntervalInput] = useState<string>("30");
   const lastGenerationTimeRef = useRef<number>(Date.now());
+  const lastTranscriptChangeRef = useRef<number>(Date.now());
+  const lastObservedWordCountRef = useRef<number>(0);
+  const lastTranscriptSnapshotRef = useRef<string>("");
+  const lastPeriodicFlushRef = useRef<number>(Date.now());
+  /** While live, enqueue this many new words at a time (generation without waiting for stop). */
+  const WORD_CHECKPOINT = 20;
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -444,7 +450,7 @@ export default function TeacherPollRoom() {
     isLocked: boolean;
     currentRecorder?: { userId: string; userName?: string; lockedSince: Date };
   }>({ isLocked: false });
-  const recordingLockPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingLockPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [micLockAlert, setMicLockAlert] = useState<string | null>(null);
 
 
@@ -772,6 +778,8 @@ export default function TeacherPollRoom() {
         if (filteredQuestions.length > 0) {
           queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
           setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
+          // Notify teacher that questions were generated in background
+          toast.success(`${filteredQuestions.length} questions auto-generated (${queuedGeneratedQuestionsRef.current.length} total ready)`);
         }
       } catch (err) {
         // Failed to process queued chunk
@@ -825,36 +833,43 @@ export default function TeacherPollRoom() {
     const textBuffer = (useWhisper || useWhisperGGML)
       ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim()
       : displayTranscript.trim();
+    const currentWordCount = textBuffer ? textBuffer.split(/\s+/).filter(Boolean).length : 0;
+    if (currentWordCount !== lastObservedWordCountRef.current) {
+      lastObservedWordCountRef.current = currentWordCount;
+      lastTranscriptChangeRef.current = Date.now();
+    }
+    // Interim speech updates change text without always changing word count — track full text for pause detection
+    if (textBuffer !== lastTranscriptSnapshotRef.current) {
+      lastTranscriptSnapshotRef.current = textBuffer;
+      lastTranscriptChangeRef.current = Date.now();
+    }
     bufferTextRef.current = textBuffer;
   }, [displayTranscript, transcriber.accumulatedChunks, useWhisper, useWhisperGGML]);
 
-  /* // Commented out old word-checkpoint logic
-  useEffect(() => {
-    if (!useWhisper && !useWhisperGGML) return;
-    // Build buffer text from accumulated chunks
-    const text = (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim();
-    bufferTextRef.current = text;
-    const words = text ? text.split(/\s+/).filter(Boolean) : [];
-    while (words.length - processedWordsRef.current >= 100) {
-      const chunkWords = words.slice(processedWordsRef.current, processedWordsRef.current + 100).join(" ");
-      processedWordsRef.current += 100;
+  // Word checkpoints: DISABLED - using only time-based generation now
+  /* useEffect(() => {
+    if (!isRecording && !isLiveRecordingActive) return;
+    const textBuffer = (useWhisper || useWhisperGGML)
+      ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim()
+      : displayTranscript.trim();
+    bufferTextRef.current = textBuffer;
+    const words = textBuffer ? textBuffer.split(/\s+/).filter(Boolean) : [];
+    while (words.length - processedWordsRef.current >= WORD_CHECKPOINT) {
+      const chunkWords = words
+        .slice(processedWordsRef.current, processedWordsRef.current + WORD_CHECKPOINT)
+        .join(" ");
+      processedWordsRef.current += WORD_CHECKPOINT;
       enqueueTextChunk(chunkWords);
     }
-  }, [transcriber.accumulatedChunks, useWhisper, useWhisperGGML, enqueueTextChunk]);
-
-  // Watch non-Whisper live transcript (Web Speech API) and enqueue 100-word checkpoints
-  useEffect(() => {
-    if (useWhisper || useWhisperGGML) return;
-    const text = displayTranscript.trim();
-    bufferTextRef.current = text;
-    const words = text ? text.split(/\s+/).filter(Boolean) : [];
-    while (words.length - processedWordsRef.current >= 100) {
-      const chunkWords = words.slice(processedWordsRef.current, processedWordsRef.current + 100).join(" ");
-      processedWordsRef.current += 100;
-      enqueueTextChunk(chunkWords);
-    }
-  }, [displayTranscript, useWhisper, useWhisperGGML, enqueueTextChunk]);
-  */
+  }, [
+    displayTranscript,
+    transcriber.accumulatedChunks,
+    useWhisper,
+    useWhisperGGML,
+    isRecording,
+    isLiveRecordingActive,
+    enqueueTextChunk,
+  ]); */
 
   const updateAudioLevel = useCallback(() => {
     if (analyserRef.current) {
@@ -1047,38 +1062,46 @@ export default function TeacherPollRoom() {
     recordingLockStatus,
   ]);
 
-  // NEW: Time-based automatic question generation trigger
+  // Pause-based + periodic flush: catches tails that never hit the word checkpoint (e.g. long monologue without pause)
   useEffect(() => {
     if (!isRecording && !isLiveRecordingActive) {
-      // Keep it updated so that when recording starts, it's fresh
       lastGenerationTimeRef.current = Date.now();
+      lastTranscriptChangeRef.current = Date.now();
+      lastPeriodicFlushRef.current = Date.now();
       return;
     }
 
     const intervalId = setInterval(() => {
       const now = Date.now();
-      const elapsedSeconds = (now - lastGenerationTimeRef.current) / 1000;
+      const textBuffer = bufferTextRef.current;
+      const words = textBuffer ? textBuffer.split(/\s+/).filter(Boolean) : [];
+      const remainingCount = words.length - processedWordsRef.current;
+      const silenceMs = now - lastTranscriptChangeRef.current;
+      const secondsSincePeriodic = (now - lastPeriodicFlushRef.current) / 1000;
 
-      if (elapsedSeconds >= autoGenInterval) {
-        // Build the current transcript buffer based on active mode
-        // Use the Ref-synced text to avoid state-closure issues and keep effect stable
-        const textBuffer = bufferTextRef.current;
-
-        // Check if there are internal words to process
-        const words = textBuffer ? textBuffer.split(/\s+/).filter(Boolean) : [];
-        const remainingCount = words.length - processedWordsRef.current;
-
-        if (remainingCount > 0) {
-          const chunkWords = words.slice(processedWordsRef.current, processedWordsRef.current + remainingCount).join(" ");
-          processedWordsRef.current += remainingCount;
-          enqueueTextChunk(chunkWords);
-        }
-
-        // Always reset time to the current "tick" regardless of word availability
-        // to ensure we keep trying if the user starts talking again.
+      const flushRemainder = () => {
+        if (remainingCount <= 0) return;
+        const chunkWords = words
+          .slice(processedWordsRef.current, processedWordsRef.current + remainingCount)
+          .join(" ");
+        processedWordsRef.current += remainingCount;
+        enqueueTextChunk(chunkWords);
         lastGenerationTimeRef.current = now;
+        lastTranscriptChangeRef.current = now;
+        lastPeriodicFlushRef.current = now;
+      };
+
+      // After a short speech pause, flush accumulated words (no need to stop recording)
+      if (remainingCount >= 12 && silenceMs >= 5000) {
+        flushRemainder();
+        return;
       }
-    }, 1000); // Check every second
+
+      // While speaking continuously, still flush on a timer so questions appear without stopping
+      if (remainingCount >= 10 && secondsSincePeriodic >= autoGenInterval) {
+        flushRemainder();
+      }
+    }, 1000);
 
     return () => clearInterval(intervalId);
   }, [isRecording, isLiveRecordingActive, autoGenInterval, enqueueTextChunk]);
@@ -1461,8 +1484,10 @@ export default function TeacherPollRoom() {
         });
 
       if (cleanQuestions.length <= 0) {
-        toast.error("No questions generated")
-        return
+        toast.error(
+          "No questions returned. Check that Ollama is running, the model is installed (e.g. ollama pull gemma3), and pick that model under Additional Settings."
+        );
+        return;
       }
       const filteredQuestions = cleanQuestions.map((q: GeneratedQuestion) => filterQuestionOptions(q));
       setGeneratedQuestions(filteredQuestions);
@@ -1955,7 +1980,7 @@ export default function TeacherPollRoom() {
     isLaunched: boolean; // Mark as launched to disable edit
   }>>({});
   const [currentPollResponses, setCurrentPollResponses] = useState(0);
-  const timerRefs = useRef<Record<number, NodeJS.Timeout>>({});
+  const timerRefs = useRef<Record<number, ReturnType<typeof setInterval>>>({});
 
   useEffect(() => {
     if (readyToCreatePoll) {
@@ -2791,24 +2816,24 @@ export default function TeacherPollRoom() {
                                     }}
                                     disabled={isRecording || isLiveRecordingActive}
                                   >
-                                    <SelectTrigger className="w-[100px] sm:w-[140px] md:w-[170px] h-9 border border-gray-300 dark:border-gray-700 rounded-md hover:border-purple-500 focus:border-purple-500 transition-colors flex items-center gap-2">
+                                    <SelectTrigger className="w-[100px] sm:w-[150px] md:w-[180px] h-9 border border-gray-300 dark:border-gray-700 rounded-md hover:border-purple-500 focus:border-purple-500 transition-colors flex items-center gap-2">
                                       <Clock className="w-4 h-4 text-purple-500 flex-shrink-0" />
-                                      <span className="hidden md:block text-sm text-gray-700 dark:text-gray-200 overflow-hidden">
-                                        <SelectValue placeholder="Interval" />
+                                      <span className="hidden sm:block text-xs text-gray-700 dark:text-gray-200 overflow-hidden">
+                                        <SelectValue placeholder="Auto-gen interval" />
                                       </span>
                                     </SelectTrigger>
                                     <SelectContent className="border border-gray-200 dark:border-gray-700 rounded-md shadow-md bg-white/90 dark:bg-gray-900/90">
-                                      <SelectItem value="30">30 Seconds</SelectItem>
-                                      <SelectItem value="60">1 Minute</SelectItem>
-                                      <SelectItem value="180">3 Minutes</SelectItem>
-                                      <SelectItem value="300">5 Minutes</SelectItem>
-                                      <SelectItem value="600">10 Minutes</SelectItem>
-                                      <SelectItem value="custom">Custom</SelectItem>
+                                      <SelectItem value="30">Every 30s</SelectItem>
+                                      <SelectItem value="60">Every 1 min</SelectItem>
+                                      <SelectItem value="120">Every 2 min</SelectItem>
+                                      <SelectItem value="180">Every 3 min</SelectItem>
+                                      <SelectItem value="300">Every 5 min</SelectItem>
+                                      <SelectItem value="custom">Custom (seconds)</SelectItem>
                                     </SelectContent>
                                   </Select>
 
                                   {isCustomInterval && (
-                                    <div className="flex items-center gap-2 ml-2 animate-in fade-in slide-in-from-left-2 duration-300">
+                                    <div className="flex items-center gap-2 ml-1 animate-in fade-in slide-in-from-left-2 duration-300">
                                       {!isIntervalLocked ? (
                                         <div className="relative flex items-center group">
                                           <Input
@@ -2818,8 +2843,6 @@ export default function TeacherPollRoom() {
                                             value={customIntervalInput}
                                             onChange={(e) => setCustomIntervalInput(e.target.value)}
                                             onBlur={(e) => {
-                                              // small delay to allow button click to be processed if focus moved there
-                                              // or check relatedTarget
                                               if (!e.relatedTarget || !e.relatedTarget.closest('.save-interval-btn')) {
                                                 setCustomIntervalInput(autoGenInterval.toString());
                                               }
@@ -2830,7 +2853,7 @@ export default function TeacherPollRoom() {
                                                 if (!isNaN(val) && val > 0) {
                                                   setAutoGenInterval(val);
                                                   setIsIntervalLocked(true);
-                                                  toast.success(`Interval set to ${val}s`);
+                                                  toast.success(`Auto-generate interval: ${val}s`);
                                                 }
                                               }
                                             }}
@@ -2845,9 +2868,9 @@ export default function TeacherPollRoom() {
                                               if (!isNaN(val) && val > 0) {
                                                 setAutoGenInterval(val);
                                                 setIsIntervalLocked(true);
-                                                toast.success(`Interval set to ${val}s`);
+                                                toast.success(`Auto-generate interval: ${val}s`);
                                               } else {
-                                                toast.error("Please enter a valid duration");
+                                                toast.error("Enter a valid number of seconds");
                                               }
                                             }}
                                             disabled={isRecording || isLiveRecordingActive}
@@ -2860,7 +2883,7 @@ export default function TeacherPollRoom() {
                                           className={`flex items-center gap-2 px-3 py-1 bg-purple-50 dark:bg-purple-900/30 border border-purple-100 dark:border-purple-800 rounded-full cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors ${(isRecording || isLiveRecordingActive) ? 'opacity-80 pointer-events-none' : ''}`}
                                           onClick={() => !(isRecording || isLiveRecordingActive) && setIsIntervalLocked(false)}
                                         >
-                                          <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                                          <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
                                             {autoGenInterval}s
                                           </span>
                                           {!(isRecording || isLiveRecordingActive) && (
