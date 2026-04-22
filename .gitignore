@@ -1,62 +1,24 @@
-# OS Specific
-.DS_Store
-Thumbs.db
-
-# Ignore database files anywhere in the project
-**/lms_db/
-
-
-# Ignore credentials folder anywhere
-**/credentials/
-
-# IDEs and Editors
-.idea/
-.vscode/
-!.vscode/settings.json
-*.swp
-*.swo
-
 # Logs
+logs
 *.log
-*.tmp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Environment Variables
-.env
-.env.*
+node_modules
+dist
+dist-ssr
+*.local
 
-# Python Bytecode
-*.pyc
-*.pyo
-*.pyd
-__pycache__/
-
-# Node Modules (Frontend)
-node_modules/
-
-# Docker
-*.pid
-.env.docker
-
-# Production Builds
-/dist
-/build
-
-**/coverage/
-
-
-# Ignore all .py files in migrations folders
-# **/migrations/*.py
-# Except __init__.py
-# !**/migrations/__init__.py
-
-docs/static/openapi
-backend/openapi
-
-# ignore sentry files
-.sentryclirc
-.sentryclirc.local
-.vibe.json
-
-.venv
-
-mcp
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
