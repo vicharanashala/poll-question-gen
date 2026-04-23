@@ -3,6 +3,7 @@ import path from 'path';
 import {Container, ContainerModule} from 'inversify';
 import {useContainer} from 'routing-controllers';
 import {InversifyAdapter} from '#root/inversify-adapter.js';
+import GenAIVideoController from '../modules/genai/GenAIVideoController.js';
 
 interface LoadedModuleResult {
   controllers: Function[];

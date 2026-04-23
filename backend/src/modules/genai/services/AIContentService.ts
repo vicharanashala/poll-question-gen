@@ -24,7 +24,7 @@ export interface GeneratedQuestion {
   points?: number;
 }
 
-export type QuestionType = 'SOL' | 'SML' | 'OTL' | 'NAT' | 'DES';
+export type QuestionType = 'SOL' | 'SML' | 'OTL' | 'NAT' | 'DES' | 'TF';
 export type QuestionSpec = Partial<Record<QuestionType, number>>;
 
 @injectable()
@@ -273,7 +273,8 @@ ${transcriptContent}
       SML: `Generate ${count} multiple-correct MCQ, 2-3 correct:true, timeLimitSeconds:90, points:8`,
       OTL: `Generate ${count} ordering question, with options in correct order, timeLimitSeconds:120, points:10`,
       NAT: `Generate ${count} numeric answer with value, timeLimitSeconds:90, points:6`,
-      DES: `Generate ${count} descriptive answer, detailed solution, timeLimitSeconds:300, points:15`
+      DES: `Generate ${count} descriptive answer, detailed solution, timeLimitSeconds:300, points:15`,
+      TF:  `Generate ${count} True/False question. Provide exactly 2 options: "True" and "False". timeLimitSeconds:30, points:3`
     };
 
     return base + (instructions[questionType] || '');

@@ -27,4 +27,5 @@ export const sharedContainerModule = new ContainerModule(options => {
 
   // Other
   options.bind(HttpErrorHandler).toSelf().inSingletonScope();
+
 });

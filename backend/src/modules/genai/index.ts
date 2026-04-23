@@ -37,3 +37,11 @@ export const genaiModuleOptions: RoutingControllersOptions = {
 
 export * from './GenAIVideoController.js';
 */
+
+import { genaiContainerModule } from './container.js';
+import GenAIVideoController from './GenAIVideoController.js';
+
+// The bootstrapper looks for these exact names based on the folder name "genai"
+export const genaiContainerModules = [genaiContainerModule];
+export const genaiModuleControllers = [GenAIVideoController];
+export const genaiModuleValidators = [];
