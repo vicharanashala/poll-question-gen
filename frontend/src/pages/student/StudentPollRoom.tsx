@@ -11,6 +11,7 @@ import socket from "@/lib/api/socket";
 import { useAuthStore } from "@/lib/store/auth-store";
 import type { UserAchievement } from "@/shared/types";
 import { getBadgeTier } from "@/shared/getBadgeTier";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 //const Socket_URL = import.meta.env.VITE_SOCKET_URL;
 //const socket = io(Socket_URL);
@@ -72,6 +73,10 @@ export default function StudentPollRoom() {
   const [newBadgePopup, setNewBadgePopup] = useState<UserAchievement | null>(null);
   const [badgePopupQueue, setBadgePopupQueue] = useState<UserAchievement[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [difficultyDialogOpen, setDifficultyDialogOpen] = useState(false);
+  const [difficultyPollId, setDifficultyPollId] = useState<string | null>(null);
+  const [difficultyPollQuestion, setDifficultyPollQuestion] = useState<string>("");
+  const [submittingDifficulty, setSubmittingDifficulty] = useState(false);
   const email = useAuthStore((state) => state.user?.email)
   useEffect(() => {
   socket.on("room-data", (room) => {
@@ -242,10 +247,43 @@ export default function StudentPollRoom() {
         setAnsweredPolls(prev => ({ ...prev, [pollId]: answerIndex }));
         setIsAnimating(false);
         toast.success("Vote submitted!");
+
+        // Prompt difficulty feedback (once per poll)
+        const feedbackKey = `pollDifficulty_${roomCode}_${pollId}`;
+        const alreadyGiven = localStorage.getItem(feedbackKey);
+        if (!alreadyGiven) {
+          const poll =
+            livePolls.find(p => p._id === pollId) ||
+            allRoomPolls.find(p => p._id === pollId);
+          setDifficultyPollId(pollId);
+          setDifficultyPollQuestion(poll?.question ?? "This question");
+          setDifficultyDialogOpen(true);
+        }
       }, 300);
     } catch {
       setIsAnimating(false);
       toast.error("Failed to submit vote");
+    }
+  };
+
+  const submitDifficulty = async (difficulty: 'easy' | 'medium' | 'hard') => {
+    if (!difficultyPollId || !roomCode || !user?.uid) return;
+    try {
+      setSubmittingDifficulty(true);
+      await api.post(`/livequizzes/rooms/${roomCode}/polls/${difficultyPollId}/difficulty`, {
+        userId: user.uid,
+        difficulty,
+      });
+      localStorage.setItem(`pollDifficulty_${roomCode}_${difficultyPollId}`, difficulty);
+      toast.success("Thanks for the feedback!");
+      setDifficultyDialogOpen(false);
+      setDifficultyPollId(null);
+      setDifficultyPollQuestion("");
+    } catch (e) {
+      console.error("Failed to submit difficulty:", e);
+      toast.error("Could not save difficulty feedback. Please try again.");
+    } finally {
+      setSubmittingDifficulty(false);
     }
   };
   const cleanupRoom = () => {
@@ -330,6 +368,43 @@ export default function StudentPollRoom() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-violet-900/20 dark:to-purple-900/20">
+      <Dialog open={difficultyDialogOpen} onOpenChange={(open) => !submittingDifficulty && setDifficultyDialogOpen(open)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick feedback</DialogTitle>
+            <DialogDescription>
+              How difficult was this question?
+              <span className="block mt-1 text-foreground/80 line-clamp-2">
+                {difficultyPollQuestion}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Button
+              variant="outline"
+              disabled={submittingDifficulty}
+              onClick={() => submitDifficulty('easy')}
+            >
+              Easy
+            </Button>
+            <Button
+              variant="outline"
+              disabled={submittingDifficulty}
+              onClick={() => submitDifficulty('medium')}
+            >
+              Medium
+            </Button>
+            <Button
+              variant="outline"
+              disabled={submittingDifficulty}
+              onClick={() => submitDifficulty('hard')}
+            >
+              Hard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {showConfetti && (
         <div className="fixed inset-0 pointer-events-none z-40">
           <Confetti recycle={false} numberOfPieces={260} />
