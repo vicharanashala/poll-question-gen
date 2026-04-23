@@ -1,0 +1,24 @@
+395: const [queuedGeneratedQuestions, setQueuedGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
+400: const queuedGeneratedQuestionsRef = useRef<GeneratedQuestion[]>([]);
+442: const [_showQueuedViewer, setShowQueuedViewer] = useState(false);
+443: const [_queuedViewerIndex, setQueuedViewerIndex] = useState(0);
+720: // Process pending text chunks sequentially and store results in queuedGeneratedQuestionsRef
+762: queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
+763: setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
+798: queuedGeneratedQuestionsRef.current = queuedGeneratedQuestions;
+799: }, [queuedGeneratedQuestions]);
+805: queuedGeneratedQuestionsRef.current = [];
+929: if (queuedGeneratedQuestionsRef.current.length > 0) {
+930: const queued = queuedGeneratedQuestionsRef.current;
+935: setShowQueuedViewer(true);
+938: queuedGeneratedQuestionsRef.current = [];
+1030: setShowQueuedViewer,
+1867: queuedGeneratedQuestionsRef.current = [];
+1879: queuedGeneratedQuestionsRef.current = [];
+2628: {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
+2641: {queuedGeneratedQuestions.map((q, idx) => (
+2644: className={`p-4 rounded-lg border transition-all duration-200 ${idx === queuedViewerIndex
+2687: const newQuestions = [...queuedGeneratedQuestions];
+2690: queuedGeneratedQuestionsRef.current = newQuestions;
+2704: {queuedGeneratedQuestions.length} question{queuedGeneratedQuestions.length !== 1 ? 's' : ''} generated
+2712: queuedGeneratedQuestionsRef.current = [];

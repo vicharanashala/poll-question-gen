@@ -169,15 +169,10 @@ export default function AuthPage() {
     } catch (error: unknown) {
       console.error("Email Signup Failed", error);
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'auth/email-already-in-use') {
-        setFormErrors({
-          ...formErrors,
-          auth: "This email is already in use. Please try logging in instead."
-        });
+        setIsSignUp(false);
+        setFormErrors({ auth: "This email is already registered. Please sign in instead." });
       } else {
-        setFormErrors({
-          ...formErrors,
-          auth: "Failed to create account. Please try again."
-        });
+        setFormErrors({ auth: "Failed to create account. Please try again." });
       }
     } finally {
       setLoading(false);

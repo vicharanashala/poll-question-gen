@@ -224,6 +224,9 @@ export class PollRoomController {
 
     try {
       const { transcript, questionSpec, model, questionCount } = req.body;
+      
+      // Robust transcript validation
+      const safeTranscript = (typeof transcript === 'string') ? transcript.trim() : '';
 
       const SEGMENTATION_THRESHOLD = parseInt(process.env.TRANSCRIPT_SEGMENTATION_THRESHOLD || '6000', 10);
       const defaultModel = 'gemma3';
@@ -233,13 +236,15 @@ export class PollRoomController {
       const numQuestions = questionCount ? parseInt(questionCount, 10) : 2;
 
       let segments: Record<string, string>;
-      if (transcript.length <= SEGMENTATION_THRESHOLD) {
-        console.log('[generateQuestions] Small transcript detected. Using full transcript without segmentation.');
-        console.log('Transcript:', transcript);
-        segments = { full: transcript };
+      if (safeTranscript.length === 0) {
+        console.log('[generateQuestions] No valid transcript text provided.');
+        segments = { full: '' };
+      } else if (safeTranscript.length <= SEGMENTATION_THRESHOLD) {
+        console.log('[generateQuestions] Small transcript detected (${safeTranscript.length} chars). Using full.');
+        segments = { full: safeTranscript };
       } else {
-        console.log('[generateQuestions] Transcript is long; running segmentation...');
-        segments = await this.aiContentService.segmentTranscript(transcript, selectedModel);
+        console.log(`[generateQuestions] Transcript is long (${safeTranscript.length} chars); running segmentation...`);
+        segments = await this.aiContentService.segmentTranscript(safeTranscript, selectedModel);
       }
 
       // ✅ Safe default questionSpec with custom count
@@ -248,14 +253,9 @@ export class PollRoomController {
         safeSpec = [questionSpec];
       } else if (Array.isArray(questionSpec) && typeof questionSpec[0] === 'object') {
         safeSpec = questionSpec;
-      } else {
-        console.warn(`Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`);
       }
-      console.log('Using questionSpec:', safeSpec);
-      console.log('[generateQuestions] Transcript length:', transcript.length);
-      console.log('[generateQuestions] Transcript preview:', segments);
 
-      console.log('[generateQuestions] Number of questions to generate:', numQuestions);
+      console.log('[generateQuestions] Requesting questions with model:', selectedModel);
       const generatedQuestions = await this.aiContentService.generateQuestions({
         segments,
         globalQuestionSpecification: safeSpec,
@@ -263,16 +263,15 @@ export class PollRoomController {
       });
 
       return res.json({
-        message: 'Questions generated successfully from transcript.',
-        transcriptPreview: transcript.substring(0, 200) + '...',
-        segmentsCount: Object.keys(segments).length,
-        totalQuestions: generatedQuestions.length,
-        requestedQuestions: numQuestions,
+        message: 'Questions generated successfully.',
+        transcriptPreview: safeTranscript.substring(0, 100),
         questions: generatedQuestions,
       });
     } catch (err: any) {
-      console.error('Error generating questions:', err);
-      return res.status(err.status || 500).json({ message: err.message || 'Internal Server Error' });
+      console.error('[generateQuestions] Error caught in Controller:', err.message);
+      const status = err.status || (err.response?.status) || 500;
+      const message = err.message || 'Internal Server Error';
+      return res.status(status).json({ success: false, message, details: err.response?.data || {} });
     } finally {
       await this.cleanupService.cleanup(tempPaths);
     }
@@ -304,17 +303,17 @@ export class PollRoomController {
   }
   //join as cohost
   @Post('/cohost')
-  async joinAsCohost(@Body() body: { token: string, userId: string }) {
-    const resp = await this.roomService.joinAsCohost(body.token, body.userId);
+  async joinAsCohost(@Body() body: { roomCode: string, inviteCode: string, userId: string }) {
+    const resp = await this.roomService.joinAsCohost(body.roomCode, body.inviteCode, body.userId);
     return { success: true, ...resp };
   }
 
-  //generate cohost invite link
+  //generate cohost invite code
   @Post('/cohost/:code')
   async generateCohostInvite(@Param('code') roomCode: string, @Body() body: { userId: string }) {
     console.log('roomCode:', roomCode);
-    const resp = await this.roomService.generateCohostInvite(roomCode, body.userId);
-    return { success: true, inviteLink: resp };
+    const code = await this.roomService.generateCohostInvite(roomCode, body.userId);
+    return { success: true, inviteCode: code };
   }
 
   //get cohosted rooms

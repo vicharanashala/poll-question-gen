@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu, ArrowLeft, UserPlus, Copy, Shield } from 'lucide-react';
+import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu, ArrowLeft, UserPlus, Copy, Shield, Info } from 'lucide-react';
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,13 +102,13 @@ export default function TeacherPollRoom() {
   const { user: currentUser } = useAuthStore();
   const [_isTranscriptionSettling, _setIsTranscriptionSettling] = useState(false);
   const [isCreating, setIsCreating] = useState(false)
-  const [inviteLink, setInviteLink] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [inviteLinkExpiresAt, setInviteLinkExpiresAt] = useState<number | null>(null);
   const INVITE_TTL_MS = 30 * 60 * 1000;
   const inviteStorageKey = `cohost-invite-link:${roomCode}:${currentUser?.uid ?? "anonymous"}`;
 
   const clearInviteLink = useCallback(() => {
-    setInviteLink('');
+    setInviteCode('');
     setInviteLinkExpiresAt(null);
     localStorage.removeItem(inviteStorageKey);
   }, [inviteStorageKey]);
@@ -120,13 +120,13 @@ export default function TeacherPollRoom() {
     if (!raw) return;
 
     try {
-      const parsed = JSON.parse(raw) as { inviteLink?: string; expiresAt?: number };
-      if (!parsed.inviteLink || !parsed.expiresAt || Date.now() >= parsed.expiresAt) {
+      const parsed = JSON.parse(raw) as { inviteCode?: string; expiresAt?: number };
+      if (!parsed.inviteCode || !parsed.expiresAt || Date.now() >= parsed.expiresAt) {
         localStorage.removeItem(inviteStorageKey);
         return;
       }
 
-      setInviteLink(parsed.inviteLink);
+      setInviteCode(parsed.inviteCode);
       setInviteLinkExpiresAt(parsed.expiresAt);
     } catch {
       localStorage.removeItem(inviteStorageKey);
@@ -134,7 +134,7 @@ export default function TeacherPollRoom() {
   }, [currentUser?.uid, roomCode, inviteStorageKey]);
 
   useEffect(() => {
-    if (!inviteLink || !inviteLinkExpiresAt) return;
+    if (!inviteCode || !inviteLinkExpiresAt) return;
 
     const remainingMs = inviteLinkExpiresAt - Date.now();
     if (remainingMs <= 0) {
@@ -144,12 +144,12 @@ export default function TeacherPollRoom() {
 
     localStorage.setItem(
       inviteStorageKey,
-      JSON.stringify({ inviteLink, expiresAt: inviteLinkExpiresAt })
+      JSON.stringify({ inviteCode, expiresAt: inviteLinkExpiresAt })
     );
 
     const timeout = window.setTimeout(clearInviteLink, remainingMs);
     return () => window.clearTimeout(timeout);
-  }, [inviteLink, inviteLinkExpiresAt, inviteStorageKey, clearInviteLink]);
+  }, [inviteCode, inviteLinkExpiresAt, inviteStorageKey, clearInviteLink]);
 
 
   const [activeSidebarTab, setActiveSidebarTab] = useState<'students' | 'cohosts'>('students');
@@ -186,19 +186,34 @@ export default function TeacherPollRoom() {
           },
         });
 
-        if (res.data.success && res.data.room?.controls) {
-          const { micBlocked, pollRestricted } = res.data.room.controls;
+        if (res.data.success && res.data.room) {
+          const { controls, pendingPolls, queuedPolls, teacherName, createdAt, polls } = res.data.room;
 
-          if (micBlocked) {
-            setRoomControlMode('mic-disabled');
-            // Agar mic blocked hai toh state disable kar do
-            setIsRecording(false);
-            setIsListening(false);
-            setIsLiveRecordingActive(false);
-          } else if (pollRestricted) {
-            setRoomControlMode('poll-disabled');
-          } else {
-            setRoomControlMode('full');
+          // Capture metadata
+          setRoomMetadata({ teacherName, createdAt, pollsCount: polls?.length || 0 });
+
+          if (controls) {
+            const { micBlocked, pollRestricted } = controls;
+
+            if (micBlocked) {
+              setRoomControlMode('mic-disabled');
+              setIsRecording(false);
+              setIsListening(false);
+              setIsLiveRecordingActive(false);
+            } else if (pollRestricted) {
+              setRoomControlMode('poll-disabled');
+            } else {
+              setRoomControlMode('full');
+            }
+          }
+
+          if (pendingPolls && pendingPolls.length > 0) {
+            setGeneratedQuestions(pendingPolls);
+            lastEmittedPendingRef.current = JSON.stringify(pendingPolls);
+          }
+          if (queuedPolls && queuedPolls.length > 0) {
+            setQueuedGeneratedQuestions(queuedPolls);
+            lastEmittedQueuedRef.current = JSON.stringify(queuedPolls);
           }
         } else if (!res.data.success) {
           toast.error(res.data.message || 'You do not have access to this room');
@@ -241,6 +256,8 @@ export default function TeacherPollRoom() {
 
 
   const isHost = currentUser?.uid === hostId;
+  const isCohost = cohosts.some(c => c.userId === currentUser?.uid);
+  const isAuthorized = isHost || isCohost;
 
   //handle invite cohost
   const handleInviteCohost = async () => {
@@ -248,19 +265,19 @@ export default function TeacherPollRoom() {
     setIsCreating(true);
     try {
       if (!currentUser?.uid) {
-        toast.error("Authentication required to create assessments");
+        toast.error("Authentication required to invite co-hosts");
         return;
       }
 
       const res = await api.post(`/livequizzes/rooms/cohost/${roomCode}`, {
         userId: currentUser.uid
       });
-      toast.success("Invite Link created successfully!");
-      setInviteLink(res.data.inviteLink);
+      toast.success("Invite Code created successfully!");
+      setInviteCode(res.data.inviteCode);
       setInviteLinkExpiresAt(Date.now() + INVITE_TTL_MS);
     } catch (error) {
-      console.error("Error creating Invite link:", error);
-      toast.error("Failed to create Invite Link");
+      console.error("Error creating Invite code:", error);
+      toast.error("Failed to create Invite Code");
     } finally {
       setIsCreating(false);
     }
@@ -420,6 +437,7 @@ export default function TeacherPollRoom() {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [language, setLanguage] = useState<SupportedLanguage>("en-IN");
   const [autoGenInterval, setAutoGenInterval] = useState<number>(30); // Default 30s
+  const [timeUntilNextGen, setTimeUntilNextGen] = useState<number>(30);
   const [isCustomInterval, setIsCustomInterval] = useState(false);
   const [isIntervalLocked, setIsIntervalLocked] = useState(false);
   const [customIntervalInput, setCustomIntervalInput] = useState<string>("30");
@@ -430,6 +448,9 @@ export default function TeacherPollRoom() {
   const animationFrameRef = useRef<number>(0);
   const [frequencyData, setFrequencyData] = useState<number[]>([]);
   const recognitionRef = useRef<any>(null);
+  const lastEmittedPendingRef = useRef<string>("");
+  const lastEmittedQueuedRef = useRef<string>("");
+  const lastEmittedUISyncRef = useRef<string>("");
   const [showAudioOptions, setShowAudioOptions] = useState(false);
   const [useWhisper, setUseWhisper] = useState(false);
   const [useWhisperGGML, setUseWhisperGGML] = useState(false);
@@ -450,8 +471,10 @@ export default function TeacherPollRoom() {
 
   // UI state for queued question viewer shown after mic stops
   const [_showQueuedViewer, setShowQueuedViewer] = useState(false);
-  const [_queuedViewerIndex, setQueuedViewerIndex] = useState(0);
+  const [queuedViewerIndex, setQueuedViewerIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [lastGenError, setLastGenError] = useState<string | null>(null);
+  const [editingSidebarIdx, setEditingSidebarIdx] = useState<number | null>(null);
   const [_isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   // Question card state
@@ -470,6 +493,11 @@ export default function TeacherPollRoom() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // Collapsed by default on mobile
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  // Room metadata for cohosts
+  const [roomMetadata, setRoomMetadata] = useState<{ teacherName?: string; createdAt?: string; pollsCount?: number } | null>(null);
+  const [showRoomDetails, setShowRoomDetails] = useState(false);
+  const [duration, setDuration] = useState<string>("00:00:00");
+
   // State for upload options
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [showUploadTextFileModal, setShowUploadTextFileModal] = useState(false);
@@ -478,6 +506,30 @@ export default function TeacherPollRoom() {
   const [fileName, setFileName] = useState('');
 
   const [roomControlMode, setRoomControlMode] = useState<'full' | 'mic-disabled' | 'poll-disabled'>('full');
+
+  // Duration timer effect
+  useEffect(() => {
+    if (!roomMetadata?.createdAt || !showRoomDetails) return;
+
+    const calculateDuration = () => {
+      const start = new Date(roomMetadata.createdAt!).getTime();
+      const now = new Date().getTime();
+      const diff = Math.max(0, now - start);
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    setDuration(calculateDuration());
+    const interval = setInterval(() => {
+      setDuration(calculateDuration());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [roomMetadata?.createdAt, showRoomDetails]);
 
   // Handler for saving question edits
   const handleSaveQuestionEdit = () => {
@@ -498,13 +550,32 @@ export default function TeacherPollRoom() {
     setGeneratedQuestions(updatedQuestions);
   };
 
-  // Handler for marking an option as correct
+  const handleSidebarQuestionChange = (idx: number, text: string) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[idx].question = text;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
+  const handleSidebarOptionChange = (qIdx: number, oIdx: number, text: string) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[qIdx].options[oIdx] = text;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
+  const handleSidebarCorrectOption = (qIdx: number, oIdx: number) => {
+    const updated = [...queuedGeneratedQuestions];
+    updated[qIdx].correctOptionIndex = oIdx;
+    setQueuedGeneratedQuestions(updated);
+    queuedGeneratedQuestionsRef.current = updated;
+  };
+
   const handleOptionClick = (optionIndex: number) => {
     const updatedQuestions = [...generatedQuestions];
     updatedQuestions[currentQuestionIndex].correctOptionIndex = optionIndex;
     setGeneratedQuestions(updatedQuestions);
   };
-
 
 
   // Socket connection and event management
@@ -564,6 +635,10 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('pending-polls-updated');
+      socket.off('queued-polls-updated');
+      socket.off('polls-available');
+      socket.off('room-ui-synced');
 
       // Set up new listeners
       socket.on('live-poll-results', handlePollUpdate);
@@ -579,6 +654,42 @@ export default function TeacherPollRoom() {
           setIsLiveRecordingActive(false);
         }
       });
+
+      socket.on('pending-polls-updated', (data) => {
+        if (JSON.stringify(data.polls) !== lastEmittedPendingRef.current) {
+          lastEmittedPendingRef.current = JSON.stringify(data.polls);
+          setGeneratedQuestions(data.polls);
+        }
+      });
+
+      socket.on('polls-available', () => {
+        toast.info("New questions have been generated", {
+          id: "new-polls-sync",
+          position: "bottom-right",
+          action: {
+            label: "View", // Notification action button to view the new questions
+            onClick: () => {
+              setShowPreview(true);
+            }
+          }
+        });
+      });
+
+      socket.on('queued-polls-updated', (data) => {
+        if (JSON.stringify(data.polls) !== lastEmittedQueuedRef.current) {
+          // Queued polls sync in background as they are live-generated
+          lastEmittedQueuedRef.current = JSON.stringify(data.polls);
+          setQueuedGeneratedQuestions(data.polls);
+        }
+      });
+
+      socket.on('room-ui-synced', (data: any) => {
+        // Only non-intrusive sync if any
+        if (JSON.stringify(data) !== lastEmittedUISyncRef.current) {
+          lastEmittedUISyncRef.current = JSON.stringify(data);
+        }
+      });
+
       socket.on('roomControlsUpdated', (controls) => {
         if (controls.micBlocked) setRoomControlMode('mic-disabled');
         else if (controls.pollRestricted) setRoomControlMode('poll-disabled');
@@ -683,7 +794,45 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('pending-polls-updated');
+      socket.off('queued-polls-updated');
+      socket.off('polls-available');
+      socket.off('room-ui-synced');
     };
+  }, [roomCode]);
+
+  // Sync pending polls to backend whenever local state changes
+  useEffect(() => {
+    if (!roomCode || !socket.connected) return;
+
+    const currentPendingStr = JSON.stringify(generatedQuestions);
+    if (lastEmittedPendingRef.current !== currentPendingStr) {
+      lastEmittedPendingRef.current = currentPendingStr;
+      socket.emit("update-pending-polls", { roomCode, polls: generatedQuestions });
+    }
+  }, [generatedQuestions, roomCode]);
+
+  // Sync queued polls to backend whenever local state changes
+  useEffect(() => {
+    if (!roomCode || !socket.connected) return;
+
+    const currentQueuedStr = JSON.stringify(queuedGeneratedQuestions);
+    if (lastEmittedQueuedRef.current !== currentQueuedStr) {
+      lastEmittedQueuedRef.current = currentQueuedStr;
+      socket.emit("update-queued-polls", { roomCode, polls: queuedGeneratedQuestions });
+    }
+  }, [queuedGeneratedQuestions, roomCode]);
+
+  // Sync important UI flags (if any)
+  useEffect(() => {
+    if (!roomCode || !socket.connected) return;
+
+    const uiState = {}; // No longer syncing processing/mirroring
+    const uiStateStr = JSON.stringify(uiState);
+    if (lastEmittedUISyncRef.current !== uiStateStr) {
+      lastEmittedUISyncRef.current = uiStateStr;
+      socket.emit("sync-room-ui", { roomCode, uiState });
+    }
   }, [roomCode]);
 
   // Update current poll responses when livePollResults changes
@@ -732,6 +881,8 @@ export default function TeacherPollRoom() {
   const processPendingQueue = useCallback(async () => {
     if (processingQueueRef.current) return;
     processingQueueRef.current = true;
+    setIsProcessing(true);
+    setLastGenError(null);
 
 
     while (pendingTextChunksRef.current.length > 0) {
@@ -742,7 +893,7 @@ export default function TeacherPollRoom() {
         formData.append('transcript', chunk);
         if (questionSpec) formData.append('questionSpec', questionSpec);
         formData.append('model', selectedModel);
-        formData.append('questionCount', questionCount.toString());
+        formData.append('questionCount', '1');
 
         const response = await api.post(`/livequizzes/rooms/${roomCode}/generate-questions`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
@@ -772,14 +923,18 @@ export default function TeacherPollRoom() {
         if (filteredQuestions.length > 0) {
           queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
           setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
+          setLastGenError(null);
         }
-      } catch (err) {
-        // Failed to process queued chunk
+      } catch (err: any) {
+        console.error('[processPendingQueue] Chunk processing failed:', err);
+        const errorMsg = err.response?.data?.message || err.message || "Failed to generate questions";
+        setLastGenError(errorMsg);
       }
     }
 
     processingQueueRef.current = false;
-  }, [questionSpec, selectedModel, questionCount, roomCode, filterQuestionOptions]);
+    setIsProcessing(false);
+  }, [questionSpec, selectedModel, roomCode, filterQuestionOptions]);
 
   // Enqueue a text chunk and start processing the queue
   const enqueueTextChunk = useCallback((textChunk: string) => {
@@ -891,7 +1046,7 @@ export default function TeacherPollRoom() {
         recognitionRef.current.stop();
       }
 
-      if (audioContextRef.current) {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
       }
 
@@ -1052,12 +1207,14 @@ export default function TeacherPollRoom() {
     if (!isRecording && !isLiveRecordingActive) {
       // Keep it updated so that when recording starts, it's fresh
       lastGenerationTimeRef.current = Date.now();
+      setTimeUntilNextGen(autoGenInterval);
       return;
     }
 
     const intervalId = setInterval(() => {
       const now = Date.now();
       const elapsedSeconds = (now - lastGenerationTimeRef.current) / 1000;
+      setTimeUntilNextGen(Math.max(0, Math.ceil(autoGenInterval - elapsedSeconds)));
 
       if (elapsedSeconds >= autoGenInterval) {
         // Build the current transcript buffer based on active mode
@@ -1468,6 +1625,8 @@ export default function TeacherPollRoom() {
       setGeneratedQuestions(filteredQuestions);
       setShowPreview(true);
       toast.success(`Generated ${filteredQuestions.length} questions successfully!`);
+      // Auto-notify co-hosts when AI finishes generating
+      socket.emit('notify-polls-available', { roomCode });
     } catch (error) {
       // Error generating questions
       if (error && typeof error === 'object' && 'response' in error) {
@@ -1755,7 +1914,14 @@ export default function TeacherPollRoom() {
     const [isOpen, setIsOpen] = useState(false);
 
     const models = [
+<<<<<<< Updated upstream
+      { value: "gemma3", label: "Gemma 3 (Local)" },
+      { value: "llama3.2:1b", label: "Llama 3.2 1B (Fast, Local)" },
+      { value: "llama3.2:3b", label: "Llama 3.2 3B (Balanced, Local)" },
+=======
+      { value: "llama3.2:1b", label: "Llama 3.2 (1B)" },
       { value: "gemma3", label: "Gemma 3" },
+>>>>>>> Stashed changes
       { value: "gpt-4", label: "GPT-4" },
       { value: "claude-3", label: "Claude 3" },
       { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
@@ -2158,7 +2324,7 @@ export default function TeacherPollRoom() {
               </div>
 
               {/* Capsule Toggle Button (Only show if not collapsed) */}
-              {isHost && !isSidebarCollapsed && (
+              {isAuthorized && !isSidebarCollapsed && (
                 <div className="px-3 py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex bg-[#9b51e0] dark:bg-purple-700 rounded-full p-1 text-sm font-semibold shadow-inner">
                     <button
@@ -2213,7 +2379,7 @@ export default function TeacherPollRoom() {
                               )}
 
                             </div>
-                            {!isSidebarCollapsed && (
+                            {isAuthorized && !isSidebarCollapsed && (
                               <Trash2
                                 size={18}
                                 className="
@@ -2246,7 +2412,7 @@ export default function TeacherPollRoom() {
                   )}
 
                   {/* COHOSTS TAB (Real Data) */}
-                  {isHost && activeSidebarTab === 'cohosts' && (
+                  {activeSidebarTab === 'cohosts' && (
                     cohosts.length > 0 ? (
                       cohosts.map((cohost, index) => (
                         <div
@@ -2259,6 +2425,7 @@ export default function TeacherPollRoom() {
                             {!isSidebarCollapsed && (
                               <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
                                 {cohost.firstName || "Cohost"}
+                                {cohost.userId === currentUser?.uid ? ' (You)' : ''}
                               </span>
                             )}
                           </div>
@@ -2318,7 +2485,7 @@ export default function TeacherPollRoom() {
                   size="icon"
                   className="mr-2"
                   onClick={() => navigate({ to: isHost ? '/teacher/manage-rooms' : '/teacher/cohosted-rooms' })}
-                  title={isHost ? "Back to Manage Rooms" : "Back to Home"}
+                  title={isAuthorized ? (isHost ? "Back to Manage Rooms" : "Back to Cohosted Rooms") : "Back"}
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -2356,7 +2523,7 @@ export default function TeacherPollRoom() {
                   <Wand2 className="w-4 h-4 mr-2" />
                   {showPreview ? 'Generated Questions' : 'Generated Questions'}
                 </Button>
-                {isHost && (
+                {isAuthorized && (
                   <Button
                     disabled={roomControlMode === 'poll-disabled'}
                     variant={showPollModal ? "default" : "outline"}
@@ -2370,10 +2537,21 @@ export default function TeacherPollRoom() {
                 <Button
                   variant={showResultsModal ? "default" : "outline"}
                   onClick={handlePollResultsbutton}
+                  className="mr-2"
                 >
                   <BarChart2 className="w-4 h-4 mr-2" />
                   Poll Results
                 </Button>
+
+                {!isHost && isAuthorized && (
+                  <Button
+                    variant={showRoomDetails ? "default" : "outline"}
+                    onClick={() => setShowRoomDetails(true)}
+                  >
+                    <Info className="w-4 h-4 mr-2" />
+                    Room Details
+                  </Button>
+                )}
 
                 {isHost && (
                   <div className="ml-2 border-l border-gray-300 dark:border-gray-700 pl-4">
@@ -2418,14 +2596,14 @@ export default function TeacherPollRoom() {
 
                 {isHost && (
                   <>
-                    {inviteLink ? (
+                    {inviteCode ? (
                       <Button
                         variant="outline"
-                        onClick={() => copyToClipboard(inviteLink, "Invite link copied to clipboard!")}
+                        onClick={() => copyToClipboard(inviteCode, "Invite code copied to clipboard!")}
                         className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/30"
                       >
                         <Copy size={16} />
-                        <span className="xs:inline">Copy Invite Link</span>
+                        <span className="xs:inline">Code: {inviteCode}</span>
                       </Button>
                     ) : (
                       <Button
@@ -2472,6 +2650,38 @@ export default function TeacherPollRoom() {
                 )}
               </div>
             </div>
+
+            {/* Room Details Modal for Cohosts */}
+            <Modal
+              show={showRoomDetails}
+              onClose={() => setShowRoomDetails(false)}
+              onSubmit={() => setShowRoomDetails(false)}
+              title="Room Details"
+              content={
+                <div className="space-y-4 p-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700 text-left">
+                      <p className="text-xs text-gray-500 uppercase font-bold mb-1">Room Code</p>
+                      <p className="text-lg font-mono font-bold text-purple-600 dark:text-purple-400">{roomCode}</p>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700 text-left">
+                      <p className="text-xs text-gray-500 uppercase font-bold mb-1">Session Duration</p>
+                      <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{duration}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-100 dark:border-gray-700 text-left">
+                    <p className="text-xs text-gray-500 uppercase font-bold mb-1">Session Host</p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold text-xs">
+                        {roomMetadata?.teacherName?.charAt(0) || 'H'}
+                      </div>
+                      <p className="font-semibold text-gray-800 dark:text-gray-200">{roomMetadata?.teacherName || 'Unknown Host'}</p>
+                    </div>
+                  </div>
+                </div>
+              }
+            />
 
             {/* Main content area with sidebar */}
             <div className="flex flex-1 overflow-hidden">
@@ -2524,7 +2734,7 @@ export default function TeacherPollRoom() {
                     {showPreview ? 'Generated Questions' : 'Generated Questions'}
                   </Button>
                   {
-                    isHost && (
+                    isAuthorized && (
                       <Button
                         variant={showPollModal ? "default" : "outline"}
                         onClick={() => {
@@ -2591,7 +2801,7 @@ export default function TeacherPollRoom() {
                           <AlertTriangle size={20} />
                           End Room Confirmation
                         </CardTitle>
-                      </CardHeader>r
+                      </CardHeader>
                       <CardContent className="space-y-4">
                         <p className="text-gray-700 dark:text-gray-300">
                           Are you sure you want to end this room? This action cannot be undone.
@@ -2636,100 +2846,8 @@ export default function TeacherPollRoom() {
                 {/* GenAI Tab */}
                 <div className="flex-1 px-1 border-r border-r-slate-200 dark:border-r-gray-700 bg-white/90 dark:bg-gray-900/90 shadow">
                   <ScrollArea className="h-full pe-3">
-                    {/* {!isRecording && queuedGeneratedQuestions.length > 0 && (
-              <Card className="mb-6 border border-purple-200 dark:border-purple-900/50 bg-gradient-to-br from-purple-50/50 to-white dark:from-gray-900/50 dark:to-gray-900">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg font-semibold text-purple-700 dark:text-purple-300 flex items-center gap-2">
-                    <Wand2 className="h-5 w-5" />
-                    Generated Questions
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Review and manage your AI-generated questions
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {queuedGeneratedQuestions.map((q, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-4 rounded-lg border transition-all duration-200 ${idx === queuedViewerIndex
-                          ? 'border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 scale-[1.01] shadow-sm'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-purple-200 dark:hover:border-purple-800/70 bg-white dark:bg-gray-800/50'
-                          }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">
-                              Q{idx + 1}: {q.question}
-                            </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {q.options.map((opt, optIdx) => (
-                                <div
-                                  key={optIdx}
-                                  className={`p-2 rounded text-sm ${optIdx === q.correctOptionIndex
-                                    ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
-                                    : 'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300'
-                                    }`}
-                                >
-                                  {opt || `Option ${optIdx + 1}`}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-3 text-xs border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/30"
-                              onClick={() => {
-                                setQuestion(q.question);
-                                setOptions(q.options);
-                                setCorrectOptionIndex(q.correctOptionIndex);
-                                toast.success('Question loaded into the form');
-                              }}
-                            >
-                              Use This
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 px-3 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              onClick={() => {
-                                const newQuestions = [...queuedGeneratedQuestions];
-                                newQuestions.splice(idx, 1);
-                                setQueuedGeneratedQuestions(newQuestions);
-                                queuedGeneratedQuestionsRef.current = newQuestions;
-                                toast.success('Question removed');
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                    {/* Intentionally empty - questions shown in floating panel */}
 
-                  <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <div className="text-sm text-muted-foreground">
-                      {queuedGeneratedQuestions.length} question{queuedGeneratedQuestions.length !== 1 ? 's' : ''} generated
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
-                      onClick={() => {
-                        setQueuedGeneratedQuestions([]);
-                        queuedGeneratedQuestionsRef.current = [];
-                        toast.success('All questions cleared');
-                      }}
-                    >
-                      Clear All
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )} */}
                     {!showPollModal && !showResultsModal && (
 
                       <div className="space-y-4 sm:space-y-6">
@@ -2740,6 +2858,11 @@ export default function TeacherPollRoom() {
                                 <CardTitle className="flex items-center gap-2 text-base">
                                   <Volume2 className="h-4 w-4 text-purple-500" />
                                   Voice Recorder
+                                  {(isRecording || isLiveRecordingActive) && (
+                                    <span className="text-sm font-normal text-muted-foreground ml-2">
+                                  {isProcessing ? '(Generating...)' : `(Auto-gen in: ${timeUntilNextGen}s)`}
+                                    </span>
+                                  )}
                                 </CardTitle>
 
                                 <div className="flex items-center gap-2">
@@ -3244,29 +3367,6 @@ export default function TeacherPollRoom() {
                                       </Button>
                                     </div>
                                   </div>
-
-                                  {/* File Preview */}
-                                  {textFileContent && (
-                                    <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                                      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                                        <div className="flex justify-between items-center">
-                                          <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                            Preview
-                                          </h4>
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                                            {textFileContent.length} characters
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <div className="p-4 bg-white dark:bg-gray-800 max-h-60 overflow-y-auto">
-                                        <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
-                                          {textFileContent.length > 1000
-                                            ? `${textFileContent.substring(0, 1000)}... [${textFileContent.length - 1000} more characters]`
-                                            : textFileContent}
-                                        </pre>
-                                      </div>
-                                    </div>
-                                  )}
                                 </div>
                               )}
 
@@ -3392,6 +3492,25 @@ export default function TeacherPollRoom() {
                                       />
                                       <p className="text-xs text-muted-foreground">
                                         Specify how many questions to generate (1-20)
+                                      </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium text-muted-foreground">Auto-Gen Interval (seconds)</label>
+                                      <Input
+                                        type="number"
+                                        placeholder="e.g., 30"
+                                        value={autoGenInterval}
+                                        min={5}
+                                        max={300}
+                                        onChange={(e) => {
+                                          const val = Math.max(5, Number(e.target.value));
+                                          setAutoGenInterval(val);
+                                          setTimeUntilNextGen(val);
+                                        }}
+                                        className="text-xs sm:text-base"
+                                      />
+                                      <p className="text-xs text-muted-foreground">
+                                        How often (in seconds) a question is auto-generated from live speech
                                       </p>
                                     </div>
                                     <div className="space-y-2">
@@ -3787,8 +3906,8 @@ export default function TeacherPollRoom() {
                   </ScrollArea>
                 </div>
 
-                {/* Loading Overlay */}
-                {isProcessing && (
+                {/* Loading Overlay - Removed to prevent UI blocking. Status is shown in right sidebar. */}
+                {/* {isProcessing && (
                   <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center">
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
                       <div className="flex flex-col items-center space-y-4">
@@ -3800,7 +3919,7 @@ export default function TeacherPollRoom() {
                       </div>
                     </div>
                   </div>
-                )}
+                )} */}
 
                 {/* Create Poll  */}
                 {showPollModal && (
@@ -4358,8 +4477,7 @@ export default function TeacherPollRoom() {
             setShouldProcessTranscript(false);
             setIsTranscriptionSettling(false);
           }}
-          submitText={"Load"}
-          
+                    submitText={"Load"}
           submitEnabled={
             !!(
               audioBlob !== undefined && 
@@ -4372,18 +4490,203 @@ export default function TeacherPollRoom() {
             processAudioBlob();
             setAudioBlob(undefined);
             setIsLiveRecordingActive(false);
-           // generateQuestions()
-           setIsTranscriptionSettling(false);
-           setShouldProcessTranscript(true);
-           
-           
+            setIsTranscriptionSettling(false);
+            setShouldProcessTranscript(true);
           }}
-        />*/}
-            </div>
+        />
           </div>
+          {/* ── Right AI Results Sidebar ── */}
+          {(isProcessing || queuedGeneratedQuestions.length > 0 || lastGenError) && (
+            <div className="w-80 border-l border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 flex flex-col h-full transition-all duration-300">
+              <div className="p-4 flex flex-col h-full overflow-hidden">
+                {/* Generating indicator */}
+                {isProcessing && (
+                  <div className="bg-white dark:bg-gray-900 border border-purple-300 dark:border-purple-700 rounded-xl shadow-lg px-4 py-3 mb-4 flex items-center gap-3 animate-pulse">
+                    <Loader2 className="h-5 w-5 text-purple-500 animate-spin flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-purple-700 dark:text-purple-300">AI Generating…</p>
+                      <p className="text-xs text-muted-foreground whitespace-nowrap">Processing speech history</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Indicator */}
+                {lastGenError && !isProcessing && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                    <div className="overflow-hidden">
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-400">Generation Failed</p>
+                      <p className="text-[10px] text-red-600 dark:text-red-400 line-clamp-2 leading-tight">
+                        {lastGenError}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="link"
+                        className="h-auto p-0 text-[10px] text-red-500 hover:text-red-600 underline"
+                        onClick={() => setLastGenError(null)}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Generated questions list */}
+                {queuedGeneratedQuestions.length > 0 ? (
+                  <div className="bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800 rounded-xl shadow-md overflow-hidden flex flex-col flex-1">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-purple-50 to-white dark:from-purple-900/30 dark:to-gray-900">
+                      <div className="flex items-center gap-2">
+                        <Wand2 className="h-4 w-4 text-purple-500" />
+                        <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">AI Results</span>
+                        <span className="text-xs bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded-full font-medium">
+                          {queuedGeneratedQuestions.length}
+                        </span>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        onClick={() => {
+                          setQueuedGeneratedQuestions([]);
+                          queuedGeneratedQuestionsRef.current = [];
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+
+                    {/* Scrollable question list */}
+                    <ScrollArea className="flex-1 overflow-y-auto">
+                      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {queuedGeneratedQuestions.map((q, idx) => (
+                          <div key={idx} className="p-3 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors border-b border-gray-100 dark:border-gray-800 last:border-0">
+                            {editingSidebarIdx === idx ? (
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400">Edit Question</span>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-5 px-1.5 text-[10px] text-gray-500 hover:text-purple-600"
+                                    onClick={() => setEditingSidebarIdx(null)}
+                                  >
+                                    Done
+                                  </Button>
+                                </div>
+                                <textarea
+                                  className="w-full p-2 text-sm border rounded-md bg-white dark:bg-gray-800 border-purple-200 dark:border-purple-800 focus:outline-none focus:ring-1 focus:ring-purple-500 min-h-[60px]"
+                                  value={q.question}
+                                  onChange={(e) => handleSidebarQuestionChange(idx, e.target.value)}
+                                />
+                                <div className="space-y-1 mt-1">
+                                  <p className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Options (click to mark correct)</p>
+                                  {q.options.map((opt, optIdx) => (
+                                    <div key={optIdx} className="flex gap-1.5 items-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSidebarCorrectOption(idx, optIdx)}
+                                        className={`transition-all duration-200 p-1 rounded-full ${
+                                          optIdx === q.correctOptionIndex
+                                            ? "bg-green-500 text-white shadow-sm"
+                                            : "bg-gray-100 dark:bg-gray-700 text-gray-400 hover:bg-green-100 dark:hover:bg-green-900/40"
+                                        }`}
+                                      >
+                                        <Check className={optIdx === q.correctOptionIndex ? "h-3 w-3" : "h-3 w-3 opacity-0"} />
+                                      </button>
+                                      <Input
+                                        className={`h-7 text-xs px-2 ${
+                                          optIdx === q.correctOptionIndex
+                                            ? "border-green-300 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10"
+                                            : "border-gray-200 dark:border-gray-700"
+                                        }`}
+                                        value={opt}
+                                        placeholder={`Option ${optIdx + 1}`}
+                                        onChange={(e) => handleSidebarOptionChange(idx, optIdx, e.target.value)}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2 leading-snug">
+                                  {q.question}
+                                </p>
+                                <div className="flex flex-col gap-1 mb-3">
+                                  {q.options.map((opt, optIdx) => (
+                                    <div
+                                      key={optIdx}
+                                      className={`px-2 py-1 rounded text-[10px] sm:text-xs border transition-colors ${
+                                        optIdx === q.correctOptionIndex
+                                          ? 'bg-green-100 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 font-medium'
+                                          : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400'
+                                      }`}
+                                    >
+                                      {opt || `Option ${optIdx + 1}`}
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="flex-1 h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white shadow-sm"
+                                    onClick={() => {
+                                      setQuestion(q.question);
+                                      setOptions(q.options);
+                                      setCorrectOptionIndex(q.correctOptionIndex);
+                                      toast.success('Question loaded to form');
+                                    }}
+                                  >
+                                    Load into form
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                                    onClick={() => setEditingSidebarIdx(idx)}
+                                    title="Edit Question"
+                                  >
+                                    <Edit3 size={14} />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                    onClick={() => {
+                                      const newQ = [...queuedGeneratedQuestions];
+                                      newQ.splice(idx, 1);
+                                      setQueuedGeneratedQuestions(newQ);
+                                      queuedGeneratedQuestionsRef.current = newQ;
+                                    }}
+                                    title="Remove Question"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                ) : (
+                  !lastGenError && (
+                    <div className="flex-1 flex flex-col items-center justify-center opacity-40 text-center px-4">
+                      <Wand2 className="h-8 w-8 mb-2 text-purple-400" />
+                      <p className="text-xs">No questions yet. Keep talking to generate questions automatically.</p>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <ConfirmationModal {...modalProps} />
+    </div>
+    </div>
     </div>
   );
 }

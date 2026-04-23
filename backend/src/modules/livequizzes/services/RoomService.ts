@@ -57,19 +57,22 @@ export class RoomService {
 
     const participantsMap = new Map<string, {
       userId: string;
+      attempted: number;
       correct: number;
       wrong: number;
       score: number;
       timeTaken: number;
     }>();
 
-    // 1.1️⃣ Initialize map with all enrolled students (fetching their Firebase UIDs)
+    // 1.1️⃣ Initialize map with all enrolled students
+    const totalStudentsEnrolled = room.students?.length || 0;
     if (room.students && room.students.length > 0) {
-      const enrolledUsers = await this.userModel.find({ _id: { $in: room.students } }, 'firebaseUID').lean();
+      const enrolledUsers = await this.userModel.find({ _id: { $in: room.students } }, 'firebaseUID email firstName').lean();
       for (const user of enrolledUsers) {
         if (user.firebaseUID) {
           participantsMap.set(user.firebaseUID, {
             userId: user.firebaseUID,
+            attempted: 0,
             correct: 0,
             wrong: 0,
             score: 0,
@@ -80,85 +83,97 @@ export class RoomService {
     }
 
     // 2️⃣ Process each poll and answers
-    for (const poll of room.polls) {
-      for (const answer of poll.answers) {
-        if (!participantsMap.has(answer.userId)) {
-          // This case might still happen if a student answered but isn't in 'students' (unlikely but safe)
-          participantsMap.set(answer.userId, {
-            userId: answer.userId,
-            correct: 0,
-            wrong: 0,
-            score: 0,
-            timeTaken: 0,
-          });
+    let totalPointsDistributed = 0;
+    const questionsSummary = room.polls.map((poll) => {
+        let questionCorrectCount = 0;
+        let questionTotalTime = 0;
+        const totalResponses = poll.answers.length;
+
+        for (const answer of poll.answers) {
+          if (!participantsMap.has(answer.userId)) {
+            participantsMap.set(answer.userId, {
+              userId: answer.userId,
+              attempted: 0,
+              correct: 0,
+              wrong: 0,
+              score: 0,
+              timeTaken: 0,
+            });
+          }
+          const participant = participantsMap.get(answer.userId)!;
+          participant.attempted += 1;
+
+          if (answer.answerIndex === poll.correctOptionIndex) {
+            participant.correct += 1;
+            const points = answer.points || 5;
+            participant.score += points;
+            totalPointsDistributed += points;
+            questionCorrectCount += 1;
+          } else {
+            participant.wrong += 1;
+          }
+
+          const answerTime = (answer.answeredAt.getTime() - poll.createdAt.getTime()) / 1000;
+          participant.timeTaken += answerTime;
+          questionTotalTime += answerTime;
         }
-        const participant = participantsMap.get(answer.userId)!;
 
-        if (answer.answerIndex === poll.correctOptionIndex) {
-          participant.correct += 1;
-          participant.score += 5; // example scoring
-        } else {
-          participant.wrong += 1;
-          participant.score -= 2;
-        }
+        return {
+          id: poll._id,
+          text: poll.question,
+          type: 'MCQ',
+          difficulty: poll.maxPoints > 50 ? 'High' : poll.maxPoints > 20 ? 'Medium' : 'Low',
+          responses: totalResponses,
+          correctPct: totalResponses > 0 ? Math.round((questionCorrectCount / totalResponses) * 100) : 0,
+          avgTime: totalResponses > 0 ? (questionTotalTime / totalResponses).toFixed(1) + 's' : '0s',
+          points: poll.maxPoints || 20,
+        };
+    });
 
-        // Calculate time taken for this answer (in seconds)
-        const answerTime = (answer.answeredAt.getTime() - poll.createdAt.getTime()) / 1000;
-        participant.timeTaken += answerTime;
-      }
-    }
-
-    // 3️⃣ Fetch user names (THIS IS WHERE to add)
+    // 3️⃣ Fetch user names
     const userIds = Array.from(participantsMap.keys());
-    const users = await this.userModel.find({ firebaseUID: { $in: userIds } }, 'firebaseUID firstName').lean();
+    const users = await this.userModel.find({ firebaseUID: { $in: userIds } }, 'firebaseUID firstName email').lean();
 
     // 4️⃣ Convert map to array and merge names
     const participants = Array.from(participantsMap.values()).map((p) => {
       const user = users.find(u => u.firebaseUID === p.userId);
-
-      // Format time taken - convert seconds to minutes and seconds
-      let timeDisplay = "N/A";
+      let timeDisplay = "0s";
       if (p.timeTaken > 0) {
         const totalSeconds = Math.round(p.timeTaken);
         const minutes = Math.floor(totalSeconds / 60);
         const seconds = totalSeconds % 60;
-
-        if (minutes > 0) {
-          timeDisplay = `${minutes}m ${seconds}s`;
-        } else {
-          timeDisplay = `${seconds}s`;
-        }
+        timeDisplay = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
       }
 
       return {
+        id: p.userId,
         name: user?.firstName ?? 'Anonymous',
+        email: user?.email ?? '',
         score: p.score,
+        attempted: p.attempted,
         correct: p.correct,
         wrong: p.wrong,
+        accuracy: p.attempted > 0 ? Math.round((p.correct / p.attempted) * 100) : 0,
         timeTaken: timeDisplay
       };
     });
 
-    // Sort descending by score
     participants.sort((a, b) => b.score - a.score);
-
-    // 5️⃣ Build question-level stats
-    const questions = room.polls.map((poll) => ({
-      text: poll.question,
-      correctCount: poll.answers.filter(
-        a => a.answerIndex === poll.correctOptionIndex
-      ).length
-    }));
 
     return {
       id: room._id,
+      roomCode: room.roomCode,
       name: room.name,
+      status: room.status,
       createdAt: room.createdAt,
+      totalStudents: totalStudentsEnrolled,
+      totalPolls: room.polls.length,
+      pointsDistributed: totalPointsDistributed,
       duration: room.endedAt && room.createdAt
         ? Math.ceil((room.endedAt.getTime() - room.createdAt.getTime()) / 60000) + ' mins'
-        : 'N/A',
+        : 'Live',
       participants,
-      questions,
+      questions: questionsSummary,
     };
   }
 
@@ -210,10 +225,24 @@ export class RoomService {
     return rooms.map(room => this.mapRoom(room));
   }
 
-  async getEndedRooms(): Promise<RoomType[]> {
-    const rooms = await Room.find({ status: 'ended' }).lean();
-    return rooms.map(room => this.mapRoom(room));
+  async updatePendingPolls(roomCode: string, pendingPolls: any[]): Promise<boolean> {
+    const updated = await Room.findOneAndUpdate(
+      { roomCode },
+      { pendingPolls },
+      { new: true }
+    ).lean();
+    return !!updated;
   }
+
+  async updateQueuedPolls(roomCode: string, queuedPolls: any[]): Promise<boolean> {
+    const updated = await Room.findOneAndUpdate(
+      { roomCode },
+      { queuedPolls },
+      { new: true }
+    ).lean();
+    return !!updated;
+  }
+
   /**
    * Map Mongoose Room Document to plain RoomType matching interface
    */
@@ -222,6 +251,7 @@ export class RoomService {
       roomCode: roomDoc.roomCode,
       name: roomDoc.name,
       teacherId: roomDoc.teacherId,
+      teacherName: roomDoc.teacherName,
       createdAt: roomDoc.createdAt,
       endedAt: roomDoc.endedAt,
       status: roomDoc.status,
@@ -242,6 +272,22 @@ export class RoomService {
           answerIndex: a.answerIndex,
           answeredAt: a.answeredAt
         }))
+      })),
+      pendingPolls: (roomDoc.pendingPolls || []).map((p: any): Poll => ({
+        _id: p._id?.toString(),
+        question: p.question,
+        options: p.options,
+        correctOptionIndex: p.correctOptionIndex,
+        timer: p.timer,
+        createdAt: p.createdAt
+      })),
+      queuedPolls: (roomDoc.queuedPolls || []).map((p: any): Poll => ({
+        _id: p._id?.toString(),
+        question: p.question,
+        options: p.options,
+        correctOptionIndex: p.correctOptionIndex,
+        timer: p.timer,
+        createdAt: p.createdAt
       }))
     };
   }
@@ -412,44 +458,33 @@ export class RoomService {
       throw new HttpError(403, "Only host can generate invite")
     }
 
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     const inviteId = uuidv4();
-
-    const token = jwt.sign(
-      {
-        roomId: room.roomCode,
-        jti: inviteId
-      },
-      process.env.COHOST_INVITE_SECRET,
-      { expiresIn: "30m" }
-    );
 
     room.coHostInvite = {
       createdAt: new Date(Date.now()),
       inviteId,
+      inviteCode,
       expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       isActive: true
     };
 
     await room.save();
 
-    return `${process.env.APP_ORIGINS}/teacher/cohost-invite/${token}`
+    return inviteCode;
 
   }
 
   //join as cohost
-  async joinAsCohost(token: string, userId: string): Promise<{ message: string, roomId: string }> {
+  async joinAsCohost(roomCode: string, inviteCode: string, userId: string): Promise<{ message: string, roomId: string }> {
 
-    const decoded = jwt.verify(
-      token,
-      process.env.COHOST_INVITE_SECRET
-    ) as CohostJwtPayload;
-    const room = await Room.findOne({ roomCode: decoded.roomId });
+    const room = await Room.findOne({ roomCode });
     if (!room || room.status !== "active") {
       throw new HttpError(400, "Invalid room")
     }
     if (
       !room.coHostInvite.isActive ||
-      room.coHostInvite.inviteId !== decoded.jti ||
+      room.coHostInvite.inviteCode !== inviteCode ||
       room.coHostInvite.expiresAt < new Date()
     ) {
       throw new HttpError(400, "Invite invalid or expired")
@@ -481,8 +516,8 @@ export class RoomService {
     await room.save();
 
     // Get updated cohost list with full details
-    const activeCohosts = await this.getRoomCohosts(room.teacherId, decoded.roomId);
-    pollSocket?.emitToRoom(decoded.roomId, 'cohost-joined', {
+    const activeCohosts = await this.getRoomCohosts(room.teacherId, roomCode);
+    pollSocket?.emitToRoom(roomCode, 'cohost-joined', {
       activeCohosts: activeCohosts
     });
 

@@ -121,6 +121,9 @@ async function startServer() {
     const server = app.listen(appConfig.port, () => {
       printStartupSummary();
     });
+    
+    // Set explicit server timeout to 10 minutes for long AI generation tasks
+    server.timeout = 600000; 
 
     pollSocket.init(server); // For live poll socket functionality
   } catch (error) {

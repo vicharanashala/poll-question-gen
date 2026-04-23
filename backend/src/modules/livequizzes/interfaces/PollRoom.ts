@@ -8,7 +8,7 @@ export interface PollAnswer {
 }
 
 export interface Poll {
-  _id: string; // uuid string
+  _id?: string; // uuid string
   question: string;
   options: string[];
   correctOptionIndex: number;
@@ -16,7 +16,7 @@ export interface Poll {
   maxPoints?: number;
   lockedActiveUsers?: string[];
   createdAt: Date;
-  answers: PollAnswer[];
+  answers?: PollAnswer[];
 }
 
 export interface Room {
@@ -28,6 +28,8 @@ export interface Room {
   endedAt?: Date;
   status: 'active' | 'ended';
   polls: Poll[];
+  pendingPolls?: Poll[];
+  queuedPolls?: Poll[];
   totalStudents?: number;
   coHosts?: ActiveCohost[];
   controls?: {
