@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { injectable } from 'inversify';
 import { HttpError, InternalServerError } from 'routing-controllers';
 import { questionSchemas } from '../schemas/index.js';
+import { RAGService } from './RAGService.js';
 import { extractJSONFromMarkdown } from '../utils/extractJSONFromMarkdown.js';
 import { cleanTranscriptLines } from '../utils/cleanTranscriptLines.js';
 import { SocksProxyAgent } from 'socks-proxy-agent';
@@ -41,7 +42,7 @@ export class AIContentService {
       return undefined;
     }
   }
-  
+  private ragService = new RAGService();
   private getRequestConfig(): AxiosRequestConfig {
     const config: AxiosRequestConfig = {
       timeout: 180000, // 3 min request timeout
@@ -71,7 +72,7 @@ export class AIContentService {
   // --- Segmentation Logic ---
   public async segmentTranscript(
     transcript: string,
-    model = 'gemma3',
+    model = 'llama3',
     desiredSegments = 3 // <-- make fallback segments configurable
   ): Promise<Record<string, string>> {
     if (!transcript?.trim()) {
@@ -207,19 +208,24 @@ JSON:`;
       throw new InternalServerError(`Segmentation failed: ${error.message}`);
     }
 
-    // Clean transcript lines and build final object
-    const result: Record<string, string> = {};
-    for (const seg of segments) {
-      try {
-        const clean = cleanTranscriptLines(seg.transcript_lines);
-        if (clean?.trim()) {
-          result[seg.end_time] = clean;
-        }
-      } catch (e) {
-        console.warn(`[segmentTranscript] Failed cleaning segment ${seg.end_time}:`, e);
-      }
-    }
+const result: Record<string, string> = {};
+let fullTranscript = "";
 
+for (const seg of segments) {
+  try {
+    const clean = cleanTranscriptLines(seg.transcript_lines);
+
+    if (clean?.trim()) {
+      result[seg.end_time] = clean;
+      fullTranscript += clean + " ";
+    }
+  } catch (e) {
+    console.warn(`[segmentTranscript] Failed cleaning segment ${seg.end_time}:`, e);
+  }
+}
+
+// ✅ ingest ONCE
+this.ragService.ingest(fullTranscript);
     console.log(`[segmentTranscript] Done. Returning ${Object.keys(result).length} segments.`);
     return result;
   }
@@ -230,43 +236,79 @@ JSON:`;
     count: number,
     transcriptContent: string
   ): string {
-    const base = `You are an AI question generator.
-Based on the transcript below, generate EXACTLY ${count} question(s) of type ${questionType}.
-For each question:
-- Provide exactly 4 options only.
-- Mark the correct option.
+//     const base = `You are an AI question generator.
+// Based on the transcript below, generate EXACTLY ${count} question(s) of type ${questionType}.
+// For each question:
+// - Provide exactly 4 options only.
+// - The Options should NOT be repeated or be very similar to each other, 
+// - Mark the correct option.
+// - Do NOT return less than 4 options (NEVER return less than 4 options) under any condition, even if the transcript is short or doesn't have enough information. You can be creative with options, but they must be relevant to the transcript.
 
-IMPORTANT: Generate exactly ${count} questions, no more, no less.
+// IMPORTANT: Generate exactly ${count} questions, no more, no less.
 
-You must output JSON **exactly** in this shape, no nesting, no markdown:
+// You must output JSON **exactly** in this shape, no nesting, no markdown:
+// [
+//   {
+//     "questionText": "...",
+//     "options": [
+//       { "text": "...", "correct": true, "explanation": "..." },
+//       { "text": "...", "correct": false, "explanation": "..." },
+//       { "text": "...", "correct": true, "explanation": "..." },
+//       { "text": "...", "correct": false, "explanation": "..." }
+//     ],
+//     "solution": "...",
+//     "isParameterized": false,
+//     "timeLimitSeconds": 60,
+//     "points": 5
+//   }
+// ]
+// Do not wrap questionText inside another 'question' object. Output must be raw JSON.
+
+// Important:
+// - Output only JSON, no markdown, no extra text.
+// - Each question must have at least 4 options.
+// - Only one option can have "correct": true for SOL.
+// - Fill all fields.
+// - questionText must be clear and relevant to transcript.
+// - explanation field must explain why the option is correct/incorrect.
+// - Generate EXACTLY ${count} questions.
+
+// Transcript:
+// ${transcriptContent}`;
+const base = `You are a HIGH-QUALITY exam question generator.
+
+Your goal is to create meaningful, non-trivial MCQs from the transcript.
+
+STRICT RULES:
+- EXACTLY 4 options (no more, no less)
+- ONLY 1 correct answer
+- Avoid obvious or trivial questions
+- Avoid generic questions like "what is..." unless necessary
+- Prefer conceptual, application-based or reasoning questions
+
+If options < 4 → regenerate internally before output.
+
+FORMAT (STRICT JSON ONLY):
 [
   {
-    "questionText": "...",
+    "questionText": "Clear, specific, concept-based question",
     "options": [
-      { "text": "...", "correct": true, "explanation": "..." },
-      { "text": "...", "correct": false, "explanation": "..." }
+      { "text": "Correct answer", "correct": true, "explanation": "Why correct" },
+      { "text": "Plausible distractor", "correct": false, "explanation": "Why incorrect" },
+      { "text": "Plausible distractor", "correct": false, "explanation": "Why incorrect" },
+      { "text": "Plausible distractor", "correct": false, "explanation": "Why incorrect" }
     ],
-    "solution": "...",
+    "solution": "Brief reasoning",
     "isParameterized": false,
     "timeLimitSeconds": 60,
     "points": 5
   }
 ]
-Do not wrap questionText inside another 'question' object. Output must be raw JSON.
 
-Important:
-- Output only JSON, no markdown, no extra text.
-- Each question must have at least 4 options.
-- Only one option can have "correct": true for SOL.
-- Fill all fields.
-- questionText must be clear and relevant to transcript.
-- explanation field must explain why the option is correct/incorrect.
-- Generate EXACTLY ${count} questions.
+Generate EXACTLY ${count} questions.
 
 Transcript:
-${transcriptContent}
-
-`;
+${transcriptContent}`;
 
     const instructions: Record<string, string> = {
       SOL: `Generate ${count} single-correct MCQ as above. timeLimitSeconds:60, points:5`,
@@ -285,7 +327,7 @@ ${transcriptContent}
     globalQuestionSpecification: QuestionSpec[];
     model?: string;
   }): Promise<GeneratedQuestion[]> {
-    const { segments, globalQuestionSpecification, model = 'gemma3' } = args;
+    const { segments, globalQuestionSpecification, model = 'llama3' } = args;
 
     if (!segments || Object.keys(segments).length === 0) {
       throw new HttpError(400, 'segments must be a non-empty object.');
@@ -326,10 +368,19 @@ ${transcriptContent}
     //     questionType: "SOL"
     //   }
     // ];
+    const fullTranscript = Object.values(segments)
+    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    .join(' ');
 
-    const questionSpecs = globalQuestionSpecification[0];
-    const allQuestions: GeneratedQuestion[] = [];
-    console.log(`[generateQuestions] Model: ${model}`);
+    if (!fullTranscript.trim()) {
+      throw new HttpError(400, 'No transcript content found in segments.');
+    }
+
+    // Always ingest here so question generation works in a single request
+    this.ragService.ingest(fullTranscript);
+      const questionSpecs = globalQuestionSpecification[0];
+      const allQuestions: GeneratedQuestion[] = [];
+      console.log(`[generateQuestions] Model: ${model}`);
 
     for (const rawSegmentId in segments) {
       const segmentId = String(rawSegmentId); // normalize
@@ -343,7 +394,17 @@ ${transcriptContent}
             if (!schema) console.warn(`[generateQuestions] No schema for type ${type}.`);
 
             const format = count === 1 ? schema : { type: 'array', items: schema, minItems: count, maxItems: count };
-            const prompt = this.createQuestionPrompt(type, count, transcript);
+            // const retrievedChunks = this.ragService.retrieve(transcript);
+            // const context = retrievedChunks.map(c => c.text).join("\n");
+            const retrievedChunks = this.ragService.retrieve(transcript, 3);
+            const context = retrievedChunks.map(c => c.text).join('\n');
+
+            console.log("[RAG] Retrieved chunks:", retrievedChunks.length);
+            const prompt = this.createQuestionPrompt(
+              type,
+              count,
+              context || transcript // fallback safety
+            );
 
             console.log(`[generateQuestions] Connecting to Ollama API at ${this.llmApiUrl} with model ${model} for ${type} questions`);
             const config = this.getRequestConfig();
@@ -363,41 +424,55 @@ ${transcriptContent}
               console.warn(`[generateQuestions] Unexpected response for type ${type}, segment ${segmentId}.`);
               continue;
             }
+            console.log("RAW LLM OUTPUT:\n", text);
 
             const cleaned = extractJSONFromMarkdown(text);
             const parsed = JSON.parse(cleaned);
             const questions = Array.isArray(parsed) ? parsed : [parsed];
 
             questions.forEach(q => {
-              let questionText = q.question?.text || q.questionText || '';
-              let options = [];
-              // Extract options
-              if (q.solution?.incorrectLotItems) {
-                options = q.solution.incorrectLotItems.map((item: any) => ({
-                  text: item.text,
-                  correct: false,
-                  explanation: item.explaination || item.explanation || ''
+              const questionText = q.questionText || q.question?.text || '';
+
+              let options: Array<{ text: string; correct?: boolean; explanation?: string }> = [];
+
+              if (Array.isArray(q.options)) {
+                options = q.options.map((opt: any) => ({
+                  text: opt.text || '',
+                  correct: !!opt.correct,
+                  explanation: opt.explanation || opt.explaination || '',
                 }));
+              } else {
+                if (q.solution?.incorrectLotItems) {
+                  options = q.solution.incorrectLotItems.map((item: any) => ({
+                    text: item.text,
+                    correct: false,
+                    explanation: item.explaination || item.explanation || '',
+                  }));
+                }
+                if (q.solution?.correctLotItem) {
+                  options.push({
+                    text: q.solution.correctLotItem.text,
+                    correct: true,
+                    explanation:
+                      q.solution.correctLotItem.explaination ||
+                      q.solution.correctLotItem.explanation ||
+                      '',
+                  });
+                }
               }
-              if (q.solution?.correctLotItem) {
-                options.push({
-                  text: q.solution.correctLotItem.text,
-                  correct: true,
-                  explanation: q.solution.correctLotItem.explaination || q.solution.correctLotItem.explanation || ''
-                });
-              }
+
               allQuestions.push({
                 questionText,
                 options,
-                solution: '', // Optional: create from q.solution or leave empty
-                isParameterized: q.question?.isParameterized ?? false,
-                timeLimitSeconds: q.question?.timeLimitSeconds ?? 60,
-                points: q.question?.points ?? 5,
+                solution: q.solution ?? '',
+                isParameterized: q.isParameterized ?? q.question?.isParameterized ?? false,
+                timeLimitSeconds: q.timeLimitSeconds ?? q.question?.timeLimitSeconds ?? 60,
+                points: q.points ?? q.question?.points ?? 5,
                 segmentId,
-                questionType: type
+                questionType: q.questionType || type,
               });
             });
-            allQuestions.push(...questions);
+            // allQuestions.push(...questions);
             console.log(`[generateQuestions] Generated ${questions.length} ${type} questions for segment ${segmentId}`);
             console.log(`[generateQuestions] Raw LLM text for type ${type}, segment ${segmentId}:`, text.slice(0, 500));
           } catch (e: any) {

@@ -1,4 +1,4 @@
-/* //GenAIVideoController.ts
+//GenAIVideoController.ts
 import {
   JsonController,
   Post,
@@ -13,21 +13,11 @@ import {Request, Response} from 'express';
 import multer from "multer";
 const upload = multer({ dest: "uploads/" });
 
+// import { TranscriptionService } from './services/TranscriptionService.js';
 import {VideoService} from './services/VideoService.js';
 import {AudioService} from './services/AudioService.js';
-import {TranscriptionService} from './services/TranscriptionService.js';
 import {AIContentService} from './services/AIContentService.js';
 import {CleanupService} from './services/CleanupService.js';
-import {ItemService} from '../courses/services/ItemService.js';
-import {COURSES_TYPES} from '../courses/types.js';
-import {QUIZZES_TYPES} from '../quizzes/types.js';
-import {QuestionBankService} from '../quizzes/services/QuestionBankService.js';
-import {QuestionService} from '../quizzes/services/QuestionService.js';
-import {QuizService} from '../quizzes/services/QuizService.js';
-import {QuestionBank} from '../quizzes/classes/transformers/QuestionBank.js';
-import {BaseQuestion} from '../quizzes/classes/transformers/Question.js';
-import {CreateItemBody} from '../courses/classes/validators/ItemValidators.js';
-import {ItemType} from '#shared/interfaces/models.js';
 
 @injectable()
 @JsonController('/genai')
@@ -35,15 +25,9 @@ export default class GenAIVideoController {
   constructor(
     private videoService: VideoService,
     private audioService: AudioService,
-    private transcriptionService: TranscriptionService,
+    // private transcriptionService: TranscriptionService,
     private aiContentService: AIContentService,
-    private cleanupService: CleanupService,
-    @inject(COURSES_TYPES.ItemService) private itemService: ItemService,
-    @inject(QUIZZES_TYPES.QuestionBankService)
-    private questionBankService: QuestionBankService,
-    @inject(QUIZZES_TYPES.QuestionService)
-    private questionService: QuestionService,
-    @inject(QUIZZES_TYPES.QuizService) private quizService: QuizService,
+    private cleanupService: CleanupService
   ) {}
 
   @Post('/generate/transcript')
@@ -83,7 +67,7 @@ export default class GenAIVideoController {
           audioPath = await this.audioService.extractAudio(filePath);
           tempPaths.push(audioPath);
         }
-        transcript = await this.transcriptionService.transcribe(audioPath);
+        // transcript = await this.transcriptionService.transcribe(audioPath);
         youtubeUrl = null;
       }
       else if (youtubeUrl) {
@@ -97,7 +81,7 @@ export default class GenAIVideoController {
         tempPaths.push(audioPath);
 
         // 3. Transcribe audio
-        transcript = await this.transcriptionService.transcribe(audioPath);
+        // transcript = await this.transcriptionService.transcribe(audioPath);
       }
       else {
         return res.status(400).json({
@@ -192,308 +176,345 @@ export default class GenAIVideoController {
     }
   }
 
-  @Post('/generate-course-items-from-video')
-  @HttpCode(200)
-  async generateCourseItemsFromVideo(
-    @Body()
-    body: {
-      versionId: string;
-      moduleId: string;
-      sectionId: string;
-      courseId: string; // Added courseId parameter
-      videoURL: string;
-      globalQuestionSpecification?: {
-        SOL?: number;
-        SML?: number;
-        OTL?: number;
-        NAT?: number;
-        DES?: number;
-      };
-      videoItemBaseName?: string;
-      quizItemBaseName?: string;
-      questionBankOptions?: {
-        count: number;
-        difficulty?: string[];
-        tags?: string[];
-      };
-    },
-    @Res() res: Response,
-  ) {
-    const {
-      versionId,
-      moduleId,
-      sectionId,
-      courseId, // Extract courseId
-      videoURL,
-      globalQuestionSpecification,
-      videoItemBaseName,
-      quizItemBaseName,
-      questionBankOptions,
-    } = body;
+  // @Post('/generate/questions/rag')
+  // @HttpCode(200)
+  // async generateRAGQuestions(
+  //   @Body()
+  //   body: {
+  //     segments: Record<string | number, string>;
+  //     documents: Array<{ id: string; title?: string; text: string }>;
+  //     globalQuestionSpecification: any[];
+  //     model?: string;
+  //     topK?: number;
+  //   },
+  //   @Res() res: Response,
+  // ) {
+  //   try {
+  //     const {segments, documents, globalQuestionSpecification, model, topK} = body;
+  //     if (!documents?.length) {
+  //       return res.status(400).json({error: 'documents is required for RAG generation.'});
+  //     }
+  //     const questions = await this.aiContentService.generateQuestions({
+  //       segments,
+  //       documents,
+  //       globalQuestionSpecification,
+  //       model,
+  //       topK,
+  //     });
+  //     return res.json({
+  //       message: 'RAG-based question generation completed successfully.',
+  //       totalQuestions: questions.length,
+  //       questions,
+  //     });
+  //   } catch (err: any) {
+  //     console.error('Error in GenAIVideoController.generateRAGQuestions:', err);
+  //     return res
+  //       .status(err.status || 500)
+  //       .json({error: err.message || 'Error generating RAG questions'});
+  //   }
+  // }
 
-    if (!versionId || !moduleId || !sectionId || !videoURL || !courseId) {
-      return res.status(400).json({
-        message: 'versionId, moduleId, sectionId, courseId, and videoURL are required.',
-      });
-    }
+//   @Post('/generate-course-items-from-video')
+//   @HttpCode(200)
+//   async generateCourseItemsFromVideo(
+//     @Body()
+//     body: {
+//       versionId: string;
+//       moduleId: string;
+//       sectionId: string;
+//       courseId: string; // Added courseId parameter
+//       videoURL: string;
+//       globalQuestionSpecification?: {
+//         SOL?: number;
+//         SML?: number;
+//         OTL?: number;
+//         NAT?: number;
+//         DES?: number;
+//       };
+//       videoItemBaseName?: string;
+//       quizItemBaseName?: string;
+//       questionBankOptions?: {
+//         count: number;
+//         difficulty?: string[];
+//         tags?: string[];
+//       };
+//     },
+//     @Res() res: Response,
+//   ) {
+//     const {
+//       versionId,
+//       moduleId,
+//       sectionId,
+//       courseId, // Extract courseId
+//       videoURL,
+//       globalQuestionSpecification,
+//       videoItemBaseName,
+//       quizItemBaseName,
+//       questionBankOptions,
+//     } = body;
 
-    const tempPaths: string[] = [];
-    try {
-      // 1. Video Processing & Transcription
-      const videoPath = await this.videoService.downloadVideo(videoURL);
-      tempPaths.push(videoPath);
-      const audioPath = await this.audioService.extractAudio(videoPath);
-      tempPaths.push(audioPath);
-      const transcript = await this.transcriptionService.transcribe(audioPath);
+//     if (!versionId || !moduleId || !sectionId || !videoURL || !courseId) {
+//       return res.status(400).json({
+//         message: 'versionId, moduleId, sectionId, courseId, and videoURL are required.',
+//       });
+//     }
 
-      // 2. Segment Transcript
-      const rawSegments =
-        await this.aiContentService.segmentTranscript(transcript);
-      const segmentsMap: Record<string, string> = Array.isArray(rawSegments)
-        ? rawSegments.reduce((obj, seg, i) => {
-            const key =
-              typeof seg === 'object' && seg.endTime
-                ? seg.endTime
-                : `segment_id_${i + 1}`;
-            const text = typeof seg === 'object' && seg.text ? seg.text : seg;
-            return {...obj, [key]: text as string};
-          }, {})
-        : (rawSegments as Record<string, string>) || {};
+//     const tempPaths: string[] = [];
+//     try {
+//       // 1. Video Processing & Transcription
+//       const videoPath = await this.videoService.downloadVideo(videoURL);
+//       tempPaths.push(videoPath);
+//       const audioPath = await this.audioService.extractAudio(videoPath);
+//       tempPaths.push(audioPath);
+//       const transcript = await this.transcriptionService.transcribe(audioPath);
 
-      // 3. Generate Questions for all relevant segments
-      const transformedGlobalQuestionSpec = [globalQuestionSpecification || {}];
+//       // 2. Segment Transcript
+//       const rawSegments =
+//         await this.aiContentService.segmentTranscript(transcript);
+//       const segmentsMap: Record<string, string> = Array.isArray(rawSegments)
+//         ? rawSegments.reduce((obj, seg, i) => {
+//             const key =
+//               typeof seg === 'object' && seg.endTime
+//                 ? seg.endTime
+//                 : `segment_id_${i + 1}`;
+//             const text = typeof seg === 'object' && seg.text ? seg.text : seg;
+//             return {...obj, [key]: text as string};
+//           }, {})
+//         : (rawSegments as Record<string, string>) || {};
 
-      const allQuestionsData = await this.aiContentService.generateQuestions({
-        segments: segmentsMap,
-        globalQuestionSpecification: transformedGlobalQuestionSpec,
-      });
+//       // 3. Generate Questions for all relevant segments
+//       const transformedGlobalQuestionSpec = [globalQuestionSpecification || {}];
 
-      // 4. Group questions by segmentId
-      const questionsGroupedBySegment: Record<string, any[]> = {};
-      if (Array.isArray(allQuestionsData)) {
-        for (const question of allQuestionsData) {
-          const segId = (question as any).segmentId;
-          if (segId && segmentsMap[segId]) {
-            if (!questionsGroupedBySegment[segId]) {
-              questionsGroupedBySegment[segId] = [];
-            }
-            questionsGroupedBySegment[segId].push(question);
-          } else {
-            console.warn(
-              `Question found without a valid segmentId ("${segId}") or segmentId not in segmentsMap.`,
-              question,
-            );
-          }
-        }
-      }
+//       const allQuestionsData = await this.aiContentService.generateQuestions({
+//         segments: segmentsMap,
+//         globalQuestionSpecification: transformedGlobalQuestionSpec,
+//       });
 
-      // Prepare tracking arrays
-      const createdVideoItemsInfo: Array<{
-        id?: string;
-        name: string;
-        segmentId: string;
-        startTime: string;
-        endTime: string;
-        points: number;
-      }> = [];
-      const createdQuizItemsInfo: Array<{
-        id?: string;
-        name: string;
-        segmentId: string;
-        questionCount: number;
-      }> = [];
-      const createdQuestionBanksInfo: Array<{
-        id: string;
-        name: string;
-        segmentId: string;
-        questionCount: number;
-        questionIds: string[];
-      }> = [];
+//       // 4. Group questions by segmentId
+//       const questionsGroupedBySegment: Record<string, any[]> = {};
+//       if (Array.isArray(allQuestionsData)) {
+//         for (const question of allQuestionsData) {
+//           const segId = (question as any).segmentId;
+//           if (segId && segmentsMap[segId]) {
+//             if (!questionsGroupedBySegment[segId]) {
+//               questionsGroupedBySegment[segId] = [];
+//             }
+//             questionsGroupedBySegment[segId].push(question);
+//           } else {
+//             console.warn(
+//               `Question found without a valid segmentId ("${segId}") or segmentId not in segmentsMap.`,
+//               question,
+//             );
+//           }
+//         }
+//       }
 
-      const sortedSegmentIds = Object.keys(segmentsMap).sort((a, b) =>
-        a.localeCompare(b),
-      );
-      let previousSegmentEndTime = '0:00:00';
+//       // Prepare tracking arrays
+//       const createdVideoItemsInfo: Array<{
+//         id?: string;
+//         name: string;
+//         segmentId: string;
+//         startTime: string;
+//         endTime: string;
+//         points: number;
+//       }> = [];
+//       const createdQuizItemsInfo: Array<{
+//         id?: string;
+//         name: string;
+//         segmentId: string;
+//         questionCount: number;
+//       }> = [];
+//       const createdQuestionBanksInfo: Array<{
+//         id: string;
+//         name: string;
+//         segmentId: string;
+//         questionCount: number;
+//         questionIds: string[];
+//       }> = [];
 
-      for (const currentSegmentId of sortedSegmentIds) {
-        const segmentText = segmentsMap[currentSegmentId];
-        const segmentStartTime = previousSegmentEndTime;
-        const currentSegmentEndTime = currentSegmentId;
-        const segmentTextPreview = segmentText
-          ? segmentText.substring(0, 70) +
-            (segmentText.length > 70 ? '...' : '')
-          : 'No content';
+//       const sortedSegmentIds = Object.keys(segmentsMap).sort((a, b) =>
+//         a.localeCompare(b),
+//       );
+//       let previousSegmentEndTime = '0:00:00';
 
-        // Create Video Item for the segment
-        const videoSegName = videoItemBaseName
-          ? `${videoItemBaseName} - Segment (${segmentStartTime} - ${currentSegmentEndTime})`
-          : `Video Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
+//       for (const currentSegmentId of sortedSegmentIds) {
+//         const segmentText = segmentsMap[currentSegmentId];
+//         const segmentStartTime = previousSegmentEndTime;
+//         const currentSegmentEndTime = currentSegmentId;
+//         const segmentTextPreview = segmentText
+//           ? segmentText.substring(0, 70) +
+//             (segmentText.length > 70 ? '...' : '')
+//           : 'No content';
 
-        const videoItemBody: CreateItemBody = {
-          name: videoSegName,
-          description: `Video content for segment: ${segmentStartTime} - ${currentSegmentEndTime}. ${segmentTextPreview}`,
-          type: ItemType.VIDEO,
-          videoDetails: {
-            URL: videoURL,
-            startTime: segmentStartTime,
-            endTime: currentSegmentEndTime,
-            points: 10,
-          },
-        };
-        const createdVideoItem = await this.itemService.createItem(
-          versionId,
-          moduleId,
-          sectionId,
-          videoItemBody,
-        );
-        createdVideoItemsInfo.push({
-          id: createdVideoItem.createdItem?._id?.toString(),
-          name: videoSegName,
-          segmentId: currentSegmentId,
-          startTime: segmentStartTime,
-          endTime: currentSegmentEndTime,
-          points: 10,
-        });
+//         // Create Video Item for the segment
+//         const videoSegName = videoItemBaseName
+//           ? `${videoItemBaseName} - Segment (${segmentStartTime} - ${currentSegmentEndTime})`
+//           : `Video Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
 
-        // Create Question Bank and Questions for the segment
-        const questionsForSegment = questionsGroupedBySegment[currentSegmentId] || [];
-        if (questionsForSegment.length > 0) {
-          // Create Question Bank for this segment
-          const questionBankName = `Question Bank - Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
-          const questionBank = new QuestionBank({
-            title: questionBankName,
-            description: `Question bank for video segment from ${segmentStartTime} to ${currentSegmentEndTime}. Content: "${segmentTextPreview}"`,
-            courseId: courseId,
-            courseVersionId: versionId,
-            questions: [], // Will be populated after creating questions
-            tags: [`segment_${currentSegmentId}`, 'ai_generated'],
-          });
+//         const videoItemBody: CreateItemBody = {
+//           name: videoSegName,
+//           description: `Video content for segment: ${segmentStartTime} - ${currentSegmentEndTime}. ${segmentTextPreview}`,
+//           type: ItemType.VIDEO,
+//           videoDetails: {
+//             URL: videoURL,
+//             startTime: segmentStartTime,
+//             endTime: currentSegmentEndTime,
+//             points: 10,
+//           },
+//         };
+//         const createdVideoItem = await this.itemService.createItem(
+//           versionId,
+//           moduleId,
+//           sectionId,
+//           videoItemBody,
+//         );
+//         createdVideoItemsInfo.push({
+//           id: createdVideoItem.createdItem?._id?.toString(),
+//           name: videoSegName,
+//           segmentId: currentSegmentId,
+//           startTime: segmentStartTime,
+//           endTime: currentSegmentEndTime,
+//           points: 10,
+//         });
 
-          const questionBankId = await this.questionBankService.create(questionBank);
+//         // Create Question Bank and Questions for the segment
+//         const questionsForSegment = questionsGroupedBySegment[currentSegmentId] || [];
+//         if (questionsForSegment.length > 0) {
+//           // Create Question Bank for this segment
+//           const questionBankName = `Question Bank - Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
+//           const questionBank = new QuestionBank({
+//             title: questionBankName,
+//             description: `Question bank for video segment from ${segmentStartTime} to ${currentSegmentEndTime}. Content: "${segmentTextPreview}"`,
+//             courseId: courseId,
+//             courseVersionId: versionId,
+//             questions: [], // Will be populated after creating questions
+//             tags: [`segment_${currentSegmentId}`, 'ai_generated'],
+//           });
 
-          // Create individual questions and add them to the question bank
-          const createdQuestionIds: string[] = [];
-          for (const questionData of questionsForSegment) {
-            try {
-              // Prepare the question data object for creation
-              const questionPayload = {
-                text: questionData.question.text,
-                type: questionData.question.type, 
-                isParameterized: questionData.question.isParameterized,
-                parameters: questionData.question.parameters || [],
-                hint: questionData.question.hint,
-                timeLimitSeconds: questionData.question.timeLimitSeconds,
-                points: questionData.question.points,
-                solution: questionData.solution, 
-                tags: [`segment_${currentSegmentId}`, 'ai_generated', questionData.question.type.toLowerCase()],
-              };
+//           const questionBankId = await this.questionBankService.create(questionBank);
 
-              const questionId = await this.questionService.create(questionPayload);
-              createdQuestionIds.push(questionId);
+//           // Create individual questions and add them to the question bank
+//           const createdQuestionIds: string[] = [];
+//           for (const questionData of questionsForSegment) {
+//             try {
+//               // Prepare the question data object for creation
+//               const questionPayload = {
+//                 text: questionData.question.text,
+//                 type: questionData.question.type, 
+//                 isParameterized: questionData.question.isParameterized,
+//                 parameters: questionData.question.parameters || [],
+//                 hint: questionData.question.hint,
+//                 timeLimitSeconds: questionData.question.timeLimitSeconds,
+//                 points: questionData.question.points,
+//                 solution: questionData.solution, 
+//                 tags: [`segment_${currentSegmentId}`, 'ai_generated', questionData.question.type.toLowerCase()],
+//               };
 
-              // Add question to the question bank
-              await this.questionBankService.addQuestion(questionBankId, questionId);
-            } catch (questionError) {
-              console.warn(`Failed to create question for segment ${currentSegmentId}:`, questionError);
-            }
-          }
+//               const questionId = await this.questionService.create(questionPayload);
+//               createdQuestionIds.push(questionId);
 
-          createdQuestionBanksInfo.push({
-            id: questionBankId,
-            name: questionBankName,
-            segmentId: currentSegmentId,
-            questionCount: createdQuestionIds.length,
-            questionIds: createdQuestionIds,
-          });
+//               // Add question to the question bank
+//               await this.questionBankService.addQuestion(questionBankId, questionId);
+//             } catch (questionError) {
+//               console.warn(`Failed to create question for segment ${currentSegmentId}:`, questionError);
+//             }
+//           }
 
-          // Create Quiz Item for the segment
-          const quizSegName = quizItemBaseName
-            ? `${quizItemBaseName} - Segment Quiz (${segmentStartTime} - ${currentSegmentEndTime})`
-            : `Quiz for Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
+//           createdQuestionBanksInfo.push({
+//             id: questionBankId,
+//             name: questionBankName,
+//             segmentId: currentSegmentId,
+//             questionCount: createdQuestionIds.length,
+//             questionIds: createdQuestionIds,
+//           });
 
-          const quizItemBody: CreateItemBody = {
-            name: quizSegName,
-            description: `Quiz for video segment from ${segmentStartTime} to ${currentSegmentEndTime}. Content: "${segmentTextPreview}". This quiz's points are based on its questions.`,
-            type: ItemType.QUIZ,
-            quizDetails: {
-              passThreshold: 0.7,
-              maxAttempts: 3,
-              quizType: 'NO_DEADLINE',
-              approximateTimeToComplete: '00:05:00',
-              allowPartialGrading: true,
-              allowHint: true,
-              showCorrectAnswersAfterSubmission: true,
-              showExplanationAfterSubmission: true,
-              showScoreAfterSubmission: true,
-              questionVisibility: createdQuestionIds.length,
-              releaseTime: new Date(),
-              deadline: undefined,
-            },
-          };
-          const createdQuizItem = await this.itemService.createItem(
-            versionId,
-            moduleId,
-            sectionId,
-            quizItemBody,
-          );
+//           // Create Quiz Item for the segment
+//           const quizSegName = quizItemBaseName
+//             ? `${quizItemBaseName} - Segment Quiz (${segmentStartTime} - ${currentSegmentEndTime})`
+//             : `Quiz for Segment (${segmentStartTime} - ${currentSegmentEndTime})`;
 
-          // Link the QuestionBank to the Quiz
-          const quizId = createdQuizItem.createdItem?._id?.toString();
-          if (quizId && questionBankId) {
-            try {
-              await this.quizService.addQuestionBank(quizId, {
-                bankId: questionBankId,
-                count: questionBankOptions?.count ?? createdQuestionIds.length,
-                difficulty: questionBankOptions?.difficulty,
-                tags: questionBankOptions?.tags,
-              });
-            } catch (linkError) {
-              console.warn(
-                `Failed to link question bank ${questionBankId} to quiz ${quizId}:`,
-                linkError,
-              );
-            }
-          }
+//           const quizItemBody: CreateItemBody = {
+//             name: quizSegName,
+//             description: `Quiz for video segment from ${segmentStartTime} to ${currentSegmentEndTime}. Content: "${segmentTextPreview}". This quiz's points are based on its questions.`,
+//             type: ItemType.QUIZ,
+//             quizDetails: {
+//               passThreshold: 0.7,
+//               maxAttempts: 3,
+//               quizType: 'NO_DEADLINE',
+//               approximateTimeToComplete: '00:05:00',
+//               allowPartialGrading: true,
+//               allowHint: true,
+//               showCorrectAnswersAfterSubmission: true,
+//               showExplanationAfterSubmission: true,
+//               showScoreAfterSubmission: true,
+//               questionVisibility: createdQuestionIds.length,
+//               releaseTime: new Date(),
+//               deadline: undefined,
+//             },
+//           };
+//           const createdQuizItem = await this.itemService.createItem(
+//             versionId,
+//             moduleId,
+//             sectionId,
+//             quizItemBody,
+//           );
 
-          createdQuizItemsInfo.push({
-            id: createdQuizItem.createdItem?._id?.toString(),
-            name: quizSegName,
-            segmentId: currentSegmentId,
-            questionCount: createdQuestionIds.length,
-          });
-        }
+//           // Link the QuestionBank to the Quiz
+//           const quizId = createdQuizItem.createdItem?._id?.toString();
+//           if (quizId && questionBankId) {
+//             try {
+//               await this.quizService.addQuestionBank(quizId, {
+//                 bankId: questionBankId,
+//                 count: questionBankOptions?.count ?? createdQuestionIds.length,
+//                 difficulty: questionBankOptions?.difficulty,
+//                 tags: questionBankOptions?.tags,
+//               });
+//             } catch (linkError) {
+//               console.warn(
+//                 `Failed to link question bank ${questionBankId} to quiz ${quizId}:`,
+//                 linkError,
+//               );
+//             }
+//           }
+
+//           createdQuizItemsInfo.push({
+//             id: createdQuizItem.createdItem?._id?.toString(),
+//             name: quizSegName,
+//             segmentId: currentSegmentId,
+//             questionCount: createdQuestionIds.length,
+//           });
+//         }
         
-        previousSegmentEndTime = currentSegmentEndTime;
-      }
+//         previousSegmentEndTime = currentSegmentEndTime;
+//       }
 
-      return res.json({
-        message:
-          'Video items, Quiz items, and Question banks for segments generated successfully from video.',
-        videoURL,
-        transcriptPreview: transcript.substring(0, 200) + '...',
-        generatedItemsSummary: {
-          totalSegmentsProcessed: sortedSegmentIds.length,
-          totalVideoItemsCreated: createdVideoItemsInfo.length,
-          totalQuizItemsCreated: createdQuizItemsInfo.length,
-          totalQuestionBanksCreated: createdQuestionBanksInfo.length,
-          totalQuestionsGenerated: createdQuestionBanksInfo.reduce((sum, bank) => sum + bank.questionCount, 0),
-        },
-        createdVideoItems: createdVideoItemsInfo,
-        createdQuizItems: createdQuizItemsInfo,
-        createdQuestionBanks: createdQuestionBanksInfo,
-      });
-    } catch (err: any) {
-      console.error(
-        'Error in GenAIVideoController.generateCourseItemsFromVideo:',
-        err,
-      );
-      return res
-        .status(err.status || 500)
-        .json({message: err.message || 'Internal Server Error'});
-    } finally {
-      // 6. Cleanup temporary files
-      await this.cleanupService.cleanup(tempPaths);
-    }
-  }
+//       return res.json({
+//         message:
+//           'Video items, Quiz items, and Question banks for segments generated successfully from video.',
+//         videoURL,
+//         transcriptPreview: transcript.substring(0, 200) + '...',
+//         generatedItemsSummary: {
+//           totalSegmentsProcessed: sortedSegmentIds.length,
+//           totalVideoItemsCreated: createdVideoItemsInfo.length,
+//           totalQuizItemsCreated: createdQuizItemsInfo.length,
+//           totalQuestionBanksCreated: createdQuestionBanksInfo.length,
+//           totalQuestionsGenerated: createdQuestionBanksInfo.reduce((sum, bank) => sum + bank.questionCount, 0),
+//         },
+//         createdVideoItems: createdVideoItemsInfo,
+//         createdQuizItems: createdQuizItemsInfo,
+//         createdQuestionBanks: createdQuestionBanksInfo,
+//       });
+//     } catch (err: any) {
+//       console.error(
+//         'Error in GenAIVideoController.generateCourseItemsFromVideo:',
+//         err,
+//       );
+//       return res
+//         .status(err.status || 500)
+//         .json({message: err.message || 'Internal Server Error'});
+//     } finally {
+//       // 6. Cleanup temporary files
+//       await this.cleanupService.cleanup(tempPaths);
+//     }
+//   }
 }
-*/ 

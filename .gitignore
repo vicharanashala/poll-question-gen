@@ -1,3 +1,6 @@
+/frontend/.env
+/backend/.env
+
 # OS Specific
 .DS_Store
 Thumbs.db
