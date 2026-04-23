@@ -13,6 +13,7 @@ const PollSchema = new mongoose.Schema({
   options: [{ type: String }],
   correctOptionIndex: { type: Number, default: -1 },
   timer: { type: Number, default: 30 },
+  gracePeriod: { type: Number },
   lockedActiveUsers: [{ type: String }],
   maxPoints: { type: Number, default: 20 },
   createdAt: { type: Date, default: Date.now },
@@ -32,7 +33,7 @@ const CoHostSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     },
-    
+
     isMicMuted: {
       type: Boolean,
       default: false
@@ -71,7 +72,7 @@ const RecordingLockSchema = new mongoose.Schema(
     lockedAt: { type: Date, default: Date.now },
     expiresAt: { type: Date }
   },
-  {_id: false}
+  { _id: false }
 );
 
 const RoomSchema = new mongoose.Schema({
@@ -80,7 +81,7 @@ const RoomSchema = new mongoose.Schema({
   teacherId: { type: String, required: true },
   teacherName: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
-  endedAt: { type: Date }, 
+  endedAt: { type: Date },
   status: { type: String, enum: ['active', 'ended'], default: 'active' },
   polls: [PollSchema],
   joinedStudents: [{ type: String }],
@@ -89,9 +90,9 @@ const RoomSchema = new mongoose.Schema({
   coHosts: [CoHostSchema],
   coHostInvite: CoHostInviteSchema,
   controls: {
-  micBlocked: { type: Boolean, default: false },
-  pollRestricted: { type: Boolean, default: false }
-}
+    micBlocked: { type: Boolean, default: false },
+    pollRestricted: { type: Boolean, default: false }
+  }
 });
 
 RoomSchema.index({ teacherId: 1 });

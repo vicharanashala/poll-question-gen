@@ -13,6 +13,7 @@ export interface Poll {
   options: string[];
   correctOptionIndex: number;
   timer: number;
+  gracePeriod?: number; 
   maxPoints?: number;
   lockedActiveUsers?: string[];
   createdAt: Date;

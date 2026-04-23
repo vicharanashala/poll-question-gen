@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import socket from "@/lib/api/socket";
 import { useAuthStore } from "@/lib/store/auth-store";
 import type { UserAchievement } from "@/shared/types";
 import { getBadgeTier } from "@/shared/getBadgeTier";
+import {Tooltip,TooltipContent,TooltipProvider,TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 //const Socket_URL = import.meta.env.VITE_SOCKET_URL;
 //const socket = io(Socket_URL);
@@ -18,6 +20,7 @@ type PollAnswer = {
   userId: string;
   answerIndex: number;
   answeredAt: string;
+  points?: number;
 };
 
 type Poll = {
@@ -28,6 +31,7 @@ type Poll = {
   creatorId: string;
   createdAt: string;
   timer: number;
+  gracePeriod?: number; 
   correctOptionIndex?: number;
   answers?: PollAnswer[];
 };
@@ -169,13 +173,26 @@ export default function StudentPollRoom() {
     return () => clearInterval(interval);
   }, [livePolls]);
 
-  useEffect(() => {
-    Object.entries(pollTimers).forEach(([pollId, time]) => {
-      if (time === 0) {
-        setLivePolls(prev => prev.filter(p => p._id !== pollId));
-      }
-    });
-  }, [pollTimers]);
+useEffect(() => {
+    const expiredPollIds = Object.entries(pollTimers)
+      .filter(([, time]) => time === 0)
+      .map(([id]) => id);
+
+    if (expiredPollIds.length > 0) {
+      setLivePolls(prev => {
+        // Check if the expired poll is currently actively sitting in our live list
+        const hasActiveExpiredPolls = prev.some(p => expiredPollIds.includes(p._id));
+        
+        if (hasActiveExpiredPolls) {
+          // This triggers the history update!
+          if (roomCode) loadRoomDetails(roomCode);
+        }
+        
+        // Remove it from the live active list
+        return prev.filter(p => !expiredPollIds.includes(p._id));
+      });
+    }
+  }, [pollTimers, roomCode]);
 
   useEffect(() => {
     if (roomCode) {
@@ -268,15 +285,19 @@ export default function StudentPollRoom() {
     navigate({ to: `/student/pollroom` });
   };
 
-  const getTimerColor = (timeLeft: number) => {
-    if (timeLeft > 20) return "text-emerald-500";
-    if (timeLeft > 10) return "text-amber-500";
-    return "text-red-500";
+const getTimerColor = (timeLeft: number, totalTime: number, gracePeriod?: number) => {
+    if (!gracePeriod || gracePeriod === 0 || totalTime === 0) return "text-blue-500";
+    const decayStart = totalTime - gracePeriod; 
+    if (timeLeft > decayStart) return "text-emerald-500"; 
+    if (timeLeft > decayStart / 2) return "text-amber-500"; 
+    return "text-red-500"; 
   };
 
-  const getTimerBg = (timeLeft: number) => {
-    if (timeLeft > 20) return "bg-emerald-500/20";
-    if (timeLeft > 10) return "bg-amber-500/20";
+  const getTimerBg = (timeLeft: number, totalTime: number, gracePeriod?: number) => {
+    if (!gracePeriod || gracePeriod === 0 || totalTime === 0) return "bg-blue-500/20";
+    const decayStart = totalTime - gracePeriod;
+    if (timeLeft > decayStart) return "bg-emerald-500/20";
+    if (timeLeft > decayStart / 2) return "bg-amber-500/20";
     return "bg-red-500/20";
   };
 
@@ -458,7 +479,7 @@ export default function StudentPollRoom() {
           {showRoomDetails && roomDetails?.room && (
             <div
               id="room-details-popover"
-              className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-4 z-20 animate-fade-in"
+              className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl p-4 z-50 animate-fade-in"
               style={{ top: '100%' }}
             >
               {/* Small triangle pointer */}
@@ -521,26 +542,45 @@ export default function StudentPollRoom() {
                   </div>
                 ) : (
                   activeLivePolls.map((poll) => (
-                    <div
+                  <div
                       key={poll._id}
                       className="group relative p-6 bg-gradient-to-r from-white to-purple-50/50 dark:from-gray-800 dark:to-purple-900/20 rounded-2xl border border-purple-200/50 dark:border-purple-700/50 hover:shadow-xl hover:shadow-purple-500/20 transition-all duration-300"
                     >
-                      <div className="absolute top-0 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-700 rounded-t-2xl overflow-hidden">
+                      <div className="absolute top-0 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-700 rounded-t-2xl overflow-visible">
                         <div
-                          className={`h-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer)} transition-all duration-1000`}
+                          className={`absolute top-0 left-0 h-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)} transition-all duration-1000`}
                           style={{
-                            width: `${((pollTimers[poll._id] ?? poll.timer) / poll.timer) * 100}%`
+                            width: poll.timer > 0 ? `${((pollTimers[poll._id] ?? poll.timer) / poll.timer) * 100}%` : '100%'
                           }}
                         />
+                        
+                        {poll.timer > 0 && poll.gracePeriod && (
+                          <TooltipProvider>
+                            <Tooltip delayDuration={100}>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className="absolute top-0 w-1.5 h-3 -mt-0.5 bg-gray-800 dark:bg-white rounded-full cursor-pointer hover:scale-125 transition-transform z-10"
+                                  style={{
+                                    left: `${((poll.timer - poll.gracePeriod) / poll.timer) * 100}%`,
+                                    boxShadow: "0 0 6px rgba(0,0,0,0.4)"
+                                  }}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="font-bold border-none px-3 py-1.5 text-xs z-50">
+                                 Answer before this mark for maximum points!
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
                       </div>
 
-                      <div className="flex justify-between items-start mb-4">
+                      <div className="flex justify-between items-start mb-4 mt-2">
                         <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 pr-4">
                           {poll.question}
                         </h3>
-                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer)}`}>
-                          <Clock className={`w-4 h-4 ${getTimerColor(pollTimers[poll._id] ?? poll.timer)}`} />
-                          <span className={`text-sm font-medium ${getTimerColor(pollTimers[poll._id] ?? poll.timer)}`}>
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${getTimerBg(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`}>
+                          <Clock className={`w-4 h-4 ${getTimerColor(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`} />
+                          <span className={`text-sm font-medium ${getTimerColor(pollTimers[poll._id] ?? poll.timer, poll.timer, poll.gracePeriod)}`}>
                             {pollTimers[poll._id] ?? poll.timer}s
                           </span>
                         </div>
@@ -553,22 +593,22 @@ export default function StudentPollRoom() {
                             variant={selectedOptions[poll._id] === index ? "default" : "outline"}
                             size="lg"
                             className={`
-                              relative overflow-hidden p-4 h-auto text-left justify-start transition-all duration-300
+                              relative overflow-hidden p-4 h-auto text-left justify-start whitespace-normal transition-all duration-300
                               ${selectedOptions[poll._id] === index
-                                ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25 scale-105'
-                                : 'bg-white/80 dark:bg-gray-700/80 border-purple-200/50 dark:border-purple-700/50 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-300 dark:hover:border-purple-600 hover:scale-102'
+                                ? 'bg-linear-to-r from-purple-500 to-pink-500 text-white shadow-md ring-2 ring-purple-500 ring-offset-2 dark:ring-offset-gray-900 z-10'
+                                : 'bg-white/80 dark:bg-gray-700/80 border-purple-200/50 dark:border-purple-700/50 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-300 dark:hover:border-purple-600 hover:-translate-y-1 hover:shadow-md z-0'
                               }
                             `}
                             onClick={() => setSelectedOptions(prev => ({ ...prev, [poll._id]: index }))}
                             disabled={(pollTimers[poll._id] ?? poll.timer) === 0 || answeredPolls[poll._id] !== undefined}
                           >
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-start gap-3 w-full">
                               {selectedOptions[poll._id] === index ? (
-                                <CheckCircle className="w-5 h-5 text-white" />
+                                <CheckCircle className="w-5 h-5 text-white shrink-0 mt-0.5" />
                               ) : (
-                                <Circle className="w-5 h-5 text-gray-400" />
+                                <Circle className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />
                               )}
-                              <span className="font-medium">{option}</span>
+                              <span className="font-medium flex-1 wrap-break-word leading-relaxed">{option}</span>
                             </div>
                           </Button>
                         ))}
@@ -674,11 +714,14 @@ export default function StudentPollRoom() {
                                 </div>
                               ))}
                             </div>
-                            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                              <Trophy className="w-4 h-4" />
-                              <span className="text-sm font-medium">
-                                Your answer: {poll.options[answeredPolls[poll._id]]}
-                              </span>
+                            <div className="flex items-center justify-between w-full">
+                              <span>Your answer: {poll.options[answeredPolls[poll._id]]}</span>
+                              {allRoomPolls.find(ap => ap._id === poll._id)?.answers?.find(a => a.userId === user?.uid)?.points !== undefined && (
+                                <span className="text-xs font-bold bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-2 py-0.5 rounded-full border border-yellow-200 dark:border-yellow-700/50 flex items-center gap-1 shrink-0 ml-2">
+                                  <Zap className="w-3 h-3" />
+                                  +{Math.round(allRoomPolls.find(ap => ap._id === poll._id)!.answers!.find(a => a.userId === user?.uid)!.points!)} pts
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -730,20 +773,32 @@ export default function StudentPollRoom() {
                     <div className="space-y-3">
                       {allRoomPolls.map((poll) => {
                         const status = getPollAnswerStatus(poll);
-                        const userAnswerIndex = answeredPolls[poll._id] ??
-                          poll.answers?.find(answer => answer.userId === user?.uid)?.answerIndex;
+                        const userAnswerObj = poll.answers?.find(answer => answer.userId === user?.uid);
+                        const userAnswerIndex = answeredPolls[poll._id] ?? userAnswerObj?.answerIndex;
+                        const pointsEarned = userAnswerObj?.points;
 
                         return (
                           <div
                             key={poll._id}
                             className="p-4 bg-gradient-to-r from-gray-50 to-blue-50/50 dark:from-gray-800 dark:to-blue-900/10 rounded-lg border border-gray-200/50 dark:border-gray-700/50"
-                          >
-                            <div className="flex items-start justify-between mb-3">
-                              <h4 className="font-medium text-gray-800 dark:text-gray-200 text-sm leading-5 pr-2">
-                                {poll.question}
-                              </h4>
-                              {getStatusBadge(status)}
-                            </div>
+                            >
+                              <div className="flex items-start justify-between mb-3 gap-4">
+                                <h4 className="font-medium text-gray-800 dark:text-gray-200 text-sm leading-5 flex-1 break-words">
+                                  {poll.question}
+                                </h4>
+
+                                <div className={`flex shrink-0 ${poll.question.length > 350 ? 'flex-col items-end gap-1.5' : 'flex-row items-center gap-2'}`}>
+                                    {pointsEarned !== undefined && pointsEarned > 0 && (
+                                      <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-full font-bold border border-yellow-200 dark:border-yellow-700/50 whitespace-nowrap">
+                                        <Zap className="w-3 h-3" />
+                                        <span>+{Math.round(pointsEarned)} pts</span>
+                                      </div>
+                                    )}
+                                  <div className="shrink-0 whitespace-nowrap">
+                                    {getStatusBadge(status)}
+                                  </div>
+                                </div>                            
+                              </div>
 
                             <div className="space-y-2">
                               {poll.options.map((option, index) => {
@@ -772,7 +827,7 @@ export default function StudentPollRoom() {
                                       ) : (
                                         <Circle className="w-4 h-4 text-gray-400" />
                                       )}
-                                      <span className={`font-medium ${isCorrect && isUserAnswer
+                                      <span className={`font-medium flex-1 wrap-break-word ${isCorrect && isUserAnswer
                                         ? 'text-emerald-700 dark:text-emerald-300'
                                         : isCorrect
                                           ? 'text-emerald-600 dark:text-emerald-400'
