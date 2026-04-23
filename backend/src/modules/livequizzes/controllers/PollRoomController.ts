@@ -20,6 +20,7 @@ import { pollSocket } from '../utils/PollSocket.js';
 import { inject, injectable } from 'inversify';
 import { RoomService } from '../services/RoomService.js';
 import { PollService } from '../services/PollService.js';
+import { ConfusionLog } from '#root/shared/database/models/ConfusionLog.js';
 import { LIVE_QUIZ_TYPES } from '../types.js';
 //import { TranscriptionService } from '#root/modules/genai/services/TranscriptionService.js';
 import { AIContentService } from '#root/modules/genai/services/AIContentService.js';
@@ -143,13 +144,19 @@ export class PollRoomController {
     return { success: true, data: analysis };
   }
 
+  @Get('/:code/confusion-analytics')
+  async getConfusionAnalytics(@Req() req: Request, @Res() res: Response) {
+    const analytics = await ConfusionLog.find({ roomCode: req.params.code }).sort({ clicks: -1 });
+    return res.json(analytics);
+  }
+
   //@Authorized()
   @Post('/:code/polls/answer')
   async submitPollAnswer(
     @Param('code') roomCode: string,
-    @Body() body: { pollId: string; userId: string; answerIndex: number }
+    @Body() body: { pollId: string; userId: string; answerIndex: number; confidenceLevel?: string }
   ) {
-    await this.pollService.submitAnswer(roomCode, body.pollId, body.userId, body.answerIndex);
+    await this.pollService.submitAnswer(roomCode, body.pollId, body.userId, body.answerIndex, body.confidenceLevel);
     const updatedResults = await this.pollService.getPollResults(roomCode);
     pollSocket.emitToRoom(roomCode, 'poll-results-updated', updatedResults);
     return { success: true };

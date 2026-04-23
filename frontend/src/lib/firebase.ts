@@ -11,7 +11,7 @@ import {
   updateProfile,
   User
 } from "firebase/auth";
-import { IUser, useAuthStore } from "./store/auth-store";
+import { useAuthStore } from "./store/auth-store";
 import { mapFirebaseUserToAppUser } from "./api/auth";
 // import { log } from "console";
 

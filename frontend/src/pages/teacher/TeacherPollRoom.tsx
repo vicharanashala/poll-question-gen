@@ -104,6 +104,7 @@ export default function TeacherPollRoom() {
   const [isCreating, setIsCreating] = useState(false)
   const [inviteLink, setInviteLink] = useState('')
   const [inviteLinkExpiresAt, setInviteLinkExpiresAt] = useState<number | null>(null);
+  const [confusionLevel, setConfusionLevel] = useState(0);
   const INVITE_TTL_MS = 30 * 60 * 1000;
   const inviteStorageKey = `cohost-invite-link:${roomCode}:${currentUser?.uid ?? "anonymous"}`;
 
@@ -623,7 +624,10 @@ export default function TeacherPollRoom() {
 
       socket.on('room-updated', (updatedRoom) => {
         // console.log('Room updated:', updatedRoom);
-        setStudents(updatedRoom.students || []);
+        setStudents((updatedRoom.students || []).map(student => ({
+          ...student,
+          confusionCount: updatedRoom.confusionTracking?.get(student.email) || 0
+        })));
 
         // Save Host ID for conditional UI rendering
         if (updatedRoom.teacherId) {
@@ -638,6 +642,17 @@ export default function TeacherPollRoom() {
         if (data?.cohostId === currentUser?.uid) {
           if (data?.isMicMuted) toast.error('Host muted your microphone');
           else toast.success('Host unmuted your microphone');
+        }
+      });
+
+      socket.off('confusion-pulse');
+      socket.on('confusion-pulse', (data: { timestamp: number, increment?: number, studentName?: string }) => {
+        const spikeAmount = data?.increment || 15;
+        setConfusionLevel(prev => Math.min(prev + spikeAmount, 100));
+
+        // Show toast notification with student name
+        if (data?.studentName) {
+          toast.info(`${data.studentName} has confusion. Please slow down`);
         }
       });
 
@@ -684,6 +699,15 @@ export default function TeacherPollRoom() {
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
     };
+  }, [roomCode]);
+
+  useEffect(() => {
+    if (!roomCode) return;
+    // Decay the confusion level by 2% every second
+    const decayTimer = setInterval(() => {
+      setConfusionLevel(prev => Math.max(prev - 2, 0));
+    }, 1000);
+    return () => clearInterval(decayTimer);
   }, [roomCode]);
 
   // Update current poll responses when livePollResults changes
@@ -2337,6 +2361,19 @@ export default function TeacherPollRoom() {
                 </h2>
               </div>
 
+              {/* Live Confusion Meter */}
+              <div className="flex items-center gap-1.5 md:gap-2 bg-gray-50 dark:bg-gray-800 px-2 md:px-3 py-1 md:py-1.5 rounded-full border border-gray-200 dark:border-gray-700 mr-1 md:mr-2">
+                <span className="text-[10px] md:text-xs font-semibold text-gray-600 dark:text-gray-300">
+                  <span className="hidden sm:inline">Class </span>Confusion:
+                </span>
+                <div className="w-16 md:w-24 h-2 md:h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-500 ${confusionLevel > 70 ? 'bg-red-500' : confusionLevel > 40 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${confusionLevel}%` }}
+                  />
+                </div>
+              </div>
+
               {/* Desktop Navigation */}
               <div className="hidden md:flex items-center gap-2">
                 <Button
@@ -2347,6 +2384,7 @@ export default function TeacherPollRoom() {
                   <Mic className="w-4 h-4 mr-2" />
                   Voice Recorder
                 </Button>
+
                 <Button
                   variant={showPreview ? "default" : "outline"}
                   onClick={handleGeneratedQuestionClick}
@@ -4083,11 +4121,12 @@ export default function TeacherPollRoom() {
                               <div className="space-y-4">
                                 {Object.entries(pollResults ?? {})
                                   .reverse()
-                                  .map(([pollQuestion, options]) => {
-                                    const totalVotes = Object.values(options ?? {}).reduce((sum, data) => sum + data.count, 0);
+                                  .map(([pollQuestion, pollData]) => {
+                                    const parsedOptions = pollData?.optionsData || pollData;
+                                    const totalVotes = Object.values(parsedOptions ?? {}).reduce((sum: any, data: any) => sum + data.count, 0);
                                     const isShowingNames = showMemberNames[pollQuestion] !== false;
 
-                                    const sortedOptions = Object.entries(options ?? {}).sort((a, b) => b[1].count - a[1].count);
+                                    const sortedOptions = Object.entries(parsedOptions ?? {}).sort((a: any, b: any) => b[1].count - a[1].count);
                                     const topCount = sortedOptions?.[0]?.[1]?.count ?? 0;
 
                                     return (
@@ -4100,6 +4139,14 @@ export default function TeacherPollRoom() {
                                             <CardTitle className="text-sm sm:text-base text-gray-800 dark:text-gray-200 line-clamp-2">
                                               {pollQuestion}
                                             </CardTitle>
+
+                                            {pollData?.optionsData && (
+                                              <div className="flex flex-wrap gap-2 mt-2">
+                                                <span className="text-xs font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 px-2 py-1 rounded">
+                                                  🔥 High Confidence: {pollData.highConfidencePercentage || 0}%
+                                                </span>
+                                              </div>
+                                            )}
 
                                             <div className="flex items-center gap-2 flex-shrink-0">
                                               <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
@@ -4121,7 +4168,7 @@ export default function TeacherPollRoom() {
 
                                         <CardContent className="pt-0">
                                           <div className="space-y-3">
-                                            {Object.entries(options ?? {}).map(([opt, data]) => {
+                                            {Object.entries(parsedOptions ?? {}).map(([opt, data]: [string, any]) => {
                                               const percentage = totalVotes > 0 ? ((data.count / totalVotes) * 100).toFixed(1) : "0";
                                               const isTop = data.count === topCount && topCount > 0;
 

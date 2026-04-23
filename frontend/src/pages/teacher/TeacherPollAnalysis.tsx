@@ -13,11 +13,17 @@ interface Participant {
   correct: number;
   wrong: number;
   timeTaken: string;
+  userId?: string;
 }
 
 interface Question {
   text: string;
   correctCount: number;
+}
+
+interface ConfusionData {
+  studentId: string;
+  clicks: number;
 }
 
 interface AnalysisData {
@@ -44,6 +50,8 @@ export default function TeacherPollAnalysis() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [confusionData, setConfusionData] = useState<ConfusionData[]>([]);
+  const [isLoadingConfusion, setIsLoadingConfusion] = useState(true);
 
   useEffect(() => {
     const fetchAnalysisData = async () => {
@@ -70,6 +78,24 @@ export default function TeacherPollAnalysis() {
 
     if (roomId) {
       fetchAnalysisData();
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    const fetchConfusionAnalytics = async () => {
+      try {
+        setIsLoadingConfusion(true);
+        const response = await api.get(`/livequizzes/rooms/${roomId}/confusion-analytics`);
+        setConfusionData(response.data || []);
+      } catch (error) {
+        console.error("Failed to fetch confusion data:", error);
+      } finally {
+        setIsLoadingConfusion(false);
+      }
+    };
+
+    if (roomId) {
+      fetchConfusionAnalytics();
     }
   }, [roomId]);
 
@@ -109,6 +135,11 @@ export default function TeacherPollAnalysis() {
   const participants = analysisData.participants.sort((a, b) => b.score - a.score);
   const top3 = participants.slice(0, 3);
   const others = participants.slice(3);
+
+  const getStudentName = (studentId: string) => {
+    const participant = participants.find((p) => p.userId === studentId || p.name === studentId);
+    return participant ? participant.name : studentId;
+  };
 
   const filteredParticipants = [...top3, ...others].filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase())
@@ -279,6 +310,31 @@ export default function TeacherPollAnalysis() {
               <span>{r.count}</span>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      {/* Student Confusion Analytics */}
+      <Card className="shadow border border-rose-300 bg-white dark:bg-slate-800">
+        <CardHeader>
+          <CardTitle className="text-rose-700 dark:text-rose-300">Student Confusion Analytics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoadingConfusion ? (
+            <div className="text-sm text-gray-600 dark:text-gray-300">Loading confusion analytics...</div>
+          ) : confusionData.length === 0 ? (
+            <div className="text-sm text-gray-500 dark:text-gray-400">No confusion reported yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {confusionData.map((item) => (
+                <div key={`${item.studentId}-${item.clicks}`} className="flex justify-between items-center p-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900">
+                  <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{getStudentName(item.studentId)}</span>
+                  <span className="rounded-full px-3 py-1 text-sm font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200">
+                    Clicked {item.clicks} {item.clicks === 1 ? 'time' : 'times'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

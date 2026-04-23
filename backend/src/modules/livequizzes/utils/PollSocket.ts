@@ -5,6 +5,7 @@ import { UserService } from '#root/modules/users/services/UserService.js';
 import { getFromContainer, NotFoundError } from 'routing-controllers';
 import { UserRepository } from '#root/shared/index.js';
 import { Room } from '#root/shared/database/models/Room.js';
+import { ConfusionLog } from '#root/shared/database/models/ConfusionLog.js';
 
 dotenv.config();
 const appOrigins = process.env.APP_ORIGINS;
@@ -74,6 +75,53 @@ class PollSocket {
         } catch (err) {
           console.error('Error checking room status:', err);
           socket.emit('error', 'Unexpected server error');
+        }
+      });
+
+      socket.on('student-confused', async (data: { roomCode: string; studentId: string }) => {
+        try {
+          if (!data?.roomCode || !data?.studentId) {
+            console.warn('student-confused received invalid payload', data);
+            return;
+          }
+
+          console.log(`Student confused pulse in room: ${data.roomCode} for student: ${data.studentId}`);
+
+          await ConfusionLog.findOneAndUpdate(
+            { roomCode: data.roomCode, studentId: data.studentId },
+            { $inc: { clicks: 1 } },
+            { upsert: true, new: true }
+          );
+
+          // Get student name for the toast notification
+          let studentName = data.studentId; // fallback to ID
+          try {
+            const user = await this.userRepo.findByFirebaseUID(data.studentId);
+            if (user?.firstName) {
+              studentName = user.firstName;
+            } else {
+              // Try finding by email if firebaseUID lookup fails
+              const userByEmail = await this.userRepo.findByEmail(data.studentId);
+              if (userByEmail?.firstName) {
+                studentName = userByEmail.firstName;
+              }
+            }
+          } catch (error) {
+            console.warn('Could not fetch student name for confusion notification:', error);
+          }
+
+          const activeUsers = this.getActiveUsersInRoom(data.roomCode);
+          const studentCount = Math.max(activeUsers.length, 1);
+          const rawIncrement = (1 / studentCount) * 100;
+          const finalIncrement = Math.max(rawIncrement, 5);
+
+          this.emitToRoom(data.roomCode, 'confusion-pulse', {
+            timestamp: Date.now(),
+            increment: finalIncrement,
+            studentName: studentName,
+          });
+        } catch (err) {
+          console.error('Error broadcasting confusion:', err);
         }
       });
 
