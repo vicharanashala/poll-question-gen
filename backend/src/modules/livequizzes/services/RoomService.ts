@@ -167,17 +167,17 @@ export class RoomService {
     return rooms.map(room => this.mapRoom(room));
   }
 
-  async isRoomValidAndHasAccess(code: string, userId: string): Promise<{ isActive: boolean; hasAccess: boolean;}> {
+  async isRoomValidAndHasAccess(code: string, userId: string): Promise<{ isActive: boolean; hasAccess: boolean; }> {
 
-    const result = {isActive: true, hasAccess: false}
+    const result = { isActive: true, hasAccess: false }
     const room = await Room.findOne({ roomCode: code }).lean();
-    
+
     if (!room || room.status.toLowerCase() !== 'active') {
-    result['isActive'] = false;
-  }
-  
-  if(room.teacherId === userId ||
-      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive))result['hasAccess']=true
+      result['isActive'] = false;
+    }
+
+    if (room.teacherId === userId ||
+      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive)) result['hasAccess'] = true
     return result;
 
   }
@@ -671,6 +671,15 @@ export class RoomService {
       message: isMicMuted ? "Co-host microphone muted" : "Co-host microphone unmuted",
       isMicMuted
     };
+  }
+
+  // Add inside RoomService.ts
+  async addPendingQuestions(roomCode: string, questions: any[]) {
+    const room = await this.roomModel.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+    room.pendingQuestions.push(...questions);
+    await room.save();
+    return room.pendingQuestions;
   }
   // Update room controls (Mic, Poll restrictions) and emit to clients
   async updateRoomControls(

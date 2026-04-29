@@ -89,9 +89,77 @@ interface PollResponseData {
 type PollResults = Record<string, PollResponseData>;
 
 type GeneratedQuestion = {
+  _id?: string;
   question: string;
   options: string[];
   correctOptionIndex: number;
+  status?: string;
+};
+interface ModelSelectorProps {
+  selectedModel: string;
+  onModelChange: (model: string) => void;
+  className?: string;
+}
+
+const ModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onModelChange, className = "" }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const models = [
+    { value: "gemma3", label: "Gemma 3" },
+    { value: "gpt-4", label: "GPT-4" },
+    { value: "claude-3", label: "Claude 3" },
+    { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" },
+    { value: "gemini", label: "Google Gemini" }
+  ];
+
+  const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
+
+  return (
+    <div className={`relative ${className}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-800/50 dark:border-gray-600 dark:text-white text-xs sm:text-base bg-white flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        aria-label="AI Model"
+      >
+        <span className="text-left truncate">{selectedModelLabel}</span>
+        <ChevronDown
+          size={16}
+          className={`ml-2 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setIsOpen(false)}
+          />
+
+          {/* Dropdown */}
+          <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
+            {models.map((model) => (
+              <button
+                key={model.value}
+                type="button"
+                onClick={() => {
+                  onModelChange(model.value);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none text-xs sm:text-base flex items-center justify-between"
+              >
+                <span>{model.label}</span>
+                {selectedModel === model.value && (
+                  <Check size={16} className="text-purple-600 dark:text-purple-400" />
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
 
 export default function TeacherPollRoom() {
@@ -266,20 +334,54 @@ export default function TeacherPollRoom() {
     }
   };
 
+  const handleRevokeInvite = async () => {
+    try {
+      await api.delete(`/livequizzes/rooms/cohost/${roomCode}/invite`, {
+        data: { userId: currentUser?.uid }
+      });
+      clearInviteLink();
+      toast.success("Invite link revoked");
+    } catch (err) {
+      toast.error("Failed to revoke invite link");
+    }
+  };
+
   const LeaveCohost = async (roomCode: string, cohostId: string) => {
-    //confirmation before proceeding
     const confirmed = await showModal({
       type: 'default',
-      title: 'are you sure you want to end this room?',
-      description: `This action cannot be undone.
-      You will lose access to this room and all its data.`,
+      title: 'Are you sure you want to leave this session?',
+      description: 'You will leave the live room, but you can review the results later in your dashboard.',
       confirmText: 'Leave Room',
     })
 
     if (!confirmed) return;
-    socket.emit('cohost-leave', roomCode, cohostId)
-    toast.info("Left the room.");
-    navigate({ to: `/teacher/cohosted-rooms` });
+
+    try {
+      // ONLY delete from the database if they are a temporary Ghost User.
+      // Permanent users MUST stay in the database to keep their history!
+      if ((currentUser as any)?.isGuest) {
+        await api.patch(`/livequizzes/rooms/cohost/${roomCode}`, {
+          teacherId: hostId,
+          userId: cohostId
+        });
+      }
+
+      // Everyone disconnects from the live socket session
+      socket.emit('leave-room', roomCode, cohostId);
+
+      // Handle the routing
+      if ((currentUser as any)?.isGuest) {
+        await auth.signOut();
+        useAuthStore.setState({ user: null, isAuthenticated: false });
+        navigate({ to: '/auth' });
+        toast.info("Guest session ended.");
+      } else {
+        // Permanent User: Just go back to the dashboard!
+        navigate({ to: `/teacher/cohosted-rooms` });
+      }
+    } catch (error) {
+      toast.error("Failed to leave room properly");
+    }
   }
 
   //handle cohost mic mute or unmute toggle
@@ -397,7 +499,7 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
+  const [selectedModel, setSelectedModel] = useState("gemini");
   const [questionCount, setQuestionCount] = useState<number>(3);
 
   // Queue for auto-generated questions while live recording is ongoing.
@@ -445,7 +547,7 @@ export default function TeacherPollRoom() {
     currentRecorder?: { userId: string; userName?: string; lockedSince: Date };
   }>({ isLocked: false });
   const recordingLockPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [micLockAlert, setMicLockAlert] = useState<string | null>(null);
+  // const [micLockAlert, setMicLockAlert] = useState<string | null>(null);
 
 
   // UI state for queued question viewer shown after mic stops
@@ -480,8 +582,39 @@ export default function TeacherPollRoom() {
   const [roomControlMode, setRoomControlMode] = useState<'full' | 'mic-disabled' | 'poll-disabled'>('full');
 
   // Handler for saving question edits
-  const handleSaveQuestionEdit = () => {
-    setEditingQuestion(null);
+  // Handler for saving question edits and syncing with other co-hosts
+  const handleSaveQuestionEdit = async () => {
+    if (editingQuestion === null) return;
+
+    const q = generatedQuestions[editingQuestion];
+
+    // Fallback: If for some reason it lacks a database _id, just close the edit mode
+    // (The local state is already updated by handleQuestionChange / handleOptionChange)
+    if (!q._id) {
+      setEditingQuestion(null);
+      return;
+    }
+
+    try {
+      // 1. Send the PATCH request to the server
+      await api.patch(`/livequizzes/rooms/${roomCode}/pending-questions/${q._id}`, {
+        userId: currentUser?.uid,
+        question: q.question,
+        options: q.options,
+        correctOptionIndex: q.correctOptionIndex
+      });
+
+      toast.success("Question updated for everyone");
+      setEditingQuestion(null);
+
+      // NOTE: We don't need to manually update setGeneratedQuestions here.
+      // Your socket listener for 'pending-questions-updated' (around line 558) 
+      // will receive the broadcast and update the list automatically!
+
+    } catch (err) {
+      console.error("Failed to save edit:", err);
+      toast.error("Failed to sync edit with room");
+    }
   };
 
   // Handler for updating question text
@@ -597,11 +730,17 @@ export default function TeacherPollRoom() {
       socket.on('cohost-removed', (data) => {
         setCohosts(data.activeCohosts || []);
         if (currentUser?.uid === data.removedUserId) {
-          toast.error('You have been removed as co-host');
-          navigate({ to: '/teacher/cohosted-rooms' });
-          return;
+          // FIX: Cast to any and manual state reset
+          if ((currentUser as any)?.isGuest) {
+            auth.signOut();
+            useAuthStore.setState({ user: null, isAuthenticated: false });
+            navigate({ to: '/auth' });
+            toast.error('Guest session ended');
+          } else {
+            navigate({ to: '/teacher/cohosted-rooms' });
+            toast.info('You were removed from this session');
+          }
         }
-        toast.info('A co-host was left the room');
       });
       socket.on('cohost-left', (data) => {
         setCohosts(data.activeCohosts || []);
@@ -613,12 +752,15 @@ export default function TeacherPollRoom() {
         toast.info('A co-host left the room');
       });
 
-      socket.on('room-ended', (data) => {
-        setShowEndRoomConfirm(false);
-        setIsEndingRoom(false);
-        toast.info(data.message ?? 'Room has ended');
-        if (!isHost) navigate({ to: '/teacher/cohosted-rooms' });
-
+      socket.on('room-ended', (_data) => { // Added underscore to mark as intentionally unused
+        // FIX: Cast to any and manual state reset
+        if ((currentUser as any)?.isGuest) {
+          auth.signOut();
+          useAuthStore.setState({ user: null, isAuthenticated: false });
+          navigate({ to: '/auth' });
+        } else {
+          navigate({ to: isHost ? '/teacher/manage-rooms' : '/teacher/cohosted-rooms' });
+        }
       });
 
       socket.on('room-updated', (updatedRoom) => {
@@ -638,6 +780,16 @@ export default function TeacherPollRoom() {
         if (data?.cohostId === currentUser?.uid) {
           if (data?.isMicMuted) toast.error('Host muted your microphone');
           else toast.success('Host unmuted your microphone');
+        }
+      });
+
+      // Add this new listener alongside the others
+      socket.on('pending-questions-updated', (questions: GeneratedQuestion[]) => {
+        setGeneratedQuestions(questions);
+        if (questions.length > 0) {
+          setShowPreview(true);
+        } else {
+          setShowPreview(false);
         }
       });
 
@@ -910,51 +1062,59 @@ export default function TeacherPollRoom() {
         console.error("Error releasing recording lock:", error);
       }
 
+      // Set the final transcript to memory so the Generate button can use it
+      const finalBuffer = (useWhisper || useWhisperGGML)
+        ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim() || transcriber.output?.text || ""
+        : displayTranscript.trim();
+
+      setTranscript(finalBuffer);
+      toast.info("Recording stopped. Click 'Generate Questions' when ready.");
+
       // When recording stops, flush any remaining text (<100 words) into queue and
       // wait for queued processing to finish, then reveal the generated questions.
-      setIsProcessing(true);
-      try {
-        // Determine current buffer based on mode
-        const textBuffer = (useWhisper || useWhisperGGML)
-          ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim()
-          : displayTranscript.trim();
+      // setIsProcessing(true);
+      // try {
+      //   // Determine current buffer based on mode
+      //   const textBuffer = (useWhisper || useWhisperGGML)
+      //     ? (transcriber.accumulatedChunks ?? []).map((c) => c.text).join(" ").trim()
+      //     : displayTranscript.trim();
 
-        bufferTextRef.current = textBuffer;
+      //   bufferTextRef.current = textBuffer;
 
-        const words = textBuffer ? textBuffer.split(/\s+/).filter(Boolean) : [];
-        const remaining = words.length - processedWordsRef.current;
-        if (remaining > 0) {
-          const remainderText = words.slice(processedWordsRef.current, processedWordsRef.current + remaining).join(" ");
-          processedWordsRef.current += remaining;
-          enqueueTextChunk(remainderText);
-        }
+      //   const words = textBuffer ? textBuffer.split(/\s+/).filter(Boolean) : [];
+      //   const remaining = words.length - processedWordsRef.current;
+      //   if (remaining > 0) {
+      //     const remainderText = words.slice(processedWordsRef.current, processedWordsRef.current + remaining).join(" ");
+      //     processedWordsRef.current += remaining;
+      //     enqueueTextChunk(remainderText);
+      //   }
 
-        // Wait for queue to finish processing
-        while (processingQueueRef.current || pendingTextChunksRef.current.length > 0) {
-          // small sleep
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((r) => setTimeout(r, 200));
-        }
+      //   // Wait for queue to finish processing
+      //   while (processingQueueRef.current || pendingTextChunksRef.current.length > 0) {
+      //     // small sleep
+      //     // eslint-disable-next-line no-await-in-loop
+      //     await new Promise((r) => setTimeout(r, 200));
+      //   }
 
-        // Move queued generated questions into visible generatedQuestions list
-        if (queuedGeneratedQuestionsRef.current.length > 0) {
-          const queued = queuedGeneratedQuestionsRef.current;
-          const prevLen = generatedQuestions.length;
-          setGeneratedQuestions((prev) => [...prev, ...queued]);
-          setShowPreview(true);
-          // open the single-question viewer starting at the first newly added question
-          setShowQueuedViewer(true);
-          setQueuedViewerIndex(prevLen);
-          // clear queued refs/state
-          queuedGeneratedQuestionsRef.current = [];
-          setQueuedGeneratedQuestions([]);
-          toast.success("Generated questions are ready");
-        }
-      } catch (err) {
-        // Error finalizing queued question generation
-      } finally {
-        setIsProcessing(false);
-      }
+      //   // Move queued generated questions into visible generatedQuestions list
+      //   if (queuedGeneratedQuestionsRef.current.length > 0) {
+      //     const queued = queuedGeneratedQuestionsRef.current;
+      //     const prevLen = generatedQuestions.length;
+      //     setGeneratedQuestions((prev) => [...prev, ...queued]);
+      //     setShowPreview(true);
+      //     // open the single-question viewer starting at the first newly added question
+      //     setShowQueuedViewer(true);
+      //     setQueuedViewerIndex(prevLen);
+      //     // clear queued refs/state
+      //     queuedGeneratedQuestionsRef.current = [];
+      //     setQueuedGeneratedQuestions([]);
+      //     toast.success("Generated questions are ready");
+      //   }
+      // } catch (err) {
+      //   // Error finalizing queued question generation
+      // } finally {
+      //   setIsProcessing(false);
+      // }
     } else {
       try {
 
@@ -1288,15 +1448,18 @@ export default function TeacherPollRoom() {
   };
   const processAudioBlobForExternalAPi = async () => {
     if (partialTranscripts.length === 0) return;
-    setIsProcessing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // setIsProcessing(true);
+    // await new Promise((resolve) => setTimeout(resolve, 1000));
     // combine all chunk texts
     /* console.log("the partial teanscript===",partialTranscripts)
      const finalText = partialTranscripts[partialTranscripts.length - 1].text;*/
 
 
 
-    generateQuestions(transcribedTextFromExternal)
+    // generateQuestions(transcribedTextFromExternal)
+    setTranscript(transcribedTextFromExternal);
+
+    toast.success("Transcribed successfully. Ready to generate.");
 
 
     // Reset state for next recording
@@ -1385,6 +1548,62 @@ export default function TeacherPollRoom() {
     }
   };
 
+  const handleRejectQuestion = async (index: number) => {
+    const q = generatedQuestions[index];
+
+    // Fallback: If no ID, just remove it locally
+    if (!q._id) {
+      const newQs = [...generatedQuestions];
+      newQs.splice(index, 1);
+      setGeneratedQuestions(newQs);
+      if (newQs.length === 0) setShowPreview(false);
+      else if (currentQuestionIndex >= newQs.length) setCurrentQuestionIndex(newQs.length - 1);
+      return;
+    }
+
+    try {
+      await api.post(`/livequizzes/rooms/${roomCode}/pending-questions/${q._id}/reject`, {
+        userId: currentUser?.uid
+      });
+      toast.success("Question rejected");
+
+      // Instantly remove from UI
+      const newQs = [...generatedQuestions];
+      newQs.splice(index, 1);
+      setGeneratedQuestions(newQs);
+
+      // Adjust index to prevent crashing
+      if (newQs.length === 0) {
+        setShowPreview(false);
+      } else if (currentQuestionIndex >= newQs.length) {
+        setCurrentQuestionIndex(newQs.length - 1);
+      }
+    } catch (err) {
+      toast.error("Failed to reject question");
+    }
+  };
+
+  const handleRejectAllQuestions = async () => {
+    const confirmed = await showModal({
+      type: 'delete',
+      title: 'Clear All Questions?',
+      description: 'Are you sure you want to clear all pending questions? This cannot be undone.',
+      confirmText: 'Clear All',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/livequizzes/rooms/${roomCode}/pending-questions`, {
+        data: { userId: currentUser?.uid }
+      });
+      toast.success("All pending questions cleared");
+      setShowPreview(false); // Close the preview modal since it's empty now
+    } catch (err) {
+      toast.error("Failed to clear questions");
+    }
+  };
+
   const fetchResults = async () => {
     try {
       const res = await api.get(`/livequizzes/rooms/${roomCode}/polls/results`);
@@ -1442,10 +1661,20 @@ export default function TeacherPollRoom() {
       const rawQuestions = response.data.questions || [];
 
       const cleanQuestions = rawQuestions
-        .filter((q) => typeof q.questionText === 'string' && q.questionText.trim() !== '')
-        .map((q): GeneratedQuestion => {
-          const options = Array.isArray(q.options) ? q.options.map((opt) => opt.text ?? '') : [];
-          const correctOptionIndex = Array.isArray(q.options) ? q.options.findIndex((opt) => opt.correct) : 0;
+        .filter((q: any) => {
+          const qText = q.questionText || q.question;
+          return typeof qText === 'string' && qText.trim() !== '';
+        })
+        .map((q: any): GeneratedQuestion => {
+          // Safely map options
+          const options = Array.isArray(q.options)
+            ? q.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.text ?? ''))
+            : [];
+
+          // Safely extract the correct index
+          const correctOptionIndex = typeof q.correctOptionIndex === 'number'
+            ? q.correctOptionIndex
+            : (Array.isArray(q.options) ? q.options.findIndex((opt: any) => opt.correct) : 0);
 
           const validCorrectOptionIndex = correctOptionIndex >= 0 && correctOptionIndex < options.length
             ? correctOptionIndex
@@ -1454,9 +1683,11 @@ export default function TeacherPollRoom() {
           setLaunchedQuestions(new Set());
 
           return {
-            question: q.questionText,
+            _id: q._id, // <--- CRITICAL FIX: Capture the MongoDB ID!
+            question: q.questionText || q.question,
             options: options,
             correctOptionIndex: validCorrectOptionIndex,
+            status: q.status || 'pending',
           };
         });
 
@@ -1657,32 +1888,18 @@ export default function TeacherPollRoom() {
     // 1️⃣ Final transcription completed
     if (text && isComplete && !isLiveRecordingActive && !hasGeneratedQuestions) {
       setTranscript(text);
-      toast.success("Transcribed successfully");
-      setIsProcessing(true);
-
-      // Capture the final text in a local variable
-      const finalText = text;
-
-      setTimeout(() => {
-        generateQuestions(whisperAiText);
-      }, 5000); // 5 seconds delay
-
+      toast.success("Transcribed successfully. Ready to generate.");
       setHasGeneratedQuestions(true); // prevent multiple calls
-      setWhisperAiText(finalText); // set final text
+      setWhisperAiText(text); // set final text
     }
 
     // 2️⃣ Live transcription updates
     if (isLiveRecordingActive && text) {
-      setWhisperAiText(prev => prev + text); // append partial text
-      setHasGeneratedQuestions(false); // allow next final transcription
+      // Set the text exactly as the transcriber outputs it (it accumulates automatically)
+      setWhisperAiText(text);
+      setHasGeneratedQuestions(false);
     }
-
-    // 3️⃣ Optional: reset whisperAiText when transcription marked complete
-    if (isTranscriptionComplete) {
-      //console.log("Transcription done ===", text);
-      // setWhisperAiText(text || '');
-    }
-  }, [transcriber.output, isLiveRecordingActive, hasGeneratedQuestions, isTranscriptionComplete]);
+  }, [transcriber.output, isLiveRecordingActive, hasGeneratedQuestions]);
 
 
 
@@ -1745,75 +1962,31 @@ export default function TeacherPollRoom() {
     }
   }, [transcriber.output?.isBusy, transcriber.output?.text, isGenerateClicked, generateQuestions]);
 
-  interface ModelSelectorProps {
-    selectedModel: string;
-    onModelChange: (model: string) => void;
-    className?: string;
-  }
-
-  const ModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onModelChange, className = "" }) => {
-    const [isOpen, setIsOpen] = useState(false);
-
-    const models = [
-      { value: "gemma3", label: "Gemma 3" },
-      { value: "gpt-4", label: "GPT-4" },
-      { value: "claude-3", label: "Claude 3" },
-      { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
-    ];
-
-    const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
-
-    return (
-      <div className={`relative ${className}`}>
-        <button
-          type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full px-2 sm:px-3 py-1.5 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-800/50 dark:border-gray-600 dark:text-white text-xs sm:text-base bg-white flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-          aria-label="AI Model"
-        >
-          <span className="text-left truncate">{selectedModelLabel}</span>
-          <ChevronDown
-            size={16}
-            className={`ml-2 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-          />
-        </button>
-
-        {isOpen && (
-          <>
-            {/* Backdrop */}
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setIsOpen(false)}
-            />
-
-            {/* Dropdown */}
-            <div className="absolute z-20 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
-              {models.map((model) => (
-                <button
-                  key={model.value}
-                  type="button"
-                  onClick={() => {
-                    onModelChange(model.value);
-                    setIsOpen(false);
-                  }}
-                  className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 focus:bg-gray-100 dark:focus:bg-gray-700 focus:outline-none text-xs sm:text-base flex items-center justify-between"
-                >
-                  <span>{model.label}</span>
-                  {selectedModel === model.value && (
-                    <Check size={16} className="text-purple-600 dark:text-purple-400" />
-                  )}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  };
-
   const handleGenerateClick = () => {
     setIsGenerateClicked(true);
 
+    // 1. Check if Paste Content panel is open and has text
+    if (showPasteModal && pastedContent.trim()) {
+      setIsProcessing(true);
+      processContent(pastedContent);
+      setPastedContent('');
+      setShowPasteModal(false);
+      setIsGenerateClicked(false);
+      return;
+    }
+
+    // 2. Check if Text File panel is open and has text loaded
+    if (showUploadTextFileModal && textFileContent.trim()) {
+      setIsProcessing(true);
+      processContent(textFileContent);
+      setTextFileContent('');
+      setFileName('');
+      setShowUploadTextFileModal(false);
+      setIsGenerateClicked(false);
+      return;
+    }
+
+    // 3. Normal flow (Voice recording or previously loaded transcript)
     if (!transcriber.output?.isBusy && (!isRecording || !isListening)) {
       if (transcriber.output?.text) {
         const finalText = transcriber.output?.text || transcript;
@@ -2026,7 +2199,30 @@ export default function TeacherPollRoom() {
       });
     }, 1000);
   };
-  const handleRemoveStudent = async(studentEmail: string) => {
+
+  // ==========================================
+  // SYNC LOCAL TIMERS ACROSS ALL CO-HOSTS
+  // ==========================================
+  useEffect(() => {
+    generatedQuestions.forEach((q, index) => {
+      // If the backend says it's approved, but this local browser hasn't launched it yet...
+      if (q.status === 'approved' && !launchedQuestions.has(index)) {
+
+        // 1. Mark it as launched locally so we don't double-trigger
+        setLaunchedQuestions(prev => {
+          const newSet = new Set(prev);
+          newSet.add(index);
+          return newSet;
+        });
+
+        // 2. Start the local countdown timer for this specific co-host!
+        // If they didn't touch the input, default to 30 seconds
+        const duration = questionTimers[index]?.initialTime || 30;
+        startTimer(index, Number(duration));
+      }
+    });
+  }, [generatedQuestions]); // Runs whenever the WebSocket updates the questions list
+  const handleRemoveStudent = async (studentEmail: string) => {
 
     if (!studentEmail) return;
 
@@ -2071,42 +2267,44 @@ export default function TeacherPollRoom() {
   };
 
   const handleLaunchPoll = async () => {
-
-    //confirmation before proceeding
     const confirmed = await showModal({
       type: 'default',
-      title: 'are you sure you want to launch this poll?',
-      description: 'Once launched, students will be able to see the question and submit their responses. the poll will run until the timer expires.',
+      title: 'Are you sure you want to launch this poll?',
+      description: 'Once launched, students will be able to see the question and submit their responses.',
       confirmText: 'Launch Poll',
-    })
+    });
 
     if (!confirmed) return;
 
     const currentQ = generatedQuestions[currentQuestionIndex];
-    const timerDuration = questionTimers[currentQuestionIndex]?.initialTime || 30;
 
-    // Close any open edit mode when launching poll
-    setEditingQuestionIndex(null);
+    if (currentQ._id) {
+      try {
+        await api.post(`/livequizzes/rooms/${roomCode}/pending-questions/${currentQ._id}/approve`, {
+          userId: currentUser?.uid
+        });
 
-    // Update state
-    setQuestion(currentQ.question);
-    setOptions([...currentQ.options]);
-    setCorrectOptionIndex(currentQ.correctOptionIndex);
+        toast.success("Poll Launched Successfully!");
+        setEditingQuestionIndex(null);
 
-    // Mark as active and start the timer for this question
-    setIsPollActive(true);
-    startTimer(currentQuestionIndex, timerDuration);
+        // 1. Mark this question as launched so it cannot be launched again
+        setLaunchedQuestions(prev => {
+          const newSet = new Set(prev);
+          newSet.add(currentQuestionIndex);
+          return newSet;
+        });
 
-    // Use a timeout to ensure state updates are applied
-    setTimeout(() => {
-      setReadyToCreatePoll(true);
-    }, 0);
+        // 2. Start the local countdown timer (this changes the button to "Poll Active")
+        const duration = questionTimers[currentQuestionIndex]?.initialTime || timer || 30;
+        startTimer(currentQuestionIndex, Number(duration));
 
-    setLaunchedQuestions((prev) => {
-      const newSet = new Set(prev).add(currentQuestionIndex);
-      return newSet;
-    });
+        // 3. Fetch results to initialize the live results UI for this new poll
+        fetchResults();
 
+      } catch (err) {
+        toast.error("Failed to launch poll");
+      }
+    }
   };
 
   if (!roomCode) return <div>Loading...</div>;
@@ -2158,7 +2356,7 @@ export default function TeacherPollRoom() {
               </div>
 
               {/* Capsule Toggle Button (Only show if not collapsed) */}
-              {isHost && !isSidebarCollapsed && (
+              {!isSidebarCollapsed && (
                 <div className="px-3 py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex bg-[#9b51e0] dark:bg-purple-700 rounded-full p-1 text-sm font-semibold shadow-inner">
                     <button
@@ -2246,7 +2444,7 @@ export default function TeacherPollRoom() {
                   )}
 
                   {/* COHOSTS TAB (Real Data) */}
-                  {isHost && activeSidebarTab === 'cohosts' && (
+                  {activeSidebarTab === 'cohosts' && (
                     cohosts.length > 0 ? (
                       cohosts.map((cohost, index) => (
                         <div
@@ -2310,13 +2508,14 @@ export default function TeacherPollRoom() {
 
           {/* Main content */}
           <div className="flex-1 overflow-auto">
-            {/* Header */}
-            <div className="fixed top-0 left-0 w-full h-16 bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm px-4 py-2 flex items-center justify-between z-50">
-              <div className="flex items-center">
+            {/* Header / Toolbar (Balanced Size) */}
+            <div className="fixed top-0 left-0 w-full h-16 bg-white dark:bg-gray-900 border-b border-slate-200 dark:border-gray-700 shadow-sm px-3 sm:px-4 flex items-center justify-between z-50">
+
+              {/* Left Side: Navigation & Room Code */}
+              <div className="flex items-center flex-shrink-0 mr-2 sm:mr-4 gap-1 sm:gap-2">
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="mr-2"
+                  className="h-9 w-9 px-0"
                   onClick={() => navigate({ to: isHost ? '/teacher/manage-rooms' : '/teacher/cohosted-rooms' })}
                   title={isHost ? "Back to Manage Rooms" : "Back to Home"}
                 >
@@ -2324,138 +2523,154 @@ export default function TeacherPollRoom() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="md:hidden mr-2"
+                  className="h-9 w-9 px-0 md:hidden"
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 >
                   <Menu className="h-5 w-5" />
                 </Button>
-                <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                  Room Code: <span className="font-mono bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap ml-1">
+                  <span className="hidden sm:inline">Room: </span>
+                  <span className="font-mono bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent dark:from-red-400 dark:to-blue-400">
                     {roomCode}
                   </span>
                 </h2>
               </div>
 
-              {/* Desktop Navigation */}
-              <div className="hidden md:flex items-center gap-2">
+              {/* Middle Navigation (Balanced Ribbon) */}
+              <div className="hidden lg:flex items-center gap-2">
                 <Button
                   variant={(!showPreview && !showPollModal && !showResultsModal) ? "default" : "outline"}
                   onClick={handleVoiceRecorderTab}
-                  className="mr-2"
+                  className="h-9 px-3.5 text-sm font-medium"
                 >
                   <Mic className="w-4 h-4 mr-2" />
-                  Voice Recorder
+                  Recorder
                 </Button>
+
                 <Button
                   variant={showPreview ? "default" : "outline"}
                   onClick={handleGeneratedQuestionClick}
-                  className="mr-2"
+                  className="h-9 px-3.5 text-sm font-medium relative"
                   disabled={!generatedQuestions.length || roomControlMode === 'poll-disabled'}
                 >
                   <Wand2 className="w-4 h-4 mr-2" />
-                  {showPreview ? 'Generated Questions' : 'Generated Questions'}
+                  Questions
+                  {generatedQuestions.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center shadow-sm">
+                      {generatedQuestions.length}
+                    </span>
+                  )}
                 </Button>
+
                 {isHost && (
                   <Button
                     disabled={roomControlMode === 'poll-disabled'}
                     variant={showPollModal ? "default" : "outline"}
                     onClick={handleCreateManualPoll}
-                    className="mr-2"
+                    className="h-9 px-3.5 text-sm font-medium"
                   >
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Live Poll
+                    Poll
                   </Button>
                 )}
+
                 <Button
                   variant={showResultsModal ? "default" : "outline"}
                   onClick={handlePollResultsbutton}
+                  className="h-9 px-3.5 text-sm font-medium"
                 >
                   <BarChart2 className="w-4 h-4 mr-2" />
-                  Poll Results
+                  Results
                 </Button>
 
                 {isHost && (
-                  <div className="ml-2 border-l border-gray-300 dark:border-gray-700 pl-4">
+                  <div className="ml-1.5 border-l border-gray-200 dark:border-gray-700 pl-3">
                     <Select value={roomControlMode} onValueChange={handleControlModeChange}>
-                      <SelectTrigger className="w-[160px] h-9 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-md">
-                        <div className="flex items-center gap-2">
+                      <SelectTrigger className="w-[145px] h-9 text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-md focus:ring-1 focus:ring-purple-500 shadow-none">
+                        <div className="flex items-center gap-1.5">
                           <Shield className="w-4 h-4 text-purple-500" />
-                          <span className="text-sm truncate">
+                          <span className="truncate">
                             {roomControlMode === 'full' && "Full Access"}
                             {roomControlMode === 'mic-disabled' && "Mic Disabled"}
                             {roomControlMode === 'poll-disabled' && "Polls Disabled"}
                           </span>
                         </div>
                       </SelectTrigger>
-                      <SelectContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200">
-                        <SelectItem value="full" className="hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">Everything Working</SelectItem>
-                        <SelectItem value="mic-disabled" className="hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">Disable Mic Only</SelectItem>
-                        <SelectItem value="poll-disabled" className="hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">Disable Create Poll</SelectItem>
+                      <SelectContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 min-w-[145px]">
+                        <SelectItem value="full" className="text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer py-1.5">Everything Working</SelectItem>
+                        <SelectItem value="mic-disabled" className="text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer py-1.5">Disable Mic Only</SelectItem>
+                        <SelectItem value="poll-disabled" className="text-sm hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer py-1.5">Disable Create Poll</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="hidden md:block">
+              {/* Right Side Actions (Balanced) */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="hidden md:block transform scale-[0.9] origin-right">
                   <ThemeToggle />
                 </div>
 
                 <Button
                   onClick={() => copyToClipboard(roomCode, "Room code copied to clipboard!")}
                   variant="outline"
-                  size="sm"
-                  className="flex items-center gap-1 sm:gap-2 text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 text-xs sm:text-sm"
+                  className="h-9 px-2.5 flex items-center gap-1.5 text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 border-transparent hover:border-purple-200 dark:hover:border-purple-800 shadow-none"
+                  title="Copy Room Code"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  <span className="hidden xs:inline">Copy Code</span>
+                  <Copy size={16} />
+                  <span className="hidden xl:inline text-sm font-medium">Code</span>
                 </Button>
 
                 {isHost && (
                   <>
                     {inviteLink ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => copyToClipboard(inviteLink, "Invite link copied to clipboard!")}
-                        className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/30"
-                      >
-                        <Copy size={16} />
-                        <span className="xs:inline">Copy Invite Link</span>
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => copyToClipboard(inviteLink, "Invite link copied to clipboard!")}
+                          className="h-9 px-2.5 hidden sm:flex items-center gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/30 shadow-none"
+                          title="Copy Invite Link"
+                        >
+                          <Copy size={16} />
+                          <span className="hidden xl:inline text-sm font-medium">Link</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={handleRevokeInvite}
+                          className="h-9 px-2.5 hidden sm:flex items-center gap-1.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                          title="Revoke Invite Link"
+                        >
+                          <X size={16} />
+                          <span className="hidden xl:inline text-sm font-medium">Revoke</span>
+                        </Button>
+                      </>
                     ) : (
                       <Button
                         onClick={handleInviteCohost}
                         disabled={isCreating}
                         variant="outline"
-                        className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/30"
+                        className="h-9 px-2.5 hidden sm:flex items-center gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/30 shadow-none"
+                        title="Generate Cohost Link"
                       >
                         {isCreating ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
-                        <span className="xs:inline">{isCreating ? "Creating..." : "Invite Cohost"}</span>
+                        <span className="hidden xl:inline text-sm font-medium">{isCreating ? "Creating..." : "Cohost"}</span>
                       </Button>
                     )}
 
                     <Button
                       onClick={endRoom}
                       variant="destructive"
-                      className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
+                      className="h-9 px-3 hidden sm:flex items-center gap-1.5"
                       disabled={isEndingRoom}
+                      title="End Room"
                     >
                       {isEndingRoom ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          Ending Room...
-                        </>
+                        <Loader2 size={16} className="animate-spin" />
                       ) : (
-                        <>
-                          <LogOut size={16} />
-                          <span className="xs:inline">End Room</span>
-                        </>
+                        <LogOut size={16} />
                       )}
+                      <span className="hidden xl:inline text-sm font-medium">End</span>
                     </Button>
                   </>
                 )}
@@ -2463,11 +2678,11 @@ export default function TeacherPollRoom() {
                   <Button
                     onClick={() => LeaveCohost(roomCode, currentUser?.uid)}
                     variant="destructive"
-                    className="hidden sm:flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
-                  // disabled={isEndingRoom}
+                    className="h-9 px-3 hidden sm:flex items-center gap-1.5"
+                    title="Leave Room"
                   >
                     <LogOut size={16} />
-                    <span className="xs:inline">Leave Room</span>
+                    <span className="hidden xl:inline text-sm font-medium">Leave</span>
                   </Button>
                 )}
               </div>
@@ -2520,8 +2735,12 @@ export default function TeacherPollRoom() {
                     className="w-full justify-start"
                     disabled={!generatedQuestions.length}
                   >
-                    <Wand2 className="w-4 h-4 mr-2" />
-                    {showPreview ? 'Generated Questions' : 'Generated Questions'}
+                    {/* Add this badge badge right here */}
+                    {generatedQuestions.length > 0 && (
+                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center shadow-sm">
+                        {generatedQuestions.length}
+                      </span>
+                    )}
                   </Button>
                   {
                     isHost && (
@@ -2550,33 +2769,29 @@ export default function TeacherPollRoom() {
                     <BarChart2 className="w-4 h-4 mr-2" />
                     Poll Results
                   </Button>
-                  {
-                    isHost && (
-                      <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700">
-                        <Button
-                          onClick={() => {
-                            setIsMobileMenuOpen(false);
-                            endRoom();
-                          }}
-                          variant="destructive"
-                          className="w-full justify-start"
-                          disabled={isEndingRoom}
-                        >
-                          {isEndingRoom ? (
-                              <>
-                                <Loader2 size={16} className="animate-spin" />
-                                Ending Room...
-                              </>
-                            ) : (
-                              <>
-                                <LogOut className="w-4 h-4 mr-2" />
-                                End Room
-                              </>
-                            )}
+                  {/* Inside the Mobile Sidebar (isMobileMenuOpen) */}
+                  {isHost && (
+                    <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                      {inviteLink ? (
+                        <>
+                          <Button onClick={() => copyToClipboard(inviteLink, "Copied!")} variant="outline" className="w-full justify-start text-purple-600">
+                            <Copy className="w-4 h-4 mr-2" /> Copy Invite Link
+                          </Button>
+                          <Button onClick={handleRevokeInvite} variant="outline" className="w-full justify-start text-red-600">
+                            <X className="w-4 h-4 mr-2" /> Revoke Link
+                          </Button>
+                        </>
+                      ) : (
+                        <Button onClick={handleInviteCohost} disabled={isCreating} variant="outline" className="w-full justify-start text-purple-600">
+                          <UserPlus className="w-4 h-4 mr-2" /> Generate Cohost Link
                         </Button>
-                      </div>
-                    )
-                  }
+                      )}
+
+                      <Button onClick={() => { setIsMobileMenuOpen(false); endRoom(); }} variant="destructive" className="w-full justify-start">
+                        <LogOut className="w-4 h-4 mr-2" /> End Room
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3339,7 +3554,13 @@ export default function TeacherPollRoom() {
                         */}
                               <Transcript
                                 transcribedData={undefined}
-                                liveTranscription={(useWhisper || useWhisperGGML) ? ('') : displayTranscript}
+                                liveTranscription={
+                                  (useWhisper || useWhisperGGML)
+                                    ? whisperAiText
+                                    : useExternlApi
+                                      ? transcribedTextFromExternal
+                                      : displayTranscript
+                                }
                                 isRecording={(useWhisper || useWhisperGGML) ? isLiveRecordingActive : (isRecording || isListening)}
                               />
 
@@ -3452,16 +3673,28 @@ export default function TeacherPollRoom() {
                                     ({generatedQuestions.length} total)
                                   </span>
                                 </CardTitle>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setShowPreview(false);
-                                  }}
-                                  className="self-end sm:self-auto text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                >
-                                  <X className="w-5 h-5 sm:w-6 sm:h-6" />
-                                </Button>
+
+                                <div className="flex items-center gap-2 self-end sm:self-auto">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleRejectAllQuestions}
+                                    className="h-8 border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                  >
+                                    <Trash2 className="w-4 h-4 mr-1.5" />
+                                    Clear All
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setShowPreview(false);
+                                    }}
+                                    className="h-8 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                  >
+                                    <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                                  </Button>
+                                </div>
                               </div>
                             </CardHeader>
                             <CardContent className="px-3 sm:px-6">
@@ -3520,7 +3753,11 @@ export default function TeacherPollRoom() {
                                                     variant="outline"
                                                     size="sm"
                                                     onClick={() => setEditingQuestion(currentQuestionIndex)}
-                                                    disabled={launchedQuestions.has(currentQuestionIndex)}
+                                                    disabled={
+                                                      launchedQuestions.has(currentQuestionIndex) ||
+                                                      generatedQuestions[currentQuestionIndex]?.status === 'approved' ||
+                                                      questionTimers[currentQuestionIndex]?.isActive
+                                                    }
                                                     className="text-xs h-7 sm:h-8 px-2 sm:px-3 bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700/70"
                                                   >
                                                     <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5 mr-1" />
@@ -3535,19 +3772,18 @@ export default function TeacherPollRoom() {
                                                 onClick={async () => {
                                                   const confirmed = await showModal({
                                                     type: 'delete',
-                                                    title: 'are you sure you want to delete this question?',
+                                                    title: 'Are you sure you want to delete this question?',
                                                     description: 'This action cannot be undone.',
-                                                    confirmText: 'Delete Question',
-                                                  })
+                                                    confirmText: 'Reject Question',
+                                                  });
                                                   if (!confirmed) return;
-                                                  const newQuestions = [...generatedQuestions];
-                                                  newQuestions.splice(currentQuestionIndex, 1);
-                                                  setGeneratedQuestions(newQuestions);
-                                                  if (currentQuestionIndex >= newQuestions.length) {
-                                                    setCurrentQuestionIndex(Math.max(0, newQuestions.length - 1));
-                                                  }
+                                                  handleRejectQuestion(currentQuestionIndex); // Use new API handler
                                                 }}
-                                                disabled={launchedQuestions.has(currentQuestionIndex)}
+                                                disabled={
+                                                  launchedQuestions.has(currentQuestionIndex) ||
+                                                  generatedQuestions[currentQuestionIndex]?.status === 'approved' ||
+                                                  questionTimers[currentQuestionIndex]?.isActive
+                                                }
                                                 className="text-xs h-7 sm:h-8 px-2 sm:px-3 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                                               >
                                                 <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
@@ -3685,81 +3921,93 @@ export default function TeacherPollRoom() {
                                         </div>
 
                                         {/* Action Buttons */}
-                                        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
+                                        {(() => {
+                                          // 1. Check if the poll was launched globally (approved) or locally (button clicked)
+                                          const isApproved = generatedQuestions[currentQuestionIndex]?.status === 'approved' || launchedQuestions.has(currentQuestionIndex);
+                                          const isLocallyActive = questionTimers[currentQuestionIndex]?.isActive;
 
+                                          // 2. If it's launched anywhere, we lock the inputs and show the countdown
+                                          const showCountdown = isApproved || isLocallyActive;
 
-                                          {/* Timer */}
-                                          <div className="flex-1 lg:flex-initial">
-                                            <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
-                                              <Clock className="w-4 h-4" />
-                                              {isPollActive ? 'Time Remaining' : 'Timer (seconds)'}
-                                            </label>
-                                            <div className="flex items-center gap-2">
-                                              {questionTimers[currentQuestionIndex]?.isActive ? (
-                                                <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
-                                                  {questionTimers[currentQuestionIndex]?.timeLeft || 0}s
+                                          // 3. USE STRICT LOCAL TIMER STATE (Your idea!)
+                                          const displayTime = questionTimers[currentQuestionIndex]?.timeLeft || 0;
+
+                                          return (
+                                            <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col lg:flex-row lg:justify-between gap-3 sm:gap-4 flex-shrink-0">
+
+                                              {/* Timer */}
+                                              <div className="flex-1 lg:flex-initial">
+                                                <label className="flex items-center text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 gap-1">
+                                                  <Clock className="w-4 h-4" />
+                                                  {showCountdown ? 'Time Remaining' : 'Timer (seconds)'}
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                  {showCountdown ? (
+                                                    <div className="text-xl font-bold text-purple-600 dark:text-purple-400 w-16 text-center">
+                                                      {displayTime}s
+                                                    </div>
+                                                  ) : (
+                                                    <Input
+                                                      type="number"
+                                                      placeholder="e.g. 30"
+                                                      value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
+                                                      min={5}
+                                                      onChange={(e) => {
+                                                        const newTime = e.target.value === '' ? '' : Number(e.target.value);
+                                                        setQuestionTimers(prev => ({
+                                                          ...prev,
+                                                          [currentQuestionIndex]: {
+                                                            ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
+                                                            initialTime: newTime,
+                                                            timeLeft: prev[currentQuestionIndex]?.isActive
+                                                              ? Number(newTime)
+                                                              : (prev[currentQuestionIndex]?.timeLeft || 0)
+                                                          }
+                                                        }));
+                                                      }}
+                                                      className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
+                                                      aria-label="Timer in seconds"
+                                                    />
+                                                  )}
                                                 </div>
-                                              ) : (
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                  {showCountdown
+                                                    ? 'Poll is active. Students can now submit their responses.'
+                                                    : 'The timer controls how long the poll remains open for students to vote.'}
+                                                </p>
+                                              </div>
+
+                                              {/* Max Points */}
+                                              <div className="flex-1 lg:flex-initial">
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                  Max Points
+                                                </label>
                                                 <Input
                                                   type="number"
-                                                  placeholder="e.g. 30"
-                                                  value={questionTimers[currentQuestionIndex]?.initialTime ?? 30}
-                                                  min={5}
-                                                  onChange={(e) => {
-                                                    const newTime = e.target.value === '' ? '' : Number(e.target.value);
-                                                    setQuestionTimers(prev => ({
-                                                      ...prev,
-                                                      [currentQuestionIndex]: {
-                                                        ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
-                                                        initialTime: newTime,
-                                                        timeLeft: prev[currentQuestionIndex]?.isActive
-                                                          ? Number(newTime)
-                                                          : (prev[currentQuestionIndex]?.timeLeft || 0)
-                                                      }
-                                                    }));
-                                                  }}
+                                                  value={maxPoints}
+                                                  min={1}
+                                                  onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
                                                   className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
-                                                  aria-label="Timer in seconds"
-                                                  disabled={questionTimers[currentQuestionIndex]?.isActive ||
-                                                    (launchedQuestions.has(currentQuestionIndex) &&
-                                                      questionTimers[currentQuestionIndex]?.timeLeft === 0)}
+                                                  aria-label="Maximum points for this generated poll"
+                                                  disabled={showCountdown}
                                                 />
-                                              )}
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                  Maximum score awarded for a correct answer.
+                                                </p>
+                                              </div>
+
+                                              {/* Launch Button */}
+                                              <Button
+                                                onClick={handleLaunchPoll}
+                                                disabled={showCountdown}
+                                                className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
+                                              >
+                                                <BarChart2 className="w-4 h-4 mr-2" />
+                                                {showCountdown ? 'Poll Active' : 'Launch Poll'}
+                                              </Button>
                                             </div>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                              {questionTimers[currentQuestionIndex]?.isActive
-                                                ? 'Poll is active. Students can now submit their responses.'
-                                                : 'The timer controls how long the poll remains open for students to vote.'}
-                                            </p>
-                                          </div>
-
-                                          <div className="flex-1 lg:flex-initial">
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                              Max Points
-                                            </label>
-                                            <Input
-                                              type="number"
-                                              value={maxPoints}
-                                              min={1}
-                                              onChange={(e) => setMaxPoints(e.target.value === '' ? '' : Number(e.target.value))}
-                                              className="dark:bg-gray-800/50 text-sm w-full sm:w-36"
-                                              aria-label="Maximum points for this generated poll"
-                                              disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
-                                            />
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                              Maximum score awarded for a correct answer.
-                                            </p>
-                                          </div>
-
-                                          <Button
-                                            onClick={handleLaunchPoll}
-                                            disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
-                                            className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
-                                          >
-                                            <BarChart2 className="w-4 h-4 mr-2" />
-                                            {questionTimers[currentQuestionIndex]?.isActive ? 'Poll Active' : 'Launch Poll'}
-                                          </Button>
-                                        </div>
+                                          );
+                                        })()}
                                       </div>
                                     </div>
                                     <Button
@@ -4384,6 +4632,6 @@ export default function TeacherPollRoom() {
         </div>
       </div>
       <ConfirmationModal {...modalProps} />
-    </div>
+    </div >
   );
 }

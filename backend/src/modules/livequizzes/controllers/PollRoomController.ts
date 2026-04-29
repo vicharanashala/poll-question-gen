@@ -7,11 +7,13 @@ import {
   QueryParam,
   Authorized,
   HttpCode,
+  HttpError,
   Req,
   Res,
   NotFoundError,
   Delete,
   BadRequestError,
+  ForbiddenError,
   Patch,
 } from 'routing-controllers';
 import { Request, Response } from 'express';
@@ -21,6 +23,7 @@ import { inject, injectable } from 'inversify';
 import { RoomService } from '../services/RoomService.js';
 import { PollService } from '../services/PollService.js';
 import { LIVE_QUIZ_TYPES } from '../types.js';
+import { Room } from '#root/shared/database/models/Room.js';
 //import { TranscriptionService } from '#root/modules/genai/services/TranscriptionService.js';
 import { AIContentService } from '#root/modules/genai/services/AIContentService.js';
 import { VideoService } from '#root/modules/genai/services/VideoService.js';
@@ -32,6 +35,7 @@ import { OpenAPI } from 'routing-controllers-openapi';
 import dotenv from 'dotenv';
 import mime from 'mime-types';
 import * as fsp from 'fs/promises';
+import { UserModel } from '#root/shared/database/models/User.js';
 import { CreateInMemoryPollDto, InMemoryPollResponse, InMemoryPollResult, SubmitInMemoryAnswerDto } from '../validators/LivepollValidator.js';
 import { validate } from 'class-validator';
 
@@ -89,7 +93,7 @@ export class PollRoomController {
         return { success: false, message: 'User id is required' };
       }
       const hasAccess = room.teacherId === userId ||
-      room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive);
+        room.coHosts?.some(coHost => coHost.userId === userId && coHost.isActive);
       if (!hasAccess) {
         return { success: false, message: 'You do not have access to this room' };
       }
@@ -104,6 +108,8 @@ export class PollRoomController {
     @Param('code') roomCode: string,
     @Body() body: { question: string; options: string[]; correctOptionIndex: number; creatorId: string; timer?: number; maxPoints?: number }
   ) {
+    const access = await this.roomService.isRoomValidAndHasAccess(roomCode, body.creatorId);
+    if (!access.hasAccess) throw new HttpError(403, 'Unauthorized');
     const room = await this.roomService.getRoomByCode(roomCode);
     if (!room) throw new Error('Invalid room');
     return await this.pollService.createPoll(
@@ -117,6 +123,19 @@ export class PollRoomController {
       }
     );
 
+  }
+  // In PollRoomController.ts
+  @Delete('/cohost/:code/invite')
+  async revokeCohostInvite(@Param('code') roomCode: string, @Body() body: { userId: string }) {
+    const room = await Room.findOne({ roomCode });
+    if (!room) throw new NotFoundError("Room not found");
+    if (room.teacherId !== body.userId) throw new HttpError(403, "Only host can revoke invites");
+
+    if (room.coHostInvite) {
+      room.coHostInvite.isActive = false;
+      await room.save();
+    }
+    return { success: true, message: "Invite link revoked" };
   }
 
   //@Authorized(['teacher'])
@@ -165,12 +184,40 @@ export class PollRoomController {
   //@Authorized(['teacher'])
   @Post('/:code/end')
   async endRoom(@Param('code') code: string, @Body() body: { teacherId: string }) {
-    const success = await this.roomService.endRoom(code, body.teacherId);
-    if (!success) throw new Error('Room not found or unauthorized');
-    // Emit to all clients in the room
-    pollSocket.emitToRoom(code, 'room-ended', {});
+    const foundRoom = await Room.findOne({ roomCode: code });
+    if (!foundRoom) throw new NotFoundError('Room not found');
+
+    if (foundRoom.teacherId !== body.teacherId) {
+      throw new ForbiddenError('Unauthorized to end this room');
+    }
+
+    // 1. Get all co-host user IDs from the room
+    const coHostIds = foundRoom.coHosts.map(c => c.userId);
+
+    // 2. Query the User collection to find which of these IDs are "Ghost Accounts"
+    // We look for users whose ID is in our coHost list AND whose email ends with @temp.local
+    const ghostUsers = await UserModel.find({
+      firebaseUID: { $in: coHostIds },
+      email: { $regex: /@temp\.local$/ }
+    });
+
+    const ghostUserIds = ghostUsers.map(u => u.firebaseUID);
+
+    // 3. Perform the ending logic
+    foundRoom.status = 'ended';
+    foundRoom.endedAt = new Date();
+    await foundRoom.save();
+
+    // 4. Wipe ONLY ghost accounts from the MongoDB User collection
+    if (ghostUserIds.length > 0) {
+      await UserModel.deleteMany({ firebaseUID: { $in: ghostUserIds } });
+    }
+
+    pollSocket.emitToRoom(code, 'room-ended', { message: 'The host has ended this session.' });
+    
     return { success: true, message: 'Room ended successfully' };
   }
+
 
   @Get('/youtube-audio')
   @HttpCode(200)
@@ -262,13 +309,49 @@ export class PollRoomController {
         model: selectedModel,
       });
 
+      // Extract code from URL params
+      const code = req.params.code;
+
+      const room = await Room.findOne({ roomCode: code });
+      if (!room) throw new NotFoundError("Room not found");
+
+      // Transform AI output to perfectly match the Mongoose Schema
+      const formattedQuestions = generatedQuestions
+        .filter((q: any) => q.questionText || q.question) // Ensure valid questions
+        .map((q: any) => {
+          // 1. Extract only the string text from the complex options objects
+          const mappedOptions = Array.isArray(q.options)
+            ? q.options.map((opt: any) => typeof opt === 'string' ? opt : (opt.text || ''))
+            : [];
+
+          // 2. Find which option was marked as "correct: true"
+          const correctIndex = Array.isArray(q.options)
+            ? q.options.findIndex((opt: any) => opt.correct === true)
+            : 0;
+
+          // 3. Return the exact format Mongoose expects
+          return {
+            question: q.questionText || q.question || 'Untitled Question',
+            options: mappedOptions,
+            correctOptionIndex: correctIndex !== -1 ? correctIndex : 0,
+            status: 'pending'
+          };
+        });
+
+      // Push the clean data to MongoDB
+      room.pendingQuestions.push(...formattedQuestions);
+      await room.save();
+
+      // Emit the Mongoose array (which now cleanly includes the Database _id) to the frontend!
+      pollSocket.emitToRoom(code, 'pending-questions-updated', room.pendingQuestions);
+
       return res.json({
         message: 'Questions generated successfully from transcript.',
         transcriptPreview: transcript.substring(0, 200) + '...',
         segmentsCount: Object.keys(segments).length,
-        totalQuestions: generatedQuestions.length,
+        totalQuestions: formattedQuestions.length,
         requestedQuestions: numQuestions,
-        questions: generatedQuestions,
+        questions: room.pendingQuestions, // <--- CHANGED: Return the MongoDB array!
       });
     } catch (err: any) {
       console.error('Error generating questions:', err);
@@ -373,4 +456,107 @@ export class PollRoomController {
     return await this.pollService.getUserAchievements(userId);
   }
 
+  @Post('/:code/pending-questions/:questionId/approve')
+  async approveQuestion(@Param('code') code: string, @Param('questionId') questionId: string, @Body() body: { userId: string }) {
+    const room = await Room.findOne({ roomCode: code });
+    if (!room) throw new NotFoundError('Room not found');
+
+    // 1. Verify body.userId is host or active cohost
+    const hasAccess = room.teacherId === body.userId || room.coHosts?.some(c => c.userId === body.userId && c.isActive);
+    if (!hasAccess) throw new ForbiddenError('Unauthorized to approve questions');
+
+    // 2. Find question in room.pendingQuestions
+    const questionIndex = room.pendingQuestions.findIndex(q => q._id.toString() === questionId);
+    if (questionIndex === -1) throw new NotFoundError('Pending question not found');
+
+    const questionToApprove = room.pendingQuestions[questionIndex];
+
+    // 3. Move it to room.polls using pollService
+    // 3. Move it to room.polls using pollService
+    const livePoll = await this.pollService.createPoll(code, {
+      question: questionToApprove.question,
+      options: questionToApprove.options,
+      correctOptionIndex: questionToApprove.correctOptionIndex
+      // creatorId: body.userId <--- REMOVE THIS LINE
+    });
+
+    room.pendingQuestions[questionIndex].status = 'approved';
+    await room.save();
+
+    // 5. Emit updated pending list to host/cohosts
+    pollSocket.emitToRoom(code, 'pending-questions-updated', room.pendingQuestions);
+    return { success: true, poll: livePoll };
+  }
+
+  @Post('/:code/pending-questions/:questionId/reject')
+  async rejectQuestion(@Param('code') code: string, @Param('questionId') questionId: string, @Body() body: { userId: string }) {
+    const room = await Room.findOne({ roomCode: code });
+    if (!room) throw new NotFoundError('Room not found');
+
+    // 1. Verify body.userId is host or active cohost
+    const hasAccess = room.teacherId === body.userId || room.coHosts?.some(c => c.userId === body.userId && c.isActive);
+    if (!hasAccess) throw new ForbiddenError('Unauthorized to reject questions');
+
+    // 2. Find and Remove from room.pendingQuestions using splice (Fixes TS2740 Array Type Error)
+    const questionIndex = room.pendingQuestions.findIndex(q => q._id.toString() === questionId);
+    if (questionIndex !== -1) {
+      room.pendingQuestions.splice(questionIndex, 1);
+      await room.save();
+    }
+
+    // 3. Emit updated pending list to host/cohosts
+    pollSocket.emitToRoom(code, 'pending-questions-updated', room.pendingQuestions);
+    return { success: true };
+  }
+
+  @Delete('/:code/pending-questions')
+  async rejectAllQuestions(@Param('code') code: string, @Body() body: { userId: string }) {
+    const room = await Room.findOne({ roomCode: code });
+    if (!room) throw new NotFoundError('Room not found');
+
+    // 1. Verify body.userId is host or active cohost
+    const hasAccess = room.teacherId === body.userId || room.coHosts?.some(c => c.userId === body.userId && c.isActive);
+    if (!hasAccess) throw new ForbiddenError('Unauthorized to reject questions');
+
+    // 2. Clear the array and save
+    room.pendingQuestions.splice(0, room.pendingQuestions.length);
+    await room.save();
+
+    // 3. Emit the empty array to everyone
+    pollSocket.emitToRoom(code, 'pending-questions-updated', room.pendingQuestions);
+    return { success: true, message: 'All pending questions rejected' };
+  }
+
+  @Patch('/:code/pending-questions/:questionId')
+  async editPendingQuestion(
+    @Param('code') code: string,
+    @Param('questionId') questionId: string,
+    @Body() body: { userId: string, question: string, options: string[], correctOptionIndex: number }
+  ) {
+    const room = await Room.findOne({ roomCode: code });
+    if (!room) throw new NotFoundError('Room not found');
+
+    // 1. Verify body.userId is host or active cohost
+    const hasAccess = room.teacherId === body.userId || room.coHosts?.some(c => c.userId === body.userId && c.isActive);
+    if (!hasAccess) throw new ForbiddenError('Unauthorized to edit questions');
+
+    // 2. Find the specific question in the array
+    const questionToEdit = room.pendingQuestions.find(q => q._id.toString() === questionId);
+    if (!questionToEdit) throw new NotFoundError('Pending question not found');
+
+    // 3. Update the fields
+    if (body.question) questionToEdit.question = body.question;
+    if (body.options) questionToEdit.options = body.options;
+    if (body.correctOptionIndex !== undefined) questionToEdit.correctOptionIndex = body.correctOptionIndex;
+
+    await room.save();
+
+    // 4. Emit the updated array to everyone in the room!
+    pollSocket.emitToRoom(code, 'pending-questions-updated', room.pendingQuestions);
+
+    return { success: true, message: 'Question updated successfully' };
+  }
+
 }
+
+

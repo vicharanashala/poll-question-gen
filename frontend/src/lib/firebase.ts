@@ -39,6 +39,8 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
       throw new Error("No authenticated user found");
     }
     const token = await user.getIdToken();
+    console.log("hurray");
+    
     const response = await fetch(`${API_URL}/users/firebase/${firebaseUID}/role`, {
       method: 'PATCH',
       headers: {
@@ -47,10 +49,12 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
       },
       body: JSON.stringify({ role })
     });
+    console.log("hurray1");
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to update user role: ${errorText}`);
     }
+    console.log("hurray1");
     const updatedUser = await response.json();
     console.log("User role updated successfully:", updatedUser);
     return { success: true, user: updatedUser };
@@ -109,7 +113,7 @@ export const createUserWithEmail = async (
     }
     const token = await firebaseUser.getIdToken(true);
 
-    const backendUser = await createBackendUser(firebaseUser);
+    const backendUser = await createBackendUser(firebaseUser, displayName);
 
     const setAuthState = useAuthStore.getState();
     setAuthState.setToken(token);
@@ -136,16 +140,24 @@ export const logout = () => {
   useAuthStore.getState().clearUser?.(); // safe call if function exists
 };
 
-export const createBackendUser = async (firebaseUser: User) => {
+export const createBackendUser = async (firebaseUser: User, providedName?: string, overrideRole?: string) => {
   const token = await firebaseUser.getIdToken(true);
   try {
+    // 1. Use provided name, or firebase name, or fallback
+    const displayName = providedName || firebaseUser.displayName || 'Unknown User';
+    const nameParts = displayName.trim().split(' ');
+    
+    const firstName = nameParts[0];
+    // 2. Safely fallback to "-" if they only provided a first name
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '-';
+
     const newUser = {
       firebaseUID: firebaseUser.uid,
-      firstName: firebaseUser.displayName?.split(' ')[0] || '',
-      lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+      firstName,
+      lastName,
       email: firebaseUser.email || '',
       avatar: firebaseUser.photoURL || null,
-      role: "", // null,
+      role: overrideRole || "",
 
       phoneNumber: null,
       bio: null,

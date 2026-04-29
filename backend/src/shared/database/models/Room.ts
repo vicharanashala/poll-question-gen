@@ -1,5 +1,13 @@
 import mongoose from 'mongoose';
 
+const PendingQuestionSchema = new mongoose.Schema({
+  question: { type: String, required: true },
+  options: [{ type: String }],
+  correctOptionIndex: { type: Number, default: -1 },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now }
+});
+
 const AnswerSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   answerIndex: { type: Number, required: true },
@@ -84,6 +92,7 @@ const RoomSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'ended'], default: 'active' },
   polls: [PollSchema],
   joinedStudents: [{ type: String }],
+  pendingQuestions: [PendingQuestionSchema],
   students: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   recordingLock: RecordingLockSchema,
   coHosts: [CoHostSchema],

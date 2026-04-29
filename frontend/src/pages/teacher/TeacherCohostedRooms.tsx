@@ -108,6 +108,26 @@ export default function TeacherCohostedRooms() {
         };
 
         fetchCohostedRooms();
+        // 2. SILENT POLLING: Fetch quietly every 15 seconds
+        const intervalId = setInterval(() => {
+            fetchCohostedRooms();
+        }, 15000);
+
+        // 3. WINDOW FOCUS: Instantly fetch if they switched tabs and came back
+        const handleFocus = () => {
+            if (document.visibilityState === 'visible') {
+                fetchCohostedRooms();
+            }
+        };
+        document.addEventListener('visibilitychange', handleFocus);
+        window.addEventListener('focus', handleFocus);
+
+        // 4. Cleanup to prevent memory leaks
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleFocus);
+            window.removeEventListener('focus', handleFocus);
+        };
     }, [user?.uid]);
 
     const formatDate = (dateString: string) => {
