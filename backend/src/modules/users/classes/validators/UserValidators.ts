@@ -106,10 +106,10 @@ export class CreateUserProfileBody {
   @Transform(({ value }) => value?.trim())
   firstName!: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @Transform(({ value }) => value?.trim())
-  lastName!: string;
+  lastName?: string;
 
   @IsEmail()
   email!: string;
@@ -166,7 +166,6 @@ export class UpdateUserProfileBody {
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @Transform(({ value }) => value?.trim())
   lastName?: string;
 
