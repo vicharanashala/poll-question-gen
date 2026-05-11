@@ -9,6 +9,7 @@ import Badge from '#root/shared/database/models/Badge.js';
 import { updateRoomStats } from '../utils/statsService.js';
 import { calculateScore } from '../utils/calculateScore.js';
 
+
 interface InMemoryPoll {
   pollId: string;
   question: string;
@@ -77,6 +78,13 @@ export class PollService {
     this.activePolls.set(pollId, livepoll);
 
     pollSocket.emitToRoom(roomCode, 'new-poll', poll);
+
+    // Emit incremental update for questionsAsked and pointsDistributed
+    pollSocket.emitToRoom(roomCode, 'questions-asked-updated', { 
+      questionsAsked: 1,
+      pointsDistributed: poll.maxPoints ?? 20 
+    });
+
     return poll;
   }
 
@@ -123,12 +131,12 @@ export class PollService {
       timer: poll.timer
     });
 
-    await Room.updateOne(
+    // Update room with new answer and get updated document
+    const room = await Room.findOneAndUpdate(
       { roomCode, "polls._id": pollId },
-      { $push: { "polls.$.answers": { userId, answerIndex, answeredAt, points } } }
+      { $push: { "polls.$.answers": { userId, answerIndex, answeredAt, points } } },
+      { new: true }
     );
-
-
 
     // Update room stats
     const stats = await updateRoomStats({
@@ -138,6 +146,30 @@ export class PollService {
       responseTime,
       points,
     });
+
+    // Calculate avgAccuracy from updated room (total earned points / number of polls)
+    let avgAccuracy = 0;
+
+    if (room?.polls?.length > 0) {
+      const totalEarnedPoints = room.polls.reduce((sum: number, poll: any) => {
+        const pollTotal =
+          poll.answers?.reduce(
+            (pSum: number, answer: any) => pSum + (answer.points ?? 0),
+            0
+          ) ?? 0;
+
+        return sum + pollTotal;
+      }, 0);
+
+      avgAccuracy = Number(
+        (totalEarnedPoints / room.polls.length).toFixed(2)
+      );
+    } else {
+      avgAccuracy = 0;
+    }
+    
+    // Emit average accuracy update
+    pollSocket.emitToRoom(roomCode, 'avg-accuracy-updated', { avgAccuracy });
 
     // Evaluate badges and notify room in real time when unlocked
     const newlyUnlockedBadges = await evaluateBadges(userId, roomCode, stats);

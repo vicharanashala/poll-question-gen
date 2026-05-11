@@ -64,7 +64,7 @@ class PollSocket {
             const room = await this.roomService.getRoomByCode(roomCode)
             // socket.emit('room-data',room)
             this.emitToRoom(roomCode, 'room-updated', room)
-            console.log('room:', room)
+            // console.log('room:', room)
             console.log(`Socket ${socket.id} joined active room: ${roomCode}`);
             console.log(`Active connections: ${this.activeConnections.size}`);
           } else {
