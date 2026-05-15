@@ -12,6 +12,7 @@ import { VideoService } from '#root/modules/genai/services/VideoService.js';
 import { AudioService } from '#root/modules/genai/services/AudioService.js';
 //import { TranscriptionService } from '#root/modules/genai/services/TranscriptionService.js';
 import { AIContentService } from '#root/modules/genai/services/AIContentService.js';
+import { RAGAIContentService } from '#root/modules/genai/services/RAGAIContentService.js';
 import { CleanupService } from '#root/modules/genai/services/CleanupService.js';
 
 export const livequizzesContainerModule = new ContainerModule((options) => {
@@ -25,6 +26,7 @@ export const livequizzesContainerModule = new ContainerModule((options) => {
   options.bind(LIVE_QUIZ_TYPES.AudioService).to(AudioService).inSingletonScope();
   //options.bind(LIVE_QUIZ_TYPES.TranscriptionService).to(TranscriptionService).inSingletonScope();
   options.bind(LIVE_QUIZ_TYPES.AIContentService).to(AIContentService).inSingletonScope();
+  options.bind(LIVE_QUIZ_TYPES.RAGAIContentService).to(RAGAIContentService).inSingletonScope();
   options.bind(LIVE_QUIZ_TYPES.CleanupService).to(CleanupService).inSingletonScope();
 
   // Controllers

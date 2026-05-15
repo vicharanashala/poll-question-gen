@@ -13,6 +13,7 @@ const TYPES = {
   AudioService: Symbol.for('AudioService'),
   TranscriptionService: Symbol.for('TranscriptionService'),
   AIContentService: Symbol.for('AIContentService'),
+  RAGAIContentService: Symbol.for('RAGAIContentService'),
   CleanupService: Symbol.for('CleanupService'),
 
   // Socket.IO
