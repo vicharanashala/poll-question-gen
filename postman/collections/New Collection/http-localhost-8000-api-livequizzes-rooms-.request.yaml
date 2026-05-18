@@ -1,0 +1,18 @@
+$kind: http-request
+name: http://localhost:8000/api/livequizzes/rooms/
+url: http://localhost:8000/api/speechscorer/analyze
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"transcript\": \"Good morning everyone. So um today we will be
+    discussing machine learning. Um basically it is a subset of artificial
+    intelligence. So you know machines can learn from data. Like they don't need
+    to be explicitly programmed. Um the key concepts are supervised learning and
+    unsupervised learning.\",\r
+
+    \  \"durationInSeconds\": 60\r
+
+    }"
+order: 1775549433358

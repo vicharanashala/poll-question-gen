@@ -1,4 +1,3 @@
-
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import {
@@ -13,7 +12,6 @@ import {
 } from "firebase/auth";
 import { IUser, useAuthStore } from "./store/auth-store";
 import { mapFirebaseUserToAppUser } from "./api/auth";
-// import { log } from "console";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
 
@@ -31,14 +29,13 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const provider = new GoogleAuthProvider();
 
-// Function to update user role in MongoDB via your backend API
+// -------------------- Update Role Function -------------------- //
 export const updateUserRole = async (firebaseUID: string, role: string) => {
   try {
     const user = auth.currentUser;
-    if (!user) {
-      throw new Error("No authenticated user found");
-    }
+    if (!user) throw new Error("No authenticated user found");
     const token = await user.getIdToken();
+
     const response = await fetch(`${API_URL}/users/firebase/${firebaseUID}/role`, {
       method: 'PATCH',
       headers: {
@@ -47,10 +44,12 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
       },
       body: JSON.stringify({ role })
     });
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to update user role: ${errorText}`);
     }
+
     const updatedUser = await response.json();
     console.log("User role updated successfully:", updatedUser);
     return { success: true, user: updatedUser };
@@ -68,7 +67,6 @@ export const loginWithGoogle = async () => {
   const idToken = await result.user.getIdToken();
 
   const backendUser = await createBackendUser(firebaseUser);
-  // const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
 
   const setAuthState = useAuthStore.getState();
   setAuthState.setToken(idToken);
@@ -77,17 +75,13 @@ export const loginWithGoogle = async () => {
   return { result, role: backendUser?.role };
 };
 
-export const loginWithEmail = async (
-  email: string,
-  password: string,
-) => {
+export const loginWithEmail = async (email: string, password: string) => {
   const result = await signInWithEmailAndPassword(auth, email, password);
   const idToken = await result.user.getIdToken();
   const firebaseUser = result.user;
 
   const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
 
-  // Store token and role in Zustand
   const setAuthState = useAuthStore.getState();
   setAuthState.setToken(idToken);
   setAuthState.setUserRole?.(backendUser?.role);
@@ -107,8 +101,8 @@ export const createUserWithEmail = async (
     if (displayName && firebaseUser) {
       await updateProfile(firebaseUser, { displayName });
     }
-    const token = await firebaseUser.getIdToken(true);
 
+    const token = await firebaseUser.getIdToken(true);
     const backendUser = await createBackendUser(firebaseUser);
 
     const setAuthState = useAuthStore.getState();
@@ -133,19 +127,23 @@ export const createUserWithEmail = async (
 
 export const logout = () => {
   signOut(auth);
-  useAuthStore.getState().clearUser?.(); // safe call if function exists
+  useAuthStore.getState().clearUser?.();
 };
 
+// -------------------- CREATE BACKEND USER -------------------- //
 export const createBackendUser = async (firebaseUser: User) => {
   const token = await firebaseUser.getIdToken(true);
   try {
+    // --- FIXED: Ensure lastName is never empty ---
+    const nameParts = firebaseUser.displayName?.split(' ') || [];
+
     const newUser = {
       firebaseUID: firebaseUser.uid,
-      firstName: firebaseUser.displayName?.split(' ')[0] || '',
-      lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+      firstName: nameParts[0] || firebaseUser.email?.split('@')[0] || 'User',
+      lastName: nameParts.slice(1).join(' ') || '-', // <- fallback here
       email: firebaseUser.email || '',
       avatar: firebaseUser.photoURL || null,
-      role: "", // null,
+      role: "",
 
       phoneNumber: null,
       bio: null,

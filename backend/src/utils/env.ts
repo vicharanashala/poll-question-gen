@@ -1,14 +1,17 @@
-import * as dotenv from 'dotenv';
-dotenv.config(); // { path: `.env.${process.env.NODE_ENV}` }
+import dotenv from 'dotenv';
+import path from 'path';
 
-export function env(key: string, defaultValue: null | string = null): string {
-  return process.env[key] ?? (defaultValue as string);
-}
+// force correct .env path
+dotenv.config({
+  path: path.resolve(process.cwd(), '.env'),
+});
 
-export function envOrFail(key: string): string {
-  if (typeof process.env[key] === 'undefined') {
-    throw new Error(`Environment variable ${key} is not set.`);
+export function env(key: string): string {
+  const value = process.env[key];
+
+  if (!value) {
+    throw new Error(`Invalid ${key}: ${value}`);
   }
 
-  return process.env[key] as string;
+  return value;
 }

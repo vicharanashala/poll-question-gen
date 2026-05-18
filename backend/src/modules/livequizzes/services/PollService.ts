@@ -140,7 +140,7 @@ export class PollService {
     });
 
     // Evaluate badges and notify room in real time when unlocked
-    const newlyUnlockedBadges = await evaluateBadges(userId, roomCode, stats);
+    const newlyUnlockedBadges = await evaluateBadges(userId, roomCode, stats as any);
     if (newlyUnlockedBadges.length > 0) {
       pollSocket.emitToRoom(roomCode, 'badge-earned', {
         userId,

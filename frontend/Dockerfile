@@ -1,18 +1,14 @@
-# Use Node 18
 FROM node:18
 
-# Enable Corepack & set working directory
-RUN corepack enable
+RUN npm install -g pnpm@10.4.1
+
 WORKDIR /app
 
-# Copy frontend files
 COPY . .
+COPY .npmrc ./                          
 
-# Install dependencies
 RUN pnpm install
 
-# Build Vite project
 RUN pnpm build
 
-# Use a static server (can also be nginx, but vite preview works too)
 CMD ["pnpm", "preview", "--host", "--port", "5173"]

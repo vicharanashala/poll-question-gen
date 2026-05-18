@@ -214,17 +214,20 @@ export class PollRoomController {
   @HttpCode(200)
   async generateQuestionsFromTranscript(
     @Req() req: Request,
-    @Res() res: Response
-  ) {
-    const tempPaths: string[] = [];
+    @Res() res: Response) 
+    {
+      const tempPaths: string[] = [];
+      const contentType = req.headers['content-type'] || '';
 
-    await new Promise<void>((resolve, reject) => {
-      upload.single('file')(req, res, (err) => (err ? reject(err) : resolve()));
-    });
+    if (contentType.includes('multipart/form-data')) {
+      await new Promise<void>((resolve, reject) => {
+        upload.single('file')(req, res, (err) => (err ? reject(err) : resolve()));
+      });
+  }
 
-    try {
-      const { transcript, questionSpec, model, questionCount } = req.body;
-
+  try {
+    const { transcript, questionSpec, model, questionCount } = req.body;
+    
       const SEGMENTATION_THRESHOLD = parseInt(process.env.TRANSCRIPT_SEGMENTATION_THRESHOLD || '6000', 10);
       const defaultModel = 'gemma3';
       const selectedModel = model?.trim() || defaultModel;

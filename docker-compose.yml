@@ -1,17 +1,18 @@
 services:
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
       - NODE_ENV=production
-
+    env_file:
+      - ./backend/.env
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "5173:5173"
     depends_on:

@@ -1,0 +1,69 @@
+/* SpeechConfidenceScore.css */
+
+/* Main container */
+.speech-confidence-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  margin: 16px auto;
+  max-width: 400px;
+  background-color: #f9f9f9;
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Score bar container */
+.speech-score-bar {
+  width: 100%;
+  height: 20px;
+  background-color: #e0e0e0;
+  border-radius: 10px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+/* Dynamic score */
+.speech-score-fill {
+  height: 100%;
+  width: 0; /* Will be set dynamically in JS */
+  background: linear-gradient(90deg, #4caf50, #81c784);
+  border-radius: 10px;
+  transition: width 0.5s ease-in-out;
+}
+
+/* Score label */
+.speech-score-label {
+  font-weight: 600;
+  font-size: 16px;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+/* Optional: Low/Medium/High indicators */
+.speech-score-indicator {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #666;
+}
+
+.speech-confidence-container {
+  background-color: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.speech-score-bar {
+  background-color: var(--border);
+}
+
+.speech-score-label {
+  color: var(--text);
+}
+
+.speech-score-indicator {
+  color: var(--text);
+}
