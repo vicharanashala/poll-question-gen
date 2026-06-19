@@ -1,23 +1,46 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Calendar, Clock4, Users, Crown, Medal, Search, Loader2 } from "lucide-react";
+import { Calendar, Clock4, Users, Crown, Medal, Search, Loader2, ArrowUpDown, AlertTriangle, TrendingDown, Zap, Info } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import api from "@/lib/api/api";
+import { Badge } from "@/components/ui/badge";
 
 interface Participant {
   name: string;
   score: number;
   correct: number;
   wrong: number;
+  questionsAttempted: number;
+  accuracy: number;
   timeTaken: string;
+  avgResponseTime: string;
+  avgResponseTimeSec: number;
 }
 
 interface Question {
   text: string;
+  options: string[];
+  correctOptionIndex: number;
+  maxPoints: number;
+  timer: number;
+  totalResponses: number;
   correctCount: number;
+  correctPercentage: number;
+  avgAnswerTimeSec: number;
+  responseRate: number;
+  isLowEngagement: boolean;
+  isHighDifficulty: boolean;
+}
+
+interface ScoringInsights {
+  totalPointsDistributed: number;
+  avgPointsPerStudent: number;
+  highestScore: number;
+  lowestScore: number;
+  scoringMethod: string;
 }
 
 interface AnalysisData {
@@ -25,16 +48,22 @@ interface AnalysisData {
   name: string;
   createdAt: string;
   duration: string;
+  totalStudents: number;
+  participationRate: number;
   participants: Participant[];
   questions: Question[];
+  scoringInsights: ScoringInsights;
 }
 
 const scoreRanges = [
-  { label: "90–100", min: 90, max: 100, color: "#10b981" },
-  { label: "80–89", min: 80, max: 89, color: "#6366f1" },
-  { label: "70–79", min: 70, max: 79, color: "#f59e0b" },
-  { label: "60–69", min: 60, max: 69, color: "#ef4444" },
+  { label: "90–100%", min: 90, max: 100, color: "#10b981" },
+  { label: "70–89%", min: 70, max: 89, color: "#6366f1" },
+  { label: "50–69%", min: 50, max: 69, color: "#f59e0b" },
+  { label: "Below 50%", min: 0, max: 49, color: "#ef4444" },
 ];
+
+type SortField = 'name' | 'score' | 'accuracy' | 'avgResponseTimeSec' | 'questionsAttempted';
+type SortDirection = 'asc' | 'desc';
 
 export default function TeacherPollAnalysis() {
   const ref = useRef<HTMLDivElement>(null);
@@ -44,12 +73,13 @@ export default function TeacherPollAnalysis() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [sortField, setSortField] = useState<SortField>('score');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     const fetchAnalysisData = async () => {
       try {
         setLoading(true);
-        // Note: Update this URL to match your backend base URL
         const response = await api.get(`/livequizzes/rooms/${roomId}/analysis`);
         const result = response.data;
 
@@ -72,6 +102,31 @@ export default function TeacherPollAnalysis() {
       fetchAnalysisData();
     }
   }, [roomId]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'name' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedParticipants = useMemo(() => {
+    if (!analysisData) return [];
+    const filtered = analysisData.participants.filter((p) =>
+      p.name.toLowerCase().includes(search.toLowerCase())
+    );
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else {
+        cmp = (a[sortField] ?? 0) - (b[sortField] ?? 0);
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [analysisData, search, sortField, sortDirection]);
 
   if (loading) {
     return (
@@ -106,13 +161,8 @@ export default function TeacherPollAnalysis() {
     );
   }
 
-  const participants = analysisData.participants.sort((a, b) => b.score - a.score);
-  const top3 = participants.slice(0, 3);
-  const others = participants.slice(3);
-
-  const filteredParticipants = [...top3, ...others].filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const participants = analysisData.participants;
+  const top3 = [...participants].sort((a, b) => b.score - a.score).slice(0, 3);
 
   const totalCorrect = participants.reduce((s, p) => s + p.correct, 0);
   const totalWrong = participants.reduce((s, p) => s + p.wrong, 0);
@@ -121,20 +171,24 @@ export default function TeacherPollAnalysis() {
     { name: "Wrong", value: totalWrong, color: "#f87171" },
   ];
 
+  // Score distribution based on accuracy percentages
   const scoreRangeData = scoreRanges.map((range) => ({
     name: range.label,
-    count: participants.filter((p) => p.score >= range.min && p.score <= range.max).length,
+    count: participants.filter((p) => p.accuracy >= range.min && p.accuracy <= range.max).length,
     color: range.color,
   }));
 
   const downloadExcel = () => {
-    const data = participants.map((p, index) => ({
+    const data = [...participants].sort((a, b) => b.score - a.score).map((p, index) => ({
       Rank: index + 1,
       Name: p.name,
       Score: p.score,
+      QuestionsAttempted: p.questionsAttempted,
       Correct: p.correct,
       Wrong: p.wrong,
-      "Time Taken": p.timeTaken,
+      "Accuracy %": p.accuracy,
+      "Avg Response Time": p.avgResponseTime,
+      "Total Time": p.timeTaken,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -143,12 +197,21 @@ export default function TeacherPollAnalysis() {
     saveAs(blob, `${analysisData.name}-analysis.xlsx`);
   };
 
-  // Format date if it's a string
   const formatDate = (dateString: string | Date) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return date.toLocaleDateString();
   };
+
+  const SortButton = ({ field, label }: { field: SortField; label: string }) => (
+    <button
+      onClick={() => handleSort(field)}
+      className={`flex items-center gap-1 text-xs font-semibold hover:text-purple-500 transition ${sortField === field ? 'text-purple-600' : 'text-purple-700 dark:text-purple-300'}`}
+    >
+      {label}
+      <ArrowUpDown className={`h-3 w-3 ${sortField === field ? 'opacity-100' : 'opacity-40'}`} />
+    </button>
+  );
 
   return (
     <div
@@ -163,7 +226,45 @@ export default function TeacherPollAnalysis() {
         <CardContent className="flex gap-8 flex-wrap text-gray-800 dark:text-gray-200">
           <div className="flex gap-2 items-center"><Calendar /> {formatDate(analysisData.createdAt)}</div>
           <div className="flex gap-2 items-center"><Clock4 /> Duration: {analysisData.duration}</div>
-          <div className="flex gap-2 items-center"><Users /> Total Participants: {participants.length}</div>
+          <div className="flex gap-2 items-center"><Users /> Participants: {participants.length} / {analysisData.totalStudents}</div>
+          <div className="flex gap-2 items-center">
+            <Zap className="text-amber-500" />
+            Participation: {analysisData.participationRate}%
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Scoring Insights */}
+      <Card className="shadow border border-amber-300 bg-white dark:bg-slate-800">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+            <Zap className="h-5 w-5" />
+            Points & Scoring
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="p-3 bg-amber-50 dark:bg-slate-700 rounded-lg text-center">
+              <div className="text-2xl font-bold text-amber-600">{analysisData.scoringInsights.totalPointsDistributed}</div>
+              <div className="text-xs text-gray-500 mt-1">Total Points</div>
+            </div>
+            <div className="p-3 bg-blue-50 dark:bg-slate-700 rounded-lg text-center">
+              <div className="text-2xl font-bold text-blue-600">{analysisData.scoringInsights.avgPointsPerStudent}</div>
+              <div className="text-xs text-gray-500 mt-1">Avg/Student</div>
+            </div>
+            <div className="p-3 bg-green-50 dark:bg-slate-700 rounded-lg text-center">
+              <div className="text-2xl font-bold text-green-600">{analysisData.scoringInsights.highestScore}</div>
+              <div className="text-xs text-gray-500 mt-1">Highest</div>
+            </div>
+            <div className="p-3 bg-red-50 dark:bg-slate-700 rounded-lg text-center">
+              <div className="text-2xl font-bold text-red-500">{analysisData.scoringInsights.lowestScore}</div>
+              <div className="text-xs text-gray-500 mt-1">Lowest</div>
+            </div>
+          </div>
+          <div className="p-3 bg-gray-50 dark:bg-slate-700 rounded-lg flex items-start gap-2">
+            <Info className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-gray-600 dark:text-gray-400">{analysisData.scoringInsights.scoringMethod}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -188,9 +289,9 @@ export default function TeacherPollAnalysis() {
                 <CardTitle className="text-yellow-700 dark:text-yellow-300">{badge} {p.name}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-sm">
-                <p>Score: {p.score}</p>
-                <p>Correct/Wrong: {p.correct}/{p.wrong}</p>
-                <p>Time: {p.timeTaken}</p>
+                <p>Score: <span className="font-bold">{p.score} pts</span></p>
+                <p>Accuracy: <span className="font-bold">{p.accuracy}%</span> ({p.correct}/{p.correct + p.wrong})</p>
+                <p>Avg Response: <span className="font-bold">{p.avgResponseTime}</span></p>
               </CardContent>
             </Card>
           );
@@ -198,10 +299,10 @@ export default function TeacherPollAnalysis() {
       </div>
 
 
-      {/* Participant List */}
+      {/* Participant List — Sortable */}
       <Card className="shadow border border-indigo-300 bg-white dark:bg-slate-800">
         <CardHeader>
-          <CardTitle className="text-indigo-700 dark:text-indigo-300">Participant Performance</CardTitle>
+          <CardTitle className="text-indigo-700 dark:text-indigo-300">Student Performance</CardTitle>
           <div className="mt-2 flex items-center gap-2">
             <Search className="w-4 h-4 text-gray-500" />
             <input
@@ -214,26 +315,35 @@ export default function TeacherPollAnalysis() {
           </div>
         </CardHeader>
         <CardContent className="max-h-96 overflow-y-auto divide-y rounded scrollbar-thin scrollbar-thumb-purple-500">
-          <div className="grid grid-cols-5 p-2 font-semibold text-purple-700 dark:text-purple-300 text-sm border-b">
-            <span>Name</span>
-            <span>Score</span>
-            <span>Correct</span>
-            <span>Wrong</span>
-            <span>Time Taken</span>
+          {/* Table Header with Sort Controls */}
+          <div className="grid grid-cols-7 p-2 border-b bg-purple-50 dark:bg-slate-700 rounded-t sticky top-0 z-10">
+            <SortButton field="name" label="Name" />
+            <SortButton field="score" label="Score" />
+            <SortButton field="questionsAttempted" label="Attempted" />
+            <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Correct</span>
+            <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Wrong</span>
+            <SortButton field="accuracy" label="Accuracy" />
+            <SortButton field="avgResponseTimeSec" label="Avg Time" />
           </div>
-          {filteredParticipants.map((p, i) => (
-            <div
-              key={i}
-              className={`grid grid-cols-5 items-center p-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition ${i === 0 ? "bg-yellow-50 dark:bg-yellow-900" : i === 1 ? "bg-slate-100 dark:bg-slate-800" : i === 2 ? "bg-orange-50 dark:bg-orange-900" : ""
-                }`}
-            >
-              <span>{["🥇", "🥈", "🥉"][i] || ""} {p.name}</span>
-              <span>{p.score}</span>
-              <span>{p.correct}</span>
-              <span>{p.wrong}</span>
-              <span>{p.timeTaken}</span>
-            </div>
-          ))}
+          {sortedParticipants.map((p, i) => {
+            const rank = [...analysisData.participants].sort((a, b) => b.score - a.score).findIndex(x => x.name === p.name);
+            const rankEmoji = rank === 0 ? "🥇" : rank === 1 ? "🥈" : rank === 2 ? "🥉" : "";
+            return (
+              <div
+                key={i}
+                className={`grid grid-cols-7 items-center p-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-slate-700 transition ${rank === 0 ? "bg-yellow-50 dark:bg-yellow-900/20" : rank === 1 ? "bg-slate-50 dark:bg-slate-800" : rank === 2 ? "bg-orange-50 dark:bg-orange-900/20" : ""
+                  }`}
+              >
+                <span>{rankEmoji} {p.name}</span>
+                <span className="font-bold">{p.score}</span>
+                <span>{p.questionsAttempted}</span>
+                <span className="text-green-600">{p.correct}</span>
+                <span className="text-red-500">{p.wrong}</span>
+                <span>{p.accuracy}%</span>
+                <span>{p.avgResponseTime}</span>
+              </div>
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -264,40 +374,89 @@ export default function TeacherPollAnalysis() {
       {/* Score Distribution */}
       <Card className="shadow border border-green-300 bg-white dark:bg-slate-800">
         <CardHeader>
-          <CardTitle className="text-emerald-700 dark:text-emerald-400">Score Distribution</CardTitle>
+          <CardTitle className="text-emerald-700 dark:text-emerald-400">Accuracy Distribution</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {scoreRangeData.map((r, i) => (
             <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-              <span>{r.name}</span>
+              <span className="w-24">{r.name}</span>
               <div className="h-3 w-1/2 bg-gray-200 rounded">
                 <div
                   className="h-3 rounded"
-                  style={{ width: `${(r.count / participants.length) * 100}%`, backgroundColor: r.color }}
+                  style={{ width: `${participants.length > 0 ? (r.count / participants.length) * 100 : 0}%`, backgroundColor: r.color }}
                 />
               </div>
-              <span>{r.count}</span>
+              <span className="w-12 text-right">{r.count}</span>
             </div>
           ))}
         </CardContent>
       </Card>
 
-      {/* Question-Level Analysis */}
+      {/* Question-Level Analysis — Enhanced */}
       <Card className="shadow border border-pink-300 bg-white dark:bg-slate-800">
         <CardHeader>
           <CardTitle className="text-pink-700 dark:text-pink-300">Question-Level Analysis</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-4">
           {analysisData.questions.map((q, i) => (
-            <div key={i} className="flex justify-between items-center text-sm text-gray-700 dark:text-gray-300">
-              <span>Q{i + 1}: {q.text.substring(0, 50)}{q.text.length > 50 ? '...' : ''}</span>
-              <div className="h-2 w-1/2 bg-gray-200 rounded">
-                <div
-                  className="h-2 rounded bg-pink-500"
-                  style={{ width: `${(q.correctCount / participants.length) * 100}%` }}
-                />
+            <div key={i} className="p-3 border rounded-lg dark:border-slate-600">
+              {/* Question header with indicators */}
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Q{i + 1}: {q.text}
+                  </span>
+                </div>
+                <div className="flex gap-1 ml-2 flex-shrink-0">
+                  {q.isLowEngagement && (
+                    <Badge variant="outline" className="text-xs text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-900/20">
+                      <TrendingDown className="h-3 w-3 mr-1" />
+                      Low Engagement
+                    </Badge>
+                  )}
+                  {q.isHighDifficulty && (
+                    <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50 dark:bg-red-900/20">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      High Difficulty
+                    </Badge>
+                  )}
+                </div>
               </div>
-              <span>{q.correctCount} correct</span>
+
+              {/* Metrics row */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-2 text-xs">
+                <div className="bg-blue-50 dark:bg-slate-700 rounded p-1.5 text-center">
+                  <div className="font-bold text-blue-600">{q.totalResponses}</div>
+                  <div className="text-gray-500">Responses</div>
+                </div>
+                <div className="bg-green-50 dark:bg-slate-700 rounded p-1.5 text-center">
+                  <div className="font-bold text-green-600">{q.correctPercentage}%</div>
+                  <div className="text-gray-500">Correct</div>
+                </div>
+                <div className="bg-purple-50 dark:bg-slate-700 rounded p-1.5 text-center">
+                  <div className="font-bold text-purple-600">{q.avgAnswerTimeSec}s</div>
+                  <div className="text-gray-500">Avg Time</div>
+                </div>
+                <div className="bg-amber-50 dark:bg-slate-700 rounded p-1.5 text-center">
+                  <div className="font-bold text-amber-600">{q.maxPoints} pts</div>
+                  <div className="text-gray-500">Max Points</div>
+                </div>
+                <div className="bg-gray-50 dark:bg-slate-700 rounded p-1.5 text-center">
+                  <div className="font-bold text-gray-600">{q.responseRate}%</div>
+                  <div className="text-gray-500">Response Rate</div>
+                </div>
+              </div>
+
+              {/* Correct answer progress bar */}
+              <div className="flex items-center gap-2">
+                <div className="h-2 flex-1 bg-gray-200 rounded overflow-hidden">
+                  <div
+                    className={`h-2 rounded ${q.isHighDifficulty ? 'bg-red-400' : 'bg-pink-500'}`}
+                    style={{ width: `${q.correctPercentage}%` }}
+                  />
+                </div>
+                <span className="text-xs text-gray-500">{q.correctCount}/{q.totalResponses} correct</span>
+              </div>
             </div>
           ))}
         </CardContent>

@@ -47,6 +47,7 @@ export class AuthController {
   @HttpCode(201)
   @OnUndefined(201)
   async signup(@Body() body: SignUpBody) {
+    console.log('[AuthController] Signup attempt started for email:', body.email);
     const acknowledgedInvites = await this.authService.signup(body);
     if (acknowledgedInvites) {
       return acknowledgedInvites;
@@ -93,6 +94,9 @@ export class AuthController {
   @Post('/login')
   async login(@Body() body: LoginBody) {
     const { email, password } = body;
+    console.log('[AuthController] Login attempt for email:', email);
+    console.log('[AuthController] Using Firebase API Key:', appConfig.firebase.apiKey ? appConfig.firebase.apiKey.substring(0, 5) + '...' : 'UNDEFINED');
+    
     const data = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${appConfig.firebase.apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

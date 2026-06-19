@@ -10,7 +10,7 @@ export type UserRoomStats = {
   currentStreak: number;
   maxStreak: number;
   accuracy: number;
-  fastestResponse: number | null;
+  fastestResponse?: number | null;
 }
 
 

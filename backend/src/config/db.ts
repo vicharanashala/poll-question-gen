@@ -2,7 +2,7 @@ import { env } from '../utils/env.js';
 import mongoose from 'mongoose';
 
 export const dbConfig = {
-  url: env('DB_URL'),
+  url: env('DB_URL') || env('MONGO_URI'),
   dbName: env('DB_NAME') || 'PollDB',
 };
 

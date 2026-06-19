@@ -38,22 +38,27 @@ export class FirebaseAuthService extends BaseService implements IAuthService {
   ) {
     super(database);
     if (!admin.apps.length) {
-      if (appConfig.isDevelopment) {
-        admin.initializeApp({
-          credential: admin.credential.cert(
-            {
-              clientEmail: appConfig.firebase.clientEmail,
-              privateKey: appConfig.firebase.privateKey.replace(/\\n/g, '\n'),
-              projectId: appConfig.firebase.projectId,
-            }
-          ),
-        });
-      } else {
-        admin.initializeApp({
-          credential: admin.credential.applicationDefault(),
-        });
+      try {
+        if (appConfig.isDevelopment) {
+          admin.initializeApp({
+            credential: admin.credential.cert(
+              {
+                clientEmail: appConfig.firebase.clientEmail,
+                privateKey: appConfig.firebase.privateKey?.replace(/\\n/g, '\n'),
+                projectId: appConfig.firebase.projectId,
+              }
+            ),
+          });
+        } else {
+          admin.initializeApp({
+            credential: admin.credential.applicationDefault(),
+          });
+        }
+        this.auth = admin.auth();
+        console.log('[FirebaseAuthService] Firebase admin initialized successfully.');
+      } catch (err) {
+        console.error('[FirebaseAuthService] Error initializing Firebase admin:', err);
       }
-      this.auth = admin.auth();
     }
   }
   async getCurrentUserFromToken(token: string): Promise<IUser> {
@@ -109,7 +114,9 @@ export class FirebaseAuthService extends BaseService implements IAuthService {
         displayName: `${body.firstName} ${body.lastName}`,
         disabled: false,
       });
+      console.log('[FirebaseAuthService] Firebase user created successfully:', userRecord.uid);
     } catch (error) {
+      console.error('[FirebaseAuthService] Error creating user in Firebase:', error);
       throw new InternalServerError(
         `Failed to create user in Firebase: ${error.message}`,
       );
