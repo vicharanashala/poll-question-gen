@@ -770,8 +770,10 @@ export default function TeacherPollRoom() {
         const filteredQuestions = cleanQuestions.map((q: GeneratedQuestion) => filterQuestionOptions(q));
 
         if (filteredQuestions.length > 0) {
-          queuedGeneratedQuestionsRef.current = [...queuedGeneratedQuestionsRef.current, ...filteredQuestions];
-          setQueuedGeneratedQuestions([...queuedGeneratedQuestionsRef.current]);
+          // Push directly to the visible questions array instead of the hidden queue
+          setGeneratedQuestions((prev) => [...prev, ...filteredQuestions]);
+          setShowPreview(true); // Open the preview panel automatically
+          toast.success("New questions auto-generated from live speech!");
         }
       } catch (err) {
         // Failed to process queued chunk
@@ -936,20 +938,9 @@ export default function TeacherPollRoom() {
           await new Promise((r) => setTimeout(r, 200));
         }
 
-        // Move queued generated questions into visible generatedQuestions list
-        if (queuedGeneratedQuestionsRef.current.length > 0) {
-          const queued = queuedGeneratedQuestionsRef.current;
-          const prevLen = generatedQuestions.length;
-          setGeneratedQuestions((prev) => [...prev, ...queued]);
-          setShowPreview(true);
-          // open the single-question viewer starting at the first newly added question
-          setShowQueuedViewer(true);
-          setQueuedViewerIndex(prevLen);
-          // clear queued refs/state
-          queuedGeneratedQuestionsRef.current = [];
-          setQueuedGeneratedQuestions([]);
-          toast.success("Generated questions are ready");
-        }
+        // The queue transfer is no longer needed since questions appear live,
+        // but we notify the teacher that the final audio chunk is processed.
+        toast.success("Final recording chunk processed!");
       } catch (err) {
         // Error finalizing queued question generation
       } finally {
