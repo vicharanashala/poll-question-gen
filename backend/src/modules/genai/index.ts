@@ -1,4 +1,3 @@
-/*
 import 'reflect-metadata';
 import {sharedContainerModule} from '#root/container.js';
 import {InversifyAdapter} from '#root/inversify-adapter.js';
@@ -6,8 +5,7 @@ import {Container, ContainerModule} from 'inversify';
 import {RoutingControllersOptions, useContainer} from 'routing-controllers';
 import {HttpErrorHandler} from '#shared/index.js';
 import {genaiContainerModule} from './container.js';
-import GenAIVideoController from './GenAIVideoController.js';
-
+import { GenAIController } from './GenAIController.js';
 
 export const genaiContainerModules: ContainerModule[] = [
   genaiContainerModule,
@@ -15,7 +13,7 @@ export const genaiContainerModules: ContainerModule[] = [
 ];
 
 export const genaiModuleControllers: Function[] = [
-  GenAIVideoController
+  GenAIController
 ];
 
 export async function setupGenaiContainer(): Promise<void> {
@@ -35,5 +33,4 @@ export const genaiModuleOptions: RoutingControllersOptions = {
   validation: true,
 };
 
-export * from './GenAIVideoController.js';
-*/
+export * from './GenAIController.js';
