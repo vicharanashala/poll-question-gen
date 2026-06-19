@@ -54,11 +54,15 @@ export const useAuthStore = create<AuthStore>()(
         set({ role });
       },
       setUser: (user) => {
-        // Store backend user info in localStorage
-        if (user.userId) localStorage.setItem('user-id', user.userId);
-        if (user.email) localStorage.setItem('user-email', user.email);
-        if (user.firstName) localStorage.setItem('user-firstName', user.firstName);
-        if (user.lastName) localStorage.setItem('user-lastName', user.lastName);
+        try {
+          if (user.userId) localStorage.setItem('user-id', user.userId);
+          if (user.email) localStorage.setItem('user-email', user.email);
+          if (user.firstName) localStorage.setItem('user-firstName', user.firstName);
+          if (user.lastName) localStorage.setItem('user-lastName', user.lastName);
+          if (user.role) localStorage.setItem('user-role', user.role);
+        } catch(e) {
+             console.warn("Storage quota exceeded, skipping local caches", e);
+        }
         
         set({ user, isAuthenticated: true });
       },
@@ -87,6 +91,10 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'auth-store',
+      partialize: (state) => ({
+        ...state,
+        user: state.user ? { ...state.user, avatar: undefined } : null
+      }),
     }
   )
 );

@@ -286,6 +286,12 @@ export class UserProfileResponse {
   updatedAt?: Date;
 }
 
+export class UpdateRoleBody {
+  @IsString()
+  @IsNotEmpty()
+  role!: string;
+}
+
 export const USER_VALIDATORS = [
   UserByFirebaseUIDParams,
   UserByFirebaseUIDResponse,
@@ -293,4 +299,5 @@ export const USER_VALIDATORS = [
   CreateUserProfileBody,
   UpdateUserProfileBody,
   UserProfileResponse,
+  UpdateRoleBody,
 ]

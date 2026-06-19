@@ -52,6 +52,10 @@ export const updateUserRole = async (firebaseUID: string, role: string) => {
       throw new Error(`Failed to update user role: ${errorText}`);
     }
     const updatedUser = await response.json();
+    
+    // Force refresh the token so custom claims (like the updated role) are updated locally immediately
+    await user.getIdToken(true);
+    
     console.log("User role updated successfully:", updatedUser);
     return { success: true, user: updatedUser };
   } catch (error) {

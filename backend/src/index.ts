@@ -36,8 +36,6 @@ const moduleOptions: RoutingControllersOptions = {
   routePrefix: '/api',
   //authorizationChecker: async () => true,
   authorizationChecker: authorizationChecker,
-  currentUserChecker: currentUserChecker,
-  defaultErrorHandler: true,
   development: appConfig.isDevelopment,
   validation: true,
   cors: corsOptions,

@@ -249,9 +249,12 @@ export class PollRoomController {
       } else if (Array.isArray(questionSpec) && typeof questionSpec[0] === 'object') {
         safeSpec = questionSpec;
       } else {
-        console.warn(`Invalid questionSpec provided; using default [{ SOL: ${numQuestions} }]`);
+        console.warn(`Invalid questionSpec provided (likely a string topic); using default [{ SOL: ${numQuestions} }]`);
       }
+      
+      const topicInstruction = typeof questionSpec === 'string' ? questionSpec.trim() : undefined;
       console.log('Using questionSpec:', safeSpec);
+      console.log('Using topicInstruction:', topicInstruction);
       console.log('[generateQuestions] Transcript length:', transcript.length);
       console.log('[generateQuestions] Transcript preview:', segments);
 
@@ -260,6 +263,7 @@ export class PollRoomController {
         segments,
         globalQuestionSpecification: safeSpec,
         model: selectedModel,
+        topicInstruction
       });
 
       return res.json({

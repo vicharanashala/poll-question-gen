@@ -14,7 +14,10 @@ import {
   NotFoundError,
   Patch,
   BadRequestError,
+  UseBefore,
+  Req,
 } from 'routing-controllers';
+import express from 'express';
 import { OpenAPI, ResponseSchema } from 'routing-controllers-openapi';
 import {
   UserByFirebaseUIDParams,
@@ -23,6 +26,7 @@ import {
   UpdateUserProfileBody,
   CreateUserProfileBody,
   UserProfileResponse,
+  UpdateRoleBody,
 } from '../classes/validators/UserValidators.js';
 import { UserModel } from '#root/shared/database/models/User.js';
 
@@ -114,10 +118,12 @@ export class UserController {
   @Put('/:id/profile')
   @HttpCode(200)
   @ResponseSchema(UserProfileResponse)
+  @UseBefore(express.json({ limit: '50mb' }))
   async updateProfile(
     @Param('id') id: string,
-    @Body() body: UpdateUserProfileBody,
+    @Req() req: any,
   ) {
+    const body = req.body;
     const updated = await this.userService.updateProfile(id, body);
     return updated;
   }
@@ -166,7 +172,7 @@ export class UserController {
   @HttpCode(200)
   async updateRole(
     @Param('firebaseUID') firebaseUID: string,
-    @Body() body: { role: string },
+    @Body() body: UpdateRoleBody,
   ) {
     const { role } = body;
     if (!role || typeof role !== 'string') {

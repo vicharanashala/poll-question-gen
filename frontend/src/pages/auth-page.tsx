@@ -1,5 +1,6 @@
 import { loginWithGoogle, loginWithEmail, createUserWithEmail } from "@/lib/firebase";
 import { useAuthStore } from "@/lib/store/auth-store";
+import api from "@/lib/api/api";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -75,12 +76,26 @@ export default function AuthPage() {
       setLoading(true);
       setFormErrors({});
       const { result, role } = await loginWithGoogle();
+      
+      let userAvatar = result.user.photoURL || "";
+      let userName = result.user.displayName || "";
+      try {
+        const profileRes = await api.get(`/users/firebase/${result.user.uid}/profile?t=${new Date().getTime()}`);
+        if (profileRes.data) {
+          userAvatar = profileRes.data.avatar || userAvatar;
+          const backendName = `${profileRes.data.firstName || ''} ${profileRes.data.lastName || ''}`.trim();
+          if (backendName) userName = backendName;
+        }
+      } catch (e) {
+        console.error("Failed to fetch backend profile during Google Login", e);
+      }
+
       setUser({
         uid: result.user.uid,
         email: result.user.email || "",
-        name: result.user.displayName || "",
+        name: userName,
         role,
-        avatar: result.user.photoURL || "",
+        avatar: userAvatar,
       });
 
       // If user has a role, redirect to their home page, otherwise to role selection
@@ -107,12 +122,26 @@ export default function AuthPage() {
       setLoading(true);
       setFormErrors({});
       const { result, role } = await loginWithEmail(email, password);
+      
+      let userAvatar = result.user.photoURL || "";
+      let userName = result.user.displayName || "";
+      try {
+        const profileRes = await api.get(`/users/firebase/${result.user.uid}/profile?t=${new Date().getTime()}`);
+        if (profileRes.data) {
+          userAvatar = profileRes.data.avatar || userAvatar;
+          const backendName = `${profileRes.data.firstName || ''} ${profileRes.data.lastName || ''}`.trim();
+          if (backendName) userName = backendName;
+        }
+      } catch (e) {
+        console.error("Failed to fetch backend profile during Email Login", e);
+      }
+
       setUser({
         uid: result.user.uid,
         email: result.user.email || "",
-        name: result.user.displayName || "",
+        name: userName,
         role,
-        avatar: result.user.photoURL || "",
+        avatar: userAvatar,
       });
 
       // If user has a role, redirect to their home page, otherwise to role selection
