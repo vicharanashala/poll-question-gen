@@ -1,8 +1,8 @@
 import * as dotenv from 'dotenv';
 dotenv.config(); // { path: `.env.${process.env.NODE_ENV}` }
 
-export function env(key: string, defaultValue: null | string = null): string {
-  return process.env[key] ?? (defaultValue as string);
+export function env(key: string, defaultValue = ''): string {
+  return process.env[key] ?? defaultValue;
 }
 
 export function envOrFail(key: string): string {

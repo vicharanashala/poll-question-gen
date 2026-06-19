@@ -31,6 +31,10 @@ export interface StudentData {
   activePolls: {
     name: string;
     status: string;
+    roomCode?: string;
+    teacherName?: string;
+    pollCount?: number;
+    createdAt?: string;
   }[];
   upcomingPolls: {
     name: string;
@@ -212,12 +216,23 @@ export default function StudentDashboard() {
     pollStats,
     pollResults,
     pollDetails,
-    //activePolls,
+    activePolls,
     upcomingPolls,
     scoreProgression,
     performanceSummary,
     roomWiseScores
   } = dashboardData;
+
+  const joinedActiveRoomCodes = new Set(
+    (roomWiseScores || [])
+      .filter(room => room.status === 'active')
+      .map(room => room.roomCode)
+  );
+
+  const discoverableActiveRooms = (activePolls || [])
+    .filter(room => room.roomCode)
+    .filter(room => room.roomCode !== localActiveRoom)
+    .filter(room => !joinedActiveRoomCodes.has(room.roomCode as string));
 
   //const projectColors = isDark ? ["#3b82f6", "#f59e0b", "#10b981", "#f43f5e"] : ["#6366f1", "#f59e42", "#059669", "#e11d48"];
 
@@ -405,7 +420,31 @@ export default function StudentDashboard() {
                       <div className="text-xs text-green-600 dark:text-green-400 flex-shrink-0">Active</div>
                     </div>
                   ))
-              ) : !localActiveRoom ? (
+              ) : null}
+
+              {discoverableActiveRooms.length > 0 && (
+                discoverableActiveRooms.map((room, idx) => (
+                  <div
+                    key={`${room.roomCode}-${idx}`}
+                    className="flex items-center justify-between p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-100 dark:border-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors cursor-pointer"
+                    onClick={() => navigate({ to: `/student/pollroom/${room.roomCode}` })}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold text-indigo-800 dark:text-indigo-300 text-sm sm:text-base truncate">
+                        {room.name}
+                      </div>
+                      <div className="text-xs text-indigo-600 dark:text-indigo-400 truncate">
+                        {room.roomCode} • {room.teacherName || 'Teacher'}
+                      </div>
+                    </div>
+                    <div className="text-xs text-green-600 dark:text-green-400 flex-shrink-0">
+                      {room.status || 'Active'}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {!localActiveRoom && (!roomWiseScores || roomWiseScores.filter(r => r.status === 'active').length === 0) && discoverableActiveRooms.length === 0 ? (
                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                   <div className="w-2 h-2 rounded-full bg-gray-400 mx-auto mb-2"></div>
                   <p>No active rooms</p>

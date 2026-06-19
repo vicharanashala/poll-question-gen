@@ -30,6 +30,29 @@ export default function AuthPage() {
   }>({});
 
   const setUser = useAuthStore((state) => state.setUser);
+  const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+  const isCohostInviteRedirect = Boolean(
+    redirectParam?.startsWith('/cohost-invite/') ||
+    redirectParam?.startsWith('/teacher/cohost-invite/')
+  );
+
+  const navigateToRedirect = () => {
+    if (!redirectParam || !redirectParam.startsWith('/')) return false;
+
+    if (redirectParam.startsWith('/cohost-invite/') || redirectParam.startsWith('/teacher/cohost-invite/')) {
+      const token = redirectParam
+        .replace('/teacher/cohost-invite/', '')
+        .replace('/cohost-invite/', '')
+        .trim();
+      if (token) {
+        window.location.assign(`/cohost-invite/${token}`);
+        return true;
+      }
+    }
+
+    window.location.assign(redirectParam);
+    return true;
+  };
 
   // Password validation
   const passwordsMatch = !confirmPassword || password === confirmPassword;
@@ -84,7 +107,9 @@ export default function AuthPage() {
       });
 
       // If user has a role, redirect to their home page, otherwise to role selection
-      if (role == "student" || role == "teacher") {
+      if (navigateToRedirect()) {
+        return;
+      } else if (role == "student" || role == "teacher") {
         navigate({ to: `/${role}/home` });
       } else {
         navigate({ to: '/select-role' });
@@ -116,16 +141,25 @@ export default function AuthPage() {
       });
 
       // If user has a role, redirect to their home page, otherwise to role selection
-      if (role == "student" || role == "teacher") {
+      if (navigateToRedirect()) {
+        return;
+      } else if (role == "student" || role == "teacher") {
         navigate({ to: `/${role}/home` });
       } else {
         navigate({ to: '/select-role' });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Email Login Failed", error);
+      const authError = error as { code?: string; message?: string };
+
+      let authMessage = "Invalid email or password. Please try again.";
+      if (authError.code === 'auth/account-exists-with-different-credential') {
+        authMessage = authError.message || "This email is registered with Google. Please use Continue with Google.";
+      }
+
       setFormErrors({
         ...formErrors,
-        auth: "Invalid email or password. Please try again."
+        auth: authMessage
       });
     } finally {
       setLoading(false);
@@ -168,7 +202,14 @@ export default function AuthPage() {
       navigate({ to: '/select-role' });
     } catch (error: unknown) {
       console.error("Email Signup Failed", error);
-      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'auth/email-already-in-use') {
+      const authError = error as { code?: string; message?: string };
+
+      if (authError.code === 'auth/account-exists-with-different-credential') {
+        setFormErrors({
+          ...formErrors,
+          auth: authError.message || "This email is already linked to Google. Please use Continue with Google."
+        });
+      } else if (authError.code === 'auth/email-already-in-use') {
         setFormErrors({
           ...formErrors,
           auth: "This email is already in use. Please try logging in instead."
@@ -186,16 +227,18 @@ export default function AuthPage() {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      if (user.role === 'teacher') {
+      if (isCohostInviteRedirect && navigateToRedirect()) {
+        return;
+      } else if (user.role === 'teacher') {
         navigate({ to: '/teacher/home' });
       } else if (user.role === 'student') {
         navigate({ to: '/student/home' });
-      } else if (!user.role) {
-        // If user is authenticated but has no role, redirect to role selection
-        // navigate({ to: '/select-role' });
+      } else if (!user.role && !isCohostInviteRedirect) {
+        // If user is authenticated but has no role, redirect to role selection.
+        navigate({ to: '/select-role' });
       }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, [isAuthenticated, user, navigate, redirectParam, isCohostInviteRedirect]);
 
   return (
     <div className="min-h-screen flex flex-col relative bg-[linear-gradient(135deg,_#f8f9fb_90%,_#e0e7ff_100%)] overflow-hidden">

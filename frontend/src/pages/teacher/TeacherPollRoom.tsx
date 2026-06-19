@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, Check, Mic, ChevronUp, MicOff, Volume2, Upload, Trash2, Languages, Settings, ClipboardList, BarChart2, Clock, Users2, Plus, X, ChevronLeft, ChevronRight, Menu, ArrowLeft, UserPlus, Copy, Shield } from 'lucide-react';
 import { useParams, useNavigate } from "@tanstack/react-router";
@@ -46,6 +49,94 @@ interface APIResponse {
   questions: APIQuestion[];
 }
 
+interface AiModelsResponse {
+  success: boolean;
+  models: string[];
+  defaultModel?: string;
+}
+
+const SUPPORTED_DOC_EXTENSIONS = ['txt', 'pdf', 'doc', 'docx'] as const;
+
+const getFileExtension = (fileName: string): string => {
+  const parts = fileName.toLowerCase().split('.');
+  return parts.length > 1 ? parts.pop() || '' : '';
+};
+
+const normalizeExtractedText = (content: string): string =>
+  content
+    .split('\u0000').join('')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const extractPdfText = async (file: File): Promise<string> => {
+  const [{ getDocument, GlobalWorkerOptions }, pdfWorker] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.mjs?url'),
+  ]);
+
+  GlobalWorkerOptions.workerSrc = pdfWorker.default;
+
+  const buffer = await file.arrayBuffer();
+  const pdf = await getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pageTexts: string[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ');
+    pageTexts.push(pageText);
+  }
+
+  return normalizeExtractedText(pageTexts.join('\n'));
+};
+
+const extractDocxText = async (file: File): Promise<string> => {
+  const mammoth = await import('mammoth/mammoth.browser');
+  const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  return normalizeExtractedText(result.value || '');
+};
+
+const extractDocTextBestEffort = async (file: File): Promise<string> => {
+  // .doc is a legacy binary format; this is a best-effort fallback for simple text-heavy docs.
+  const buffer = await file.arrayBuffer();
+  const decoder = new TextDecoder('windows-1252');
+  const decoded = decoder.decode(buffer);
+  const cleaned = decoded
+    .replace(/[^ -~]/g, ' ')
+    .replace(/\s{2,}/g, ' ');
+
+  return normalizeExtractedText(cleaned);
+};
+
+const extractSupportedFileText = async (file: File): Promise<string> => {
+  const extension = getFileExtension(file.name);
+
+  if (!SUPPORTED_DOC_EXTENSIONS.includes(extension as (typeof SUPPORTED_DOC_EXTENSIONS)[number])) {
+    throw new Error('Unsupported file format');
+  }
+
+  switch (extension) {
+    case 'txt': {
+      return normalizeExtractedText(await file.text());
+    }
+    case 'pdf': {
+      return await extractPdfText(file);
+    }
+    case 'docx': {
+      return await extractDocxText(file);
+    }
+    case 'doc': {
+      return await extractDocTextBestEffort(file);
+    }
+    default: {
+      throw new Error('Unsupported file format');
+    }
+  }
+};
+
 
 export type SupportedLanguage =
   | "en-IN"
@@ -92,6 +183,31 @@ type GeneratedQuestion = {
   question: string;
   options: string[];
   correctOptionIndex: number;
+};
+
+type TeacherDraftSync = {
+  question: string;
+  options: string[];
+  correctOptionIndex: number;
+  generatedQuestions: GeneratedQuestion[];
+  currentQuestionIndex: number;
+  maxPoints: number | '';
+  currentTimer: number;
+  textFileContent?: string;
+  fileName?: string;
+  uploadedFiles?: Array<{ id: string; fileName: string; content: string; addedAt: number; addedBy?: string }>;
+  pastedContent?: string;
+};
+
+type DraftEditorMeta = {
+  userId: string;
+  updatedAt: number;
+};
+
+type HostProfileResponse = {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
 };
 
 export default function TeacherPollRoom() {
@@ -158,6 +274,7 @@ export default function TeacherPollRoom() {
   const [cohosts, setCohosts] = useState<CohostUser[]>([]);
   // Store the room creator's ID for role-based access
   const [hostId, setHostId] = useState<string | null>(null);
+  const [hostDisplayName, setHostDisplayName] = useState('Host');
   // 1. Fetch Cohosts API 
   const fetchCohosts = useCallback(async () => {
     try {
@@ -174,6 +291,31 @@ export default function TeacherPollRoom() {
     fetchCohosts();
   }, [fetchCohosts]);
 
+  useEffect(() => {
+    const loadHostDisplayName = async () => {
+      if (!hostId) return;
+
+      if (hostId === currentUser?.uid) {
+        const currentUserName = currentUser?.firstName || currentUser?.name || 'Host';
+        setHostDisplayName(currentUserName);
+        return;
+      }
+
+      try {
+        const res = await api.get<HostProfileResponse>(`/users/firebase/${hostId}/profile`);
+        const firstName = res.data?.firstName?.trim();
+        const fullName = `${res.data?.firstName ?? ''} ${res.data?.lastName ?? ''}`.trim();
+        const fallbackName = res.data?.name?.trim();
+
+        setHostDisplayName(firstName || fullName || fallbackName || 'Host');
+      } catch {
+        setHostDisplayName('Host');
+      }
+    };
+
+    void loadHostDisplayName();
+  }, [hostId, currentUser?.uid, currentUser?.firstName, currentUser?.name]);
+
   // 3. Fetch Room Details on Load (To persist dropdown state on refresh)
   useEffect(() => {
     const fetchRoomDetails = async () => {
@@ -187,6 +329,9 @@ export default function TeacherPollRoom() {
         });
 
         if (res.data.success && res.data.room?.controls) {
+          if (res.data.room.teacherId) {
+            setHostId(res.data.room.teacherId);
+          }
           const { micBlocked, pollRestricted } = res.data.room.controls;
 
           if (micBlocked) {
@@ -216,6 +361,11 @@ export default function TeacherPollRoom() {
 
   // 2. Remove Cohost API 
   const handleRemoveCohost = async (cohostId: string) => {
+    // Only main host can remove other cohosts
+    if (currentUser?.uid !== hostId) {
+      toast.error("Only the main host can remove co-hosts");
+      return;
+    }
 
     //confirmation before proceeding
     const confirmed = await showModal({
@@ -252,6 +402,11 @@ export default function TeacherPollRoom() {
         return;
       }
 
+      if (!isHost) {
+        toast.error("Only the host can create co-host invite links");
+        return;
+      }
+
       const res = await api.post(`/livequizzes/rooms/cohost/${roomCode}`, {
         userId: currentUser.uid
       });
@@ -260,7 +415,11 @@ export default function TeacherPollRoom() {
       setInviteLinkExpiresAt(Date.now() + INVITE_TTL_MS);
     } catch (error) {
       console.error("Error creating Invite link:", error);
-      toast.error("Failed to create Invite Link");
+      const errorMessage =
+        typeof error === 'object' && error !== null && 'response' in error
+          ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined;
+      toast.error(errorMessage || "Failed to create Invite Link");
     } finally {
       setIsCreating(false);
     }
@@ -313,6 +472,87 @@ export default function TeacherPollRoom() {
         )
       );
       toast.error("Failed to update co-host microphone");
+    }
+  };
+
+  // Question Approval Handlers
+  const handleApproveQuestion = (questionIndex: number) => {
+    const approvingUser = currentUser?.name || currentUser?.uid || 'Unknown';
+    
+    setQuestionApprovals(prev => ({
+      ...prev,
+      [questionIndex]: {
+        approved: true,
+        approvedBy: approvingUser,
+        rejectedBy: undefined,
+        rejectionReason: undefined
+      }
+    }));
+
+    // Broadcast approval to all users
+    socket.emit('question-approval-changed', {
+      roomCode,
+      questionIndex,
+      approved: true,
+      approvedBy: approvingUser
+    });
+
+    toast.success(`Question ${questionIndex + 1} approved! ✓`);
+    console.log('Question approved:', questionIndex, 'by', approvingUser);
+  };
+
+  const handleRejectQuestion = (questionIndex: number, reason?: string) => {
+    const rejectingUser = currentUser?.name || currentUser?.uid || 'Unknown';
+    
+    setQuestionApprovals(prev => ({
+      ...prev,
+      [questionIndex]: {
+        approved: false,
+        rejectedBy: rejectingUser,
+        rejectionReason: reason,
+        approvedBy: undefined
+      }
+    }));
+
+    // Broadcast rejection to all users
+    socket.emit('question-approval-changed', {
+      roomCode,
+      questionIndex,
+      approved: false,
+      rejectedBy: rejectingUser,
+      rejectionReason: reason
+    });
+
+    toast.error(`Question ${questionIndex + 1} rejected. Reason: ${reason || 'No reason provided'}`);
+    console.log('Question rejected:', questionIndex, 'by', rejectingUser);
+  };
+
+  // Student Management Handlers
+  const handleMuteStudentFn = async (studentEmail: string, studentName: string) => {
+    try {
+      socket.emit('mute-student', {
+        roomCode,
+        studentEmail,
+        isMuted: true
+      });
+      toast.success(`${studentName} has been muted`);
+    } catch (error) {
+      console.error('Error muting student:', error);
+      toast.error(`Failed to mute ${studentName}`);
+    }
+  };
+
+  const handleUnmuteStudentFn = async (studentEmail: string, studentName: string) => {
+    try {
+      socket.emit('mute-student', {
+        roomCode,
+        studentEmail,
+        isMuted: false
+      });
+      toast.success(`${studentName} has been unmuted`);
+    } catch (error) {
+      console.error('Error unmuting student:', error);
+      toast.error(`Failed to unmute ${studentName}`);
     }
   };
 
@@ -397,7 +637,8 @@ export default function TeacherPollRoom() {
   const [showPreview, setShowPreview] = useState(false);
   const [_editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [questionSpec, setQuestionSpec] = useState("");
-  const [selectedModel, setSelectedModel] = useState("deepseek-r1:70b");
+  const [selectedModel, setSelectedModel] = useState("gemma3");
+  const [availableModels, setAvailableModels] = useState<string[]>(['gemma3', 'deepseek-r1:70b']);
   const [questionCount, setQuestionCount] = useState<number>(3);
 
   // Queue for auto-generated questions while live recording is ongoing.
@@ -476,13 +717,50 @@ export default function TeacherPollRoom() {
   const [pastedContent, setPastedContent] = useState('');
   const [textFileContent, setTextFileContent] = useState('');
   const [fileName, setFileName] = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ id: string; fileName: string; content: string; addedAt: number; addedBy?: string }>>([]);
+  const [tempFilesToAdd, setTempFilesToAdd] = useState<Array<{ fileName: string; content: string }>>([]);
 
   const [roomControlMode, setRoomControlMode] = useState<'full' | 'mic-disabled' | 'poll-disabled'>('full');
+  const suppressDraftBroadcastRef = useRef(false);
+  const lastRemoteDraftAtRef = useRef(0);
+  const draftSyncTimeoutRef = useRef<number | null>(null);
+  const [lastDraftEditor, setLastDraftEditor] = useState<DraftEditorMeta | null>(null);
+
+  // Question Approval State - Track which questions are approved by cohosts
+  const [questionApprovals, setQuestionApprovals] = useState<Record<number, {
+    approved: boolean;
+    approvedBy?: string;
+    rejectedBy?: string;
+    rejectionReason?: string;
+  }>>({});
 
   // Handler for saving question edits
   const handleSaveQuestionEdit = () => {
     setEditingQuestion(null);
   };
+
+  useEffect(() => {
+    const fetchAiModels = async () => {
+      try {
+        const response = await api.get<AiModelsResponse>('/livequizzes/rooms/meta/ai-models');
+        const models = response.data?.models?.filter((model) => typeof model === 'string' && model.trim().length > 0) || [];
+
+        if (models.length > 0) {
+          setAvailableModels(models);
+          setSelectedModel((prev) => {
+            if (models.includes(prev)) return prev;
+            return response.data?.defaultModel && models.includes(response.data.defaultModel)
+              ? response.data.defaultModel
+              : models[0];
+          });
+        }
+      } catch {
+        // Keep fallback models when model discovery endpoint is unavailable.
+      }
+    };
+
+    fetchAiModels();
+  }, []);
 
   // Handler for updating question text
   const handleQuestionChange = (value: string) => {
@@ -513,7 +791,7 @@ export default function TeacherPollRoom() {
 
     // Join room function
     const joinRoom = () => {
-      socket.emit('join-room', { roomCode, user: currentUser?.uid }, (response: any) => {
+      socket.emit('join-room', { roomCode, user: currentUser?.uid, role: 'teacher' }, (response: any) => {
         if (response?.status === 'error') {
           // Error joining room
           console.log('Error joining room:', response);
@@ -564,11 +842,32 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('teacher-draft-updated');
+      socket.off('new-poll');
+      socket.off('question-approval-changed');
 
       // Set up new listeners
       socket.on('live-poll-results', handlePollUpdate);
       socket.on('poll-results-updated', (data) => {
         setPollResults(data)
+      });
+
+      socket.on('new-poll', () => {
+        fetchResults();
+      });
+
+      // Question Approval Listener - Sync approvals across all users
+      socket.on('question-approval-changed', (data: { questionIndex: number; approved: boolean; approvedBy?: string; rejectedBy?: string; rejectionReason?: string }) => {
+        console.log('Question approval changed:', data.questionIndex, 'approved:', data.approved);
+        setQuestionApprovals(prev => ({
+          ...prev,
+          [data.questionIndex]: {
+            approved: data.approved,
+            approvedBy: data.approvedBy,
+            rejectedBy: data.rejectedBy,
+            rejectionReason: data.rejectionReason
+          }
+        }));
       });
 
       socket.on('room-control-updated', (data) => {
@@ -613,12 +912,27 @@ export default function TeacherPollRoom() {
         toast.info('A co-host left the room');
       });
 
+      socket.on('host-changed', (data) => {
+        // Update the main host ID
+        setHostId(data.newHostId);
+        if (currentUser?.uid === data.newHostId) {
+          toast.success('You have been promoted to main host');
+        } else {
+          toast.info(data.message ?? 'Main host has changed');
+        }
+      });
+
       socket.on('room-ended', (data) => {
         setShowEndRoomConfirm(false);
         setIsEndingRoom(false);
+        clearInviteLink();
         toast.info(data.message ?? 'Room has ended');
-        if (!isHost) navigate({ to: '/teacher/cohosted-rooms' });
-
+        
+        // Cohosts leave the room, main host is already redirected via API callback
+        if (!isHost) {
+          navigate({ to: '/teacher/cohosted-rooms' });
+        }
+        // Main host stays in room (API callback handles navigation to /teacher/pollroom)
       });
 
       socket.on('room-updated', (updatedRoom) => {
@@ -639,6 +953,55 @@ export default function TeacherPollRoom() {
           if (data?.isMicMuted) toast.error('Host muted your microphone');
           else toast.success('Host unmuted your microphone');
         }
+      });
+
+      socket.on('teacher-draft-updated', (data: { draft?: TeacherDraftSync; senderId?: string; updatedAt?: number }) => {
+        if (!data?.draft) return;
+        if (data.senderId && data.senderId === currentUser?.uid) return;
+
+        suppressDraftBroadcastRef.current = true;
+        lastRemoteDraftAtRef.current = data.updatedAt ?? Date.now();
+
+        const incoming = data.draft;
+        if (data.senderId) {
+          setLastDraftEditor({
+            userId: data.senderId,
+            updatedAt: data.updatedAt ?? Date.now(),
+          });
+        }
+        setQuestion(incoming.question ?? '');
+        setOptions(Array.isArray(incoming.options) ? incoming.options : ['', '', '', '']);
+        setCorrectOptionIndex(typeof incoming.correctOptionIndex === 'number' ? incoming.correctOptionIndex : 0);
+        setGeneratedQuestions(Array.isArray(incoming.generatedQuestions) ? incoming.generatedQuestions : []);
+        setCurrentQuestionIndex(typeof incoming.currentQuestionIndex === 'number' ? incoming.currentQuestionIndex : 0);
+        setMaxPoints(incoming.maxPoints ?? 20);
+        setTextFileContent(incoming.textFileContent ?? '');
+        setFileName(incoming.fileName ?? '');
+        setPastedContent(incoming.pastedContent ?? '');
+        
+        // Sync uploaded files from other hosts
+        if (Array.isArray(incoming.uploadedFiles) && incoming.uploadedFiles.length > 0) {
+          console.log('Syncing uploadedFiles from remote host:', incoming.uploadedFiles.length, 'files');
+          setUploadedFiles(incoming.uploadedFiles);
+        }
+
+        if (Array.isArray(incoming.generatedQuestions) && incoming.generatedQuestions.length > 0) {
+          setShowPreview(true);
+        }
+
+        setQuestionTimers((prev) => {
+          const index = typeof incoming.currentQuestionIndex === 'number' ? incoming.currentQuestionIndex : 0;
+          return {
+            ...prev,
+            [index]: {
+              ...(prev[index] || { isLaunched: false }),
+              initialTime: Number(incoming.currentTimer || 30),
+              timeLeft: prev[index]?.timeLeft ?? Number(incoming.currentTimer || 30),
+              isActive: prev[index]?.isActive ?? false,
+              isLaunched: prev[index]?.isLaunched ?? false,
+            }
+          };
+        });
       });
 
       socket.on('connect', () => {
@@ -683,6 +1046,8 @@ export default function TeacherPollRoom() {
       socket.off('cohost-removed');
       socket.off('room-ended');
       socket.off('cohost-mic-updated');
+      socket.off('teacher-draft-updated');
+      socket.off('new-poll');
     };
   }, [roomCode]);
 
@@ -932,7 +1297,6 @@ export default function TeacherPollRoom() {
         // Wait for queue to finish processing
         while (processingQueueRef.current || pendingTextChunksRef.current.length > 0) {
           // small sleep
-          // eslint-disable-next-line no-await-in-loop
           await new Promise((r) => setTimeout(r, 200));
         }
 
@@ -1405,6 +1769,9 @@ export default function TeacherPollRoom() {
     /* if (transcriber.output?.isBusy || isRecording || isListening) {
        return;
      }*/
+    const uploadedText = textFileContent?.trim();
+    const pastedText = pastedContent?.trim();
+
     let currentTranscript
     let textToUse
     if (finalSpeechText) {
@@ -1412,14 +1779,14 @@ export default function TeacherPollRoom() {
       textToUse = finalSpeechText
     }
     else {
-      currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim();
-      textToUse = transcript || transcriber.output?.text || displayTranscript.trim();
+      currentTranscript = transcript || transcriber.output?.text || displayTranscript.trim() || uploadedText || pastedText;
+      textToUse = transcript || transcriber.output?.text || displayTranscript.trim() || uploadedText || pastedText;
     }
 
     // Get the current transcript value from the state
 
     if (!currentTranscript) {
-      toast.error("Please provide YouTube URL, upload file, or record audio");
+      toast.error(fileName ? `Could not read text from ${fileName}. Please re-upload or use a .docx/.pdf/.txt file.` : "Please provide YouTube URL, upload file, paste text, or record audio");
       return;
     }
 
@@ -1482,6 +1849,9 @@ export default function TeacherPollRoom() {
     }
   }, [
     transcript,
+    textFileContent,
+    pastedContent,
+    fileName,
     transcriber.output?.isBusy,
     transcriber.output?.text,
     displayTranscript,
@@ -1499,6 +1869,7 @@ export default function TeacherPollRoom() {
   // Common function to process content (text from file or paste)
   // Add this new state to track when we want to generate questions
   const [shouldGenerate, setShouldGenerate] = useState(false);
+  const [isFileLoading, setIsFileLoading] = useState(false);
 
   const processContent = useCallback(async (content: string) => {
     if (!content.trim()) {
@@ -1537,79 +1908,125 @@ export default function TeacherPollRoom() {
     generate();
   }, [shouldGenerate, transcript, generateQuestions]);
 
-  // Handle text file selection
-  const handleTextFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // Check if file is a text file
-    if (!file.name.endsWith('.txt')) {
-      toast.error('Please upload a .txt file');
+  // Handle text file selection (single or multiple)
+  const handleTextFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    if (selectedFiles.length === 0) {
+      console.log('No file selected');
       return;
     }
 
-    setFileName(file.name);
+    console.log('Files selected:', selectedFiles.map((file) => file.name));
+
+    const validFiles = selectedFiles.filter((file) => {
+      const extension = getFileExtension(file.name);
+      return SUPPORTED_DOC_EXTENSIONS.includes(extension as (typeof SUPPORTED_DOC_EXTENSIONS)[number]);
+    });
+
+    const invalidFilesCount = selectedFiles.length - validFiles.length;
+    if (invalidFilesCount > 0) {
+      toast.error(`${invalidFilesCount} file(s) skipped. Supported types: .txt, .pdf, .doc, .docx`);
+    }
+
+    if (validFiles.length === 0) {
+      event.target.value = '';
+      return;
+    }
+
+    setTempFilesToAdd([]);
     setIsGenerateClicked(false); // Reset generate clicked state when new file is selected
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        if (!content || !content.trim()) {
-          throw new Error('File is empty');
-        }
-        setTextFileContent(content);
-      } catch (error) {
-        // Error reading file
-        toast.error('Failed to read the file');
-        setFileName('');
-        setTextFileContent('');
-      }
-    };
-    reader.onerror = () => {
-      toast.error('Failed to read the file');
-      setFileName('');
-      setTextFileContent('');
-    };
-
     try {
-      reader.readAsText(file);
+      setIsFileLoading(true);
+      const extractedFiles = await Promise.all(
+        validFiles.map(async (file) => {
+          console.log('Starting file extraction for:', file.name);
+          const content = await extractSupportedFileText(file);
+          return { fileName: file.name, content: content.trim() };
+        })
+      );
+
+      const nonEmptyFiles = extractedFiles.filter((file) => file.content.length > 0);
+      const emptyFilesCount = extractedFiles.length - nonEmptyFiles.length;
+
+      if (emptyFilesCount > 0) {
+        toast.error(`${emptyFilesCount} file(s) were empty and skipped.`);
+      }
+
+      if (nonEmptyFiles.length === 0) {
+        throw new Error('Selected files are empty');
+      }
+
+      setTempFilesToAdd(nonEmptyFiles);
+      toast.success(`${nonEmptyFiles.length} file(s) ready to process`);
     } catch (error) {
-      // Error reading file
-      toast.error('Failed to process the file');
-      setFileName('');
-      setTextFileContent('');
+      console.error('File extraction error:', error);
+      toast.error('Failed to read selected files. Please verify the files and try again.');
+      setTempFilesToAdd([]);
+    } finally {
+      setIsFileLoading(false);
     }
 
     // Reset the file input
     event.target.value = '';
   };
 
-  // Handle text file content submission
+  // Handle text file content submission - append one or many files to list
   const handleTextFileSubmit = async () => {
-    if (!textFileContent || !textFileContent.trim()) {
-      toast.error('The file is empty or not loaded yet');
+    if (tempFilesToAdd.length === 0) {
+      toast.error('No file content is loaded yet');
       return;
     }
 
-    // console.log('Setting isProcessing to true');
     setIsProcessing(true);
 
-
     try {
-      // console.log('Calling processContent');
-      await processContent(textFileContent);
+      const now = Date.now();
+      const newFiles = tempFilesToAdd.map((file, index) => ({
+        id: `${now}-${index}`,
+        fileName: file.fileName,
+        content: file.content,
+        addedAt: now,
+        addedBy: currentUser?.uid,
+      }));
 
+      console.log('Adding new files to uploadedFiles:', newFiles.map((file) => file.fileName));
+      setUploadedFiles(prev => {
+        const updated = [...prev, ...newFiles];
+        console.log('Updated uploadedFiles array:', updated.length, 'files');
+        return updated;
+      });
 
-      // Reset states after successful processing
-      setTextFileContent('');
-      setFileName('');
+      const combinedContent = tempFilesToAdd
+        .map((file) => `File: ${file.fileName}\n${file.content}`)
+        .join('\n\n---\n\n');
+
+      // Set combined content as current source for question generation
+      setTextFileContent(combinedContent);
+      setFileName(
+        tempFilesToAdd.length === 1
+          ? tempFilesToAdd[0].fileName
+          : `${tempFilesToAdd.length} files selected`
+      );
+
+      // Show success message
+      toast.success(`✓ ${tempFilesToAdd.length} file(s) uploaded successfully!`);
+
+      // Process combined content for question generation
+      await processContent(combinedContent);
+
+      // Clear pending files after successful processing
+      setTempFilesToAdd([]);
+      
+      // Reset file input for next file
+      const fileInput = document.getElementById('textFileInput') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
     } catch (error) {
-      // Error processing file content
+      console.error('Error in handleTextFileSubmit:', error);
       toast.error('Failed to process file content');
-      setIsProcessing(false); // Only set to false on error
+      setIsProcessing(false);
     } finally {
-      setShowUploadTextFileModal(false);
+      setIsProcessing(false);
     }
   };
 
@@ -1754,12 +2171,10 @@ export default function TeacherPollRoom() {
   const ModelSelector: React.FC<ModelSelectorProps> = ({ selectedModel, onModelChange, className = "" }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    const models = [
-      { value: "gemma3", label: "Gemma 3" },
-      { value: "gpt-4", label: "GPT-4" },
-      { value: "claude-3", label: "Claude 3" },
-      { value: "deepseek-r1:70b", label: "DeepSeek R1 (70B)" }
-    ];
+    const models = availableModels.map((modelName) => ({
+      value: modelName,
+      label: modelName,
+    }));
 
     const selectedModelLabel = models.find(model => model.value === selectedModel)?.label || "Select Model";
 
@@ -1815,6 +2230,12 @@ export default function TeacherPollRoom() {
     setIsGenerateClicked(true);
 
     if (!transcriber.output?.isBusy && (!isRecording || !isListening)) {
+      if (textFileContent?.trim()) {
+        setTranscript(textFileContent.trim());
+      } else if (pastedContent?.trim()) {
+        setTranscript(pastedContent.trim());
+      }
+
       if (transcriber.output?.text) {
         const finalText = transcriber.output?.text || transcript;
         setTranscript(finalText);
@@ -1956,6 +2377,72 @@ export default function TeacherPollRoom() {
   }>>({});
   const [currentPollResponses, setCurrentPollResponses] = useState(0);
   const timerRefs = useRef<Record<number, NodeJS.Timeout>>({});
+
+  useEffect(() => {
+    if (!roomCode || !currentUser?.uid || !socket.connected) return;
+
+    if (suppressDraftBroadcastRef.current) {
+      suppressDraftBroadcastRef.current = false;
+      return;
+    }
+
+    if (Date.now() - lastRemoteDraftAtRef.current < 120) {
+      return;
+    }
+
+    if (draftSyncTimeoutRef.current) {
+      window.clearTimeout(draftSyncTimeoutRef.current);
+    }
+
+    draftSyncTimeoutRef.current = window.setTimeout(() => {
+      const outgoingDraft: TeacherDraftSync = {
+        question,
+        options,
+        correctOptionIndex,
+        generatedQuestions,
+        currentQuestionIndex,
+        maxPoints,
+        currentTimer: Number(questionTimers[currentQuestionIndex]?.initialTime || 30),
+        textFileContent,
+        fileName,
+        uploadedFiles,
+        pastedContent,
+      };
+
+      console.log('Broadcasting draft with', uploadedFiles.length, 'uploaded files');
+      socket.emit('teacher-draft-updated', {
+        roomCode,
+        draft: outgoingDraft,
+      });
+
+      if (currentUser?.uid) {
+        setLastDraftEditor({
+          userId: currentUser.uid,
+          updatedAt: Date.now(),
+        });
+      }
+    }, 150);
+
+    return () => {
+      if (draftSyncTimeoutRef.current) {
+        window.clearTimeout(draftSyncTimeoutRef.current);
+      }
+    };
+  }, [
+    roomCode,
+    currentUser?.uid,
+    question,
+    options,
+    correctOptionIndex,
+    generatedQuestions,
+    currentQuestionIndex,
+    maxPoints,
+    questionTimers,
+    textFileContent,
+    fileName,
+    uploadedFiles,
+    pastedContent,
+  ]);
 
   useEffect(() => {
     if (readyToCreatePoll) {
@@ -2115,6 +2602,16 @@ export default function TeacherPollRoom() {
     return opts.filter(opt => opt.trim() !== '');
   };
 
+  const draftEditorName = (() => {
+    if (!lastDraftEditor?.userId) return '';
+    if (lastDraftEditor.userId === hostId) return 'Host';
+    if (lastDraftEditor.userId === currentUser?.uid) return 'You';
+
+    const cohost = cohosts.find(c => c.userId === lastDraftEditor.userId);
+    if (cohost?.firstName) return cohost.firstName;
+    return 'Cohost';
+  })();
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Main layout container */}
@@ -2158,7 +2655,7 @@ export default function TeacherPollRoom() {
               </div>
 
               {/* Capsule Toggle Button (Only show if not collapsed) */}
-              {isHost && !isSidebarCollapsed && (
+              {!isSidebarCollapsed && (
                 <div className="px-3 py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex bg-[#9b51e0] dark:bg-purple-700 rounded-full p-1 text-sm font-semibold shadow-inner">
                     <button
@@ -2186,11 +2683,23 @@ export default function TeacherPollRoom() {
               {/* List content */}
               <ScrollArea className="flex-1">
                 <div className="p-2 space-y-2">
+                  <div className="flex items-center justify-between w-full p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200/70 dark:border-blue-800/60">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
+                      {!isSidebarCollapsed && (
+                        <span className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">
+                          {hostDisplayName} (Host)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
                   {/* STUDENTS TAB */}
                   {activeSidebarTab === 'students' && (
                     students.length > 0 ? (
                       students.map((student: any, index: number) => {
-                        const studentName = student?.firstName;
+                        const studentName = `${student?.firstName || ''} ${student?.lastName || ''}`.trim() || 'Student';
+                        const isStudentMuted = Boolean(student?.isMuted);
                         return (
                           <div
                             key={index}
@@ -2214,9 +2723,31 @@ export default function TeacherPollRoom() {
 
                             </div>
                             {!isSidebarCollapsed && (
-                              <Trash2
-                                size={18}
-                                className="
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  className={`${student?.email ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'} opacity-0 group-hover:opacity-100 transition-all duration-200 flex-shrink-0`}
+                                  onClick={() => {
+                                    if (!student?.email) return;
+                                    if (isStudentMuted) {
+                                      handleUnmuteStudentFn(student.email, studentName);
+                                      return;
+                                    }
+                                    handleMuteStudentFn(student.email, studentName);
+                                  }}
+                                  title={isStudentMuted ? 'Unmute student' : 'Mute student'}
+                                  disabled={!student?.email}
+                                >
+                                  {isStudentMuted ? (
+                                    <MicOff size={18} className="text-amber-500 hover:text-amber-700" />
+                                  ) : (
+                                    <Mic size={18} className="text-emerald-500 hover:text-emerald-700" />
+                                  )}
+                                </button>
+
+                                <Trash2
+                                  size={18}
+                                  className="
                   text-red-500
                   cursor-pointer
                   opacity-0
@@ -2225,8 +2756,9 @@ export default function TeacherPollRoom() {
                   hover:text-red-700 hover:scale-110
                   flex-shrink-0
                 "
-                                onClick={() => handleRemoveStudent(student.email)}
-                              />
+                                  onClick={() => handleRemoveStudent(student.email)}
+                                />
+                              </div>
                             )}
 
                           </div>
@@ -2246,7 +2778,7 @@ export default function TeacherPollRoom() {
                   )}
 
                   {/* COHOSTS TAB (Real Data) */}
-                  {isHost && activeSidebarTab === 'cohosts' && (
+                  {activeSidebarTab === 'cohosts' && (
                     cohosts.length > 0 ? (
                       cohosts.map((cohost, index) => (
                         <div
@@ -2258,13 +2790,13 @@ export default function TeacherPollRoom() {
                             <div className="w-2 h-2 rounded-full bg-green-500 mr-2 shrink-0"></div>
                             {!isSidebarCollapsed && (
                               <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
-                                {cohost.firstName || "Cohost"}
+                                {`${cohost.firstName || ''} ${cohost.lastName || ''}`.trim() || "Co-host"}
                               </span>
                             )}
                           </div>
 
                           {/* Cross Button (Visible only to Host on hover) */}
-                          {isHost && !isSidebarCollapsed && (
+                          {currentUser?.uid === hostId && !isSidebarCollapsed && (
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={() =>
@@ -2283,7 +2815,7 @@ export default function TeacherPollRoom() {
                               </button>
 
                               <button
-                                // Pass the correct ID format to the removal handler
+                                // Only main host can remove cohosts
                                 onClick={() => handleRemoveCohost(cohost?.userId)}
                                 className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-all duration-200"
                                 title="Remove Co-host"
@@ -2335,6 +2867,12 @@ export default function TeacherPollRoom() {
                     {roomCode}
                   </span>
                 </h2>
+
+                {lastDraftEditor && draftEditorName && (
+                  <span className="ml-2 inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-900/30 dark:text-purple-200">
+                    Last edited by {draftEditorName}
+                  </span>
+                )}
               </div>
 
               {/* Desktop Navigation */}
@@ -2914,7 +3452,7 @@ export default function TeacherPollRoom() {
                                       <SelectItem value="uploadTxt">
                                         <div className="flex items-center gap-2">
                                           <Upload className="h-4 w-4" />
-                                          <span>Upload Text File</span>
+                                          <span>Upload File</span>
                                         </div>
                                       </SelectItem>
                                       <SelectItem value="pasteContent">
@@ -3206,64 +3744,156 @@ export default function TeacherPollRoom() {
                             */}
                               {/* Text File Upload UI */}
                               {showUploadTextFileModal && (
-                                <div className="border border-border rounded-lg p-4 space-y-2 transition-transform duration-200 hover:scale-102">
+                                <div className="border border-border rounded-lg p-4 space-y-4 transition-transform duration-200">
+                                  {/* Modal Header */}
+                                  <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-700 pb-3">
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                      Upload File to Generate Questions
+                                    </h3>
+                                    <button
+                                      onClick={() => setShowUploadTextFileModal(false)}
+                                      className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                                    >
+                                      <X className="h-5 w-5" />
+                                    </button>
+                                  </div>
+
                                   <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 transition-colors">
                                     <Upload className="h-10 w-10 text-purple-500 mb-3" />
-                                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                                      {fileName ? fileName : 'Upload a text file to generate questions'}
+                                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">
+                                      {tempFilesToAdd.length > 0
+                                        ? `✓ ${tempFilesToAdd.length} file(s) ready to process`
+                                        : fileName
+                                          ? `✓ ${fileName} - Ready to process`
+                                          : 'Upload one or many files to generate questions'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                                      Supported: .txt, .pdf, .doc, .docx
                                     </p>
                                     <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
                                       <label
                                         htmlFor="textFileInput"
                                         className="flex-1"
                                       >
-                                        <div className="h-10 px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 dark:focus:ring-offset-gray-800 cursor-pointer text-center">
-                                          {fileName ? 'Change File' : 'Select Text File (.txt)'}
+                                        <div className="h-10 bg-purple-600 hover:bg-purple-700 text-white flex w-full items-center justify-center rounded-md px-3 text-sm font-medium cursor-pointer whitespace-nowrap overflow-hidden text-ellipsis transition-colors">
+                                          {tempFilesToAdd.length > 0 || fileName ? 'Change File(s)' : 'Choose File(s)'}
                                         </div>
                                         <input
                                           type="file"
                                           id="textFileInput"
-                                          accept=".txt"
+                                          multiple
+                                          accept=".txt,.pdf,.doc,.docx,text/plain,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                                           className="hidden"
                                           onChange={handleTextFileSelect}
                                         />
                                       </label>
                                       <Button
                                         onClick={handleTextFileSubmit}
-                                        disabled={!textFileContent.trim() || isProcessing}
+                                        disabled={tempFilesToAdd.length === 0 || isProcessing || isFileLoading}
                                         className="h-10 bg-purple-600 hover:bg-purple-700 text-white flex-1"
                                       >
-                                        {isProcessing ? (
+                                        {isFileLoading ? (
+                                          <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Reading file...
+                                          </>
+                                        ) : isProcessing ? (
                                           <>
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                             Processing...
                                           </>
                                         ) : (
-                                          'Generate Questions'
+                                          tempFilesToAdd.length > 1 ? 'Generate from Files' : 'Generate Questions'
                                         )}
                                       </Button>
                                     </div>
                                   </div>
 
-                                  {/* File Preview */}
-                                  {textFileContent && (
-                                    <div className="mt-4 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                                      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                                        <div className="flex justify-between items-center">
-                                          <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                            Preview
-                                          </h4>
-                                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                                            {textFileContent.length} characters
-                                          </span>
-                                        </div>
+                                  {/* File Preview - Enhanced - Show from pending files or current content */}
+                                  {(tempFilesToAdd.length > 0 || textFileContent) && (
+                                    <div className="mt-4 border-2 border-blue-200 dark:border-blue-800 rounded-lg overflow-hidden bg-blue-50 dark:bg-blue-950">
+                                      <div className="px-4 py-3 bg-blue-100 dark:bg-blue-900 border-b border-blue-200 dark:border-blue-800 flex items-center gap-2">
+                                        <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                        <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                                          Content Preview
+                                        </h4>
+                                        <span className="text-xs text-blue-700 dark:text-blue-300 ml-auto">
+                                          {(
+                                            tempFilesToAdd.length > 0
+                                              ? tempFilesToAdd.map((file) => file.content).join('\n\n').length
+                                              : textFileContent.length
+                                          ).toLocaleString()} characters
+                                        </span>
                                       </div>
-                                      <div className="p-4 bg-white dark:bg-gray-800 max-h-60 overflow-y-auto">
-                                        <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
-                                          {textFileContent.length > 1000
-                                            ? `${textFileContent.substring(0, 1000)}... [${textFileContent.length - 1000} more characters]`
-                                            : textFileContent}
+                                      <div className="p-4 bg-white dark:bg-gray-800 max-h-48 overflow-y-auto border-t border-blue-100 dark:border-blue-900">
+                                        <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 font-sans">
+                                          {(() => {
+                                            const content = tempFilesToAdd.length > 0
+                                              ? tempFilesToAdd
+                                                .map((file) => `File: ${file.fileName}\n${file.content}`)
+                                                .join('\n\n---\n\n')
+                                              : textFileContent;
+                                            return content.length > 800
+                                              ? `${content.substring(0, 800)}... [${(content.length - 800).toLocaleString()} more characters]`
+                                              : content;
+                                          })()}
                                         </pre>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {tempFilesToAdd.length > 0 && (
+                                    <div className="mt-3 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950 p-3">
+                                      <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-2">
+                                        Pending files
+                                      </p>
+                                      <div className="space-y-1">
+                                        {tempFilesToAdd.map((file, index) => (
+                                          <div key={`${file.fileName}-${index}`} className="flex items-center gap-2">
+                                            <p className="flex-1 text-xs text-blue-800 dark:text-blue-200 truncate">
+                                              {index + 1}. {file.fileName}
+                                            </p>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setTempFilesToAdd((prev) => prev.filter((_, fileIndex) => fileIndex !== index));
+                                              }}
+                                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950"
+                                              aria-label={`Remove ${file.fileName}`}
+                                              title={`Remove ${file.fileName}`}
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              Remove
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Uploaded Files List */}
+                                  {uploadedFiles.length > 0 && (
+                                    <div className="mt-4 border border-green-200 dark:border-green-900 rounded-lg overflow-hidden bg-green-50 dark:bg-green-950">
+                                      <div className="px-4 py-3 bg-green-100 dark:bg-green-900 border-b border-green-200 dark:border-green-800 flex items-center gap-2">
+                                        <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                        <h4 className="text-sm font-medium text-green-900 dark:text-green-100">
+                                          {uploadedFiles.length} File(s) Uploaded
+                                        </h4>
+                                      </div>
+                                      <div className="p-3 space-y-2">
+                                        {uploadedFiles.map((file, idx) => (
+                                          <div key={file.id} className="flex items-start gap-2 text-sm">
+                                            <Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                              <p className="font-medium text-green-900 dark:text-green-100 truncate">
+                                                {idx + 1}. {file.fileName}
+                                              </p>
+                                              <p className="text-xs text-green-700 dark:text-green-300">
+                                                {file.content.length} characters
+                                              </p>
+                                            </div>
+                                          </div>
+                                        ))}
                                       </div>
                                     </div>
                                   )}
@@ -3710,7 +4340,7 @@ export default function TeacherPollRoom() {
                                                     setQuestionTimers(prev => ({
                                                       ...prev,
                                                       [currentQuestionIndex]: {
-                                                        ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0 }),
+                                                        ...(prev[currentQuestionIndex] || { isActive: false, timeLeft: 0, isLaunched: false, initialTime: 0 }),
                                                         initialTime: newTime,
                                                         timeLeft: prev[currentQuestionIndex]?.isActive
                                                           ? Number(newTime)
@@ -3753,11 +4383,15 @@ export default function TeacherPollRoom() {
 
                                           <Button
                                             onClick={handleLaunchPoll}
-                                            disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive}
+                                            disabled={launchedQuestions.has(currentQuestionIndex) || questionTimers[currentQuestionIndex]?.isActive || !questionApprovals[currentQuestionIndex]?.approved}
                                             className="w-full lg:w-auto lg:mt-5 bg-purple-600 hover:bg-purple-700 text-white"
                                           >
                                             <BarChart2 className="w-4 h-4 mr-2" />
-                                            {questionTimers[currentQuestionIndex]?.isActive ? 'Poll Active' : 'Launch Poll'}
+                                            {questionTimers[currentQuestionIndex]?.isActive
+                                              ? 'Poll Active'
+                                              : !questionApprovals[currentQuestionIndex]?.approved
+                                                ? 'Approve to Launch'
+                                                : 'Launch Poll'}
                                           </Button>
                                         </div>
                                       </div>
@@ -3835,16 +4469,41 @@ export default function TeacherPollRoom() {
                                         <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full text-xs font-medium">
                                           AI Generated
                                         </span>
+                                        {questionApprovals[idx]?.approved ? (
+                                          <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full text-xs font-medium">
+                                            Approved
+                                          </span>
+                                        ) : questionApprovals[idx] ? (
+                                          <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-2 py-1 rounded-full text-xs font-medium">
+                                            Rejected
+                                          </span>
+                                        ) : (
+                                          <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-2 py-1 rounded-full text-xs font-medium">
+                                            Pending Approval
+                                          </span>
+                                        )}
                                       </div>
-                                      {/* <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-8 px-3 text-xs border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                                        onClick={() => selectGeneratedQuestion(q)}
-                                      >
-                                        <Check className="w-3 h-3 mr-1" />
-                                        Use This
-                                      </Button> */}
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-8 px-3 text-xs border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/30"
+                                          onClick={() => handleApproveQuestion(idx)}
+                                        >
+                                          Approve
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-8 px-3 text-xs border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
+                                          onClick={() => {
+                                            const reason = window.prompt('Optional: add a rejection reason');
+                                            handleRejectQuestion(idx, reason || undefined);
+                                          }}
+                                        >
+                                          Reject
+                                        </Button>
+                                      </div>
                                     </div>
 
                                     {/* Question Text */}
@@ -3974,7 +4633,7 @@ export default function TeacherPollRoom() {
                               setQuestionTimers(prev => ({
                                 ...prev,
                                 [currentQuestionIndex]: {
-                                  ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30 }),
+                                  ...(prev[currentQuestionIndex] || { timeLeft: 0, isActive: false, initialTime: 30, isLaunched: false }),
                                   initialTime: newTime,
                                   timeLeft: prev[currentQuestionIndex]?.isActive ? Number(newTime) : (prev[currentQuestionIndex]?.timeLeft || Number(newTime))
                                 }

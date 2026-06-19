@@ -68,6 +68,23 @@ export class AIContentService {
     return config;
   }
 
+  public async getAvailableModels(): Promise<string[]> {
+    try {
+      const config = this.getRequestConfig();
+      const response = await axios.get(`${this.ollimaApiBaseUrl}/tags`, config);
+      const models = Array.isArray(response.data?.models)
+        ? response.data.models
+            .map((m: any) => m?.name)
+            .filter((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0)
+        : [];
+
+      return models;
+    } catch (error) {
+      console.warn('[AIContentService] Failed to fetch available models from Ollama tags endpoint:', error);
+      return [];
+    }
+  }
+
   // --- Segmentation Logic ---
   public async segmentTranscript(
     transcript: string,
@@ -329,6 +346,7 @@ ${transcriptContent}
 
     const questionSpecs = globalQuestionSpecification[0];
     const allQuestions: GeneratedQuestion[] = [];
+    const generationErrors: string[] = [];
     console.log(`[generateQuestions] Model: ${model}`);
 
     for (const rawSegmentId in segments) {
@@ -397,7 +415,6 @@ ${transcriptContent}
                 questionType: type
               });
             });
-            allQuestions.push(...questions);
             console.log(`[generateQuestions] Generated ${questions.length} ${type} questions for segment ${segmentId}`);
             console.log(`[generateQuestions] Raw LLM text for type ${type}, segment ${segmentId}:`, text.slice(0, 500));
           } catch (e: any) {
@@ -417,13 +434,28 @@ ${transcriptContent}
               
               if (e.code === 'ETIMEDOUT') {
                 console.error(`[generateQuestions] Connection to Ollama server timed out. Please check network connectivity and Tailscale status.`);
+                generationErrors.push('Connection to Ollama server timed out.');
               } else if (e.code === 'ECONNREFUSED') {
                 console.error(`[generateQuestions] Connection to Ollama server refused. Server may be down or unreachable.`);
+                generationErrors.push('Connection to Ollama server refused. Server may be down or unreachable.');
+              } else {
+                const providerError = (e.response?.data as any)?.error;
+                if (typeof providerError === 'string' && providerError.toLowerCase().includes('model') && providerError.toLowerCase().includes('not found')) {
+                  generationErrors.push(`Selected model \"${model}\" is not available on the AI server.`);
+                } else {
+                  generationErrors.push(providerError || e.message || 'Unknown AI generation error');
+                }
               }
+            } else {
+              generationErrors.push(e?.message || 'Unknown AI generation error');
             }
           }
         }
       }
+    }
+
+    if (allQuestions.length === 0 && generationErrors.length > 0) {
+      throw new InternalServerError(generationErrors[0]);
     }
 
     console.log(`[generateQuestions] Done. Total questions: ${allQuestions.length}`);

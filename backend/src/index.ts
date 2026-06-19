@@ -20,6 +20,8 @@ import { currentUserChecker } from './shared/functions/currentUserChecker.js';
 import { pollSocket } from './modules/livequizzes/utils/PollSocket.js';
 import { connectToDatabase } from './config/db.js';
 
+const MAX_DEV_PORT_RETRIES = 10;
+
 const { controllers, validators } = await loadAppModules(appConfig.module.toLowerCase());
 
 const corsOptions: CorsOptions = {
@@ -116,12 +118,39 @@ app.use(function onError(err, req, res, next) {
 async function startServer() {
   try {
     await connectToDatabase(); // Connect to MongoDB first
-    // Start server
-    //useExpressServer(app, moduleOptions);
-    const server = app.listen(appConfig.port, () => {
-      printStartupSummary();
-    });
 
+    const listenOnPort = (port: number) =>
+      new Promise<import('http').Server>((resolve, reject) => {
+        const server = app.listen(port, () => resolve(server));
+        server.once('error', reject);
+      });
+
+    let server: import('http').Server | undefined;
+    let activePort = appConfig.port;
+
+    for (let attempt = 0; attempt <= MAX_DEV_PORT_RETRIES; attempt += 1) {
+      try {
+        server = await listenOnPort(activePort);
+        break;
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        const canRetry = appConfig.isDevelopment && err.code === 'EADDRINUSE' && attempt < MAX_DEV_PORT_RETRIES;
+
+        if (!canRetry) {
+          throw error;
+        }
+
+        const nextPort = activePort + 1;
+        console.warn(`⚠️ Port ${activePort} is in use. Retrying on ${nextPort}...`);
+        activePort = nextPort;
+      }
+    }
+
+    if (!server) {
+      throw new Error('Failed to initialize HTTP server');
+    }
+
+    printStartupSummary(activePort);
     pollSocket.init(server); // For live poll socket functionality
   } catch (error) {
     console.error('❌ Failed to start server:', error);

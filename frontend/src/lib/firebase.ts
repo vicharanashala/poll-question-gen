@@ -6,6 +6,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
+  fetchSignInMethodsForEmail,
   signOut,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -34,11 +35,19 @@ export const provider = new GoogleAuthProvider();
 // Function to update user role in MongoDB via your backend API
 export const updateUserRole = async (firebaseUID: string, role: string) => {
   try {
-    const user = auth.currentUser;
-    if (!user) {
-      throw new Error("No authenticated user found");
+    const currentUser = auth.currentUser;
+    const tokenFromStorage = localStorage.getItem('firebase-auth-token');
+
+    // Use Firebase token when available, but fall back to persisted token for
+    // edge cases where auth.currentUser is briefly null during app rehydration.
+    const token = currentUser
+      ? await currentUser.getIdToken()
+      : tokenFromStorage;
+
+    if (!token) {
+      throw new Error("No authentication token available");
     }
-    const token = await user.getIdToken();
+
     const response = await fetch(`${API_URL}/users/firebase/${firebaseUID}/role`, {
       method: 'PATCH',
       headers: {
@@ -81,18 +90,42 @@ export const loginWithEmail = async (
   email: string,
   password: string,
 ) => {
-  const result = await signInWithEmailAndPassword(auth, email, password);
-  const idToken = await result.user.getIdToken();
-  const firebaseUser = result.user;
+  const normalizedEmail = email.trim().toLowerCase();
+  try {
+    const result = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+    const idToken = await result.user.getIdToken();
+    const firebaseUser = result.user;
 
-  const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
+    const backendUser = await mapFirebaseUserToAppUser(firebaseUser);
 
-  // Store token and role in Zustand
-  const setAuthState = useAuthStore.getState();
-  setAuthState.setToken(idToken);
-  setAuthState.setUserRole?.(backendUser?.role);
+    // Store token and role in Zustand
+    const setAuthState = useAuthStore.getState();
+    setAuthState.setToken(idToken);
+    setAuthState.setUserRole?.(backendUser?.role);
 
-  return { result, role: backendUser?.role };
+    return { result, role: backendUser?.role };
+  } catch (error) {
+    const authError = error as Error & { code?: string };
+
+    if (
+      authError.code === 'auth/invalid-credential' ||
+      authError.code === 'auth/wrong-password' ||
+      authError.code === 'auth/user-not-found'
+    ) {
+      try {
+        const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          const providerError = new Error('This email is registered with Google. Please use Continue with Google.') as Error & { code: string };
+          providerError.code = 'auth/account-exists-with-different-credential';
+          throw providerError;
+        }
+      } catch {
+        // Keep original auth error if provider lookup fails.
+      }
+    }
+
+    throw error;
+  }
 };
 
 export const createUserWithEmail = async (
@@ -100,8 +133,9 @@ export const createUserWithEmail = async (
   password: string,
   displayName?: string,
 ) => {
+  const normalizedEmail = email.trim().toLowerCase();
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
     const firebaseUser = userCredential.user;
 
     if (displayName && firebaseUser) {
@@ -126,6 +160,20 @@ export const createUserWithEmail = async (
 
     return { result: userCredential, role: backendUser.role };
   } catch (error) {
+    const authError = error as Error & { code?: string };
+    if (authError.code === 'auth/email-already-in-use') {
+      try {
+        const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+        if (methods.includes('google.com') && !methods.includes('password')) {
+          const providerError = new Error('This email is already registered with Google. Please use Continue with Google.') as Error & { code: string };
+          providerError.code = 'auth/account-exists-with-different-credential';
+          throw providerError;
+        }
+      } catch {
+        // Keep original sign-up error if provider lookup fails.
+      }
+    }
+
     console.error("createUserWithEmail failed:", error);
     throw error;
   }
@@ -139,10 +187,17 @@ export const logout = () => {
 export const createBackendUser = async (firebaseUser: User) => {
   const token = await firebaseUser.getIdToken(true);
   try {
+    const rawName = firebaseUser.displayName?.trim() || '';
+    const [firstFromDisplay, ...restDisplay] = rawName.split(/\s+/).filter(Boolean);
+    const emailPrefix = (firebaseUser.email || '').split('@')[0]?.trim() || '';
+    const fallbackFromEmail = emailPrefix.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || 'User';
+    const firstName = firstFromDisplay || fallbackFromEmail;
+    const lastName = restDisplay.join(' ') || 'User';
+
     const newUser = {
       firebaseUID: firebaseUser.uid,
-      firstName: firebaseUser.displayName?.split(' ')[0] || '',
-      lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
+      firstName,
+      lastName,
       email: firebaseUser.email || '',
       avatar: firebaseUser.photoURL || null,
       role: "", // null,

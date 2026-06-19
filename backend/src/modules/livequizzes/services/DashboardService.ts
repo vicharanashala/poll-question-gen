@@ -7,7 +7,11 @@ import UserRoomStats from '#root/shared/database/models/UserRoomStats.js';
 @injectable()
 export class DashboardService {
     async getStudentDashboardData(studentId: string) {
-       
+        const discoverableActiveRooms = await Room.find({ status: 'active' })
+            .select('name roomCode teacherName polls createdAt')
+            .sort({ createdAt: -1 })
+            .lean();
+
         const joinedRooms = await Room.find({ joinedStudents: studentId }).lean();
 
         let totalPolls = 0;
@@ -20,7 +24,14 @@ export class DashboardService {
 
         let pollResults: any[] = [];
         let pollDetails: any[] = [];
-        let activePolls: any[] = [];
+        const activePolls: any[] = discoverableActiveRooms.map((room: any) => ({
+            name: room.name || `Room ${room.roomCode}`,
+            roomCode: room.roomCode,
+            teacherName: room.teacherName || 'Teacher',
+            status: room.polls?.length > 0 ? 'Ongoing' : 'Active',
+            pollCount: room.polls?.length || 0,
+            createdAt: room.createdAt,
+        }));
         let upcomingPolls: any[] = [];  // leave empty if you don’t have upcoming logic
         let scoreProgression: any[] = [];
         let roomWiseScores: any[] = [];
@@ -97,14 +108,6 @@ export class DashboardService {
                     type: 'MCQ',           // fixed value, since no type field
                     timer: poll.timer?.toString() || 'N/A'
                 });
-
-                // Active polls: based on room.status
-                if (room.status === 'active') {
-                    activePolls.push({
-                        name: poll.question || 'Active Poll',
-                        status: 'Ongoing'
-                    });
-                }
 
                 // (optional) upcoming polls: you could add logic if you store startTime
             }

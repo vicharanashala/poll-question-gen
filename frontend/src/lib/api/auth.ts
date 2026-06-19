@@ -15,7 +15,53 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
 
 // In your auth page, modify the login functions to pass the selected role:
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const deriveNameParts = (firebaseUser: FirebaseUser) => {
+  const rawName = firebaseUser.displayName?.trim() || '';
+  const [firstFromDisplay, ...restDisplay] = rawName.split(/\s+/).filter(Boolean);
+  const emailPrefix = (firebaseUser.email || '').split('@')[0]?.trim() || '';
+  const fallbackFromEmail = emailPrefix.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24) || 'User';
+
+  return {
+    firstName: firstFromDisplay || fallbackFromEmail,
+    lastName: restDisplay.join(' ') || 'User',
+  };
+};
+
+const ensureBackendUserProfile = async (firebaseUser: FirebaseUser, token: string) => {
+  const { firstName, lastName } = deriveNameParts(firebaseUser);
+
+  const payload = {
+    firebaseUID: firebaseUser.uid,
+    firstName,
+    lastName,
+    email: firebaseUser.email || '',
+    avatar: firebaseUser.photoURL || null,
+    role: '',
+    phoneNumber: null,
+    bio: null,
+    institution: null,
+    designation: null,
+    address: null,
+    emergencyContact: null,
+    dateOfBirth: null,
+  };
+
+  const createRes = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}/profile`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!createRes.ok) {
+    const errorText = await createRes.text();
+    throw new Error(`Failed to create backend user profile: ${errorText}`);
+  }
+
+  return createRes.json();
+};
 
 export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null) => {
   if (!firebaseUser) return null;
@@ -24,78 +70,8 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
     const token = await firebaseUser.getIdToken(true);
     useAuthStore.getState().setToken(token);
 
-    // Fetch backend user info directly using fetch
-    let backendUser = null;
-    let attempts = 0;
-    const maxAttempts = 2;
-
-    while (attempts < maxAttempts && !backendUser) {
-      attempts++;
-      const res = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-      });
-
-      if (res.ok) {
-        backendUser = await res.json();
-        console.log(`Fetched backend user on attempt ${attempts}:`, backendUser);
-      } else if (res.status === 404 && attempts < maxAttempts) {
-        console.warn(`User not found (attempt ${attempts}). Waiting 5 seconds before retry...`);
-        await delay(5000);
-
-        //   // Create user in backend MongoDB with selected role
-        //   const newUser = {
-        //     firebaseUID: firebaseUser.uid,
-        //     firstName: firebaseUser.displayName?.split(' ')[0] || '',
-        //     lastName: firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
-        //     email: firebaseUser.email || '',
-        //     avatar: firebaseUser.photoURL || null,
-        //     role: selectedRole, // ✅ Use the selected role from UI
-
-        //     // Additional profile fields
-        //     phoneNumber: null,
-        //     bio: null,
-        //     institution: null,
-        //     designation: null,
-        //     address: null,
-        //     emergencyContact: null,
-        //     dateOfBirth: null,
-
-        //     createdAt: new Date().toISOString(),
-        //     updatedAt: new Date().toISOString(),
-        //   };
-
-        //   const createRes = await fetch(`${API_URL}/users/firebase/${firebaseUser.uid}/profile`, {
-        //     method: 'POST',
-        //     headers: {
-        //       Authorization: `Bearer ${token}`,
-        //       'Content-Type': 'application/json'
-        //     },
-        //     body: JSON.stringify(newUser),
-        //   });
-
-        //   console.log(firebaseUser);
-        //   if (!firebaseUser.uid) {
-        //     console.error('Firebase user UID is missing!');
-        //     throw new Error('Firebase UID missing, cannot create user');
-        //   }
-
-        //   if (createRes.ok) {
-        //     backendUser = await createRes.json();
-        //     console.log('Successfully created backend user:', backendUser);
-        //   } else {
-        //     const errorText = await createRes.text();
-        //     console.error('Failed to create backend user:', errorText);
-        //     throw new Error(`Failed to create user: ${errorText}`);
-        //   }
-      } else {
-        const errorText = await res.text();
-        console.error('Failed to fetch backend user:', errorText);
-        throw new Error(`Failed to fetch user: ${errorText}`);
-      }
-    }
+    const backendUser = await ensureBackendUserProfile(firebaseUser, token);
+    console.log('Fetched or created backend profile:', backendUser);
 
     console.log('Backend user data:', backendUser?.role);
     // Map user with backend data - ensure all fields are properly mapped
@@ -107,7 +83,7 @@ export const mapFirebaseUserToAppUser = async (firebaseUser: FirebaseUser | null
       role: backendUser?.role || null,
       avatar: firebaseUser.photoURL || backendUser?.avatar || '',
       // from mongoDB
-      userId: backendUser?._id,
+      userId: backendUser?._id || backendUser?.id,
       firstName: backendUser?.firstName || firebaseUser.displayName?.split(' ')[0] || '',
       lastName: backendUser?.lastName || firebaseUser.displayName?.split(' ').slice(1).join(' ') || '',
       // Additional fields from IUser
@@ -240,7 +216,7 @@ export async function getCurrentUserProfile() {
     const token = await auth.currentUser?.getIdToken(true);
     if (!token) return null;
 
-    const res = await fetch(`${API_URL}/users/firebase/${user.uid}`, {
+    const res = await fetch(`${API_URL}/users/firebase/${user.uid}/profile`, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json'

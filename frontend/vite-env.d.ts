@@ -1,18 +1,19 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 
-// Add type declarations for Vite's import.meta.env
 interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string;
   readonly VITE_APP_API_URL: string;
-  // Add other environment variables here
+}
+
+declare module 'virtual:pwa-register' {
+  export function registerSW(options?: any): void;
 }
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
-// Add type declarations for the PWA plugin
 declare module 'vite-plugin-pwa' {
   interface VitePWAOptions {
     strategies?: 'generateSW' | 'injectManifest' | 'generateSW';
@@ -27,7 +28,6 @@ declare module 'vite-plugin-pwa' {
     filename?: string;
     manifestFilename?: string;
     outDir?: string;
-    // Add other PWA options as needed
   }
 }
 

@@ -34,6 +34,9 @@ class PollSocket {
       socket.on('join-room', async (data: { roomCode: string; email?: string; user?: string; role?: string; }) => {
         try {
           const { roomCode, email, user, role } = data;
+          if (user) {
+            socket.data.userId = user;
+          }
           const {isActive, hasAccess} = await this.roomService.isRoomValidAndHasAccess(roomCode, user);
 
           if(role === 'teacher' && !hasAccess) {
@@ -103,6 +106,18 @@ class PollSocket {
       socket.on("remove-student", async ({ roomCode, email }) => {
 
         try {
+          const requesterId = socket.data.userId as string | undefined;
+          if (!requesterId) {
+            socket.emit('error', 'Unauthorized');
+            return;
+          }
+
+          const { isActive, hasAccess } = await this.roomService.isRoomValidAndHasAccess(roomCode, requesterId);
+          if (!isActive || !hasAccess) {
+            socket.emit('error', 'Only host or active co-host can moderate students');
+            return;
+          }
+
           const user = await this.userRepo.findByEmail(email);
 
           if (!user) return;
@@ -165,24 +180,87 @@ class PollSocket {
         }
       });
 
+      socket.on('teacher-draft-updated', async (payload: { roomCode: string; draft: unknown }) => {
+        try {
+          const roomCode = payload?.roomCode;
+          const requesterId = socket.data.userId as string | undefined;
+
+          if (!roomCode || !requesterId) {
+            socket.emit('error', 'Unauthorized draft update');
+            return;
+          }
+
+          const { isActive, hasAccess } = await this.roomService.isRoomValidAndHasAccess(roomCode, requesterId);
+          if (!isActive || !hasAccess) {
+            socket.emit('error', 'Unauthorized draft update');
+            return;
+          }
+
+          socket.to(roomCode).emit('teacher-draft-updated', {
+            roomCode,
+            draft: payload?.draft,
+            senderId: requesterId,
+            updatedAt: Date.now(),
+          });
+        } catch (err) {
+          console.error('teacher-draft-updated error', err);
+          socket.emit('error', 'Failed to sync draft update');
+        }
+      });
+
       socket.on('cohost-leave', async (roomCode: string, cohostId: string) => {
+        const requesterId = socket.data.userId as string | undefined;
+        if (!requesterId || requesterId !== cohostId) {
+          socket.emit('error', 'Only the active co-host can leave this way');
+          return;
+        }
+
+        const { isActive, hasAccess } = await this.roomService.isRoomValidAndHasAccess(roomCode, requesterId);
+        if (!isActive || !hasAccess) {
+          socket.emit('error', 'Unauthorized');
+          return;
+        }
+
         const room = await Room.findOne({ roomCode });
-        const teacherId = room.teacherId
         if (!room) {
           throw new NotFoundError("Room is not found")
         }
+        const teacherId = room.teacherId
+        const isMainHostLeaving = cohostId === room.teacherId;
+        
         room.coHosts.forEach(c => {
           if (c.userId === cohostId) {
             c.isActive = false;
           }
         });
+
+        // Auto-promote next active cohost if main host is leaving
+        if (isMainHostLeaving) {
+          const nextActiveCohost = room.coHosts.find(c => c.isActive);
+          if (nextActiveCohost) {
+            room.teacherId = nextActiveCohost.userId;
+          }
+        }
+
         await room.save();
+        
         // Get updated cohost list
-        const activeCohosts = await this.roomService.getRoomCohosts(teacherId, roomCode);
+        const updatedTeacherId = room.teacherId;
+        const activeCohosts = await this.roomService.getRoomCohosts(updatedTeacherId, roomCode);
+        
         this.emitToRoom(roomCode, 'cohost-left', {
           removedUserId: cohostId,
-          activeCohosts: activeCohosts
+          activeCohosts: activeCohosts,
+          wasMainHost: isMainHostLeaving
         });
+
+        // Broadcast host change if main host departed and was promoted
+        if (isMainHostLeaving && updatedTeacherId !== teacherId) {
+          this.emitToRoom(roomCode, 'host-changed', {
+            newHostId: updatedTeacherId,
+            message: 'A new main host has been assigned'
+          });
+        }
       })
 
       socket.on('disconnect', () => {

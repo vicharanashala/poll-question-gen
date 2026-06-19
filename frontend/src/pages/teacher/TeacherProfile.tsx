@@ -340,6 +340,7 @@ export default function TeacherProfile() {
                           disabled={saving}
                           placeholder="First name"
                           title="Enter your first name"
+                          required
                         />
                       </div>
                       <div className="flex flex-col">
@@ -353,6 +354,7 @@ export default function TeacherProfile() {
                           disabled={saving}
                           placeholder="Last name"
                           title="Enter your last name"
+                          required
                         />
                       </div>
                     </div>

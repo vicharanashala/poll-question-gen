@@ -1,8 +1,6 @@
-import React, { createContext, useEffect, useState } from 'react';
+import React, { createContext, useState } from 'react';
 import { useAuthStore } from '@/lib/store/auth-store';
 import { logout, loginWithGoogle, loginWithEmail } from '@/lib/api/auth';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 
 type Role = 'teacher' | 'student' | 'admin' | null;
 
@@ -28,37 +26,7 @@ export const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Use the Zustand store
   const { user, isAuthenticated, setUser, clearUser } = useAuthStore();
-  const [loading, setLoading] = useState(true);
-
-  // Restore auth state on reload
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const token = await firebaseUser.getIdToken();
-        localStorage.setItem('auth-token', token);
-
-        // 👇 You can customize this part (e.g., get role from DB)
-        const { uid, email, displayName } = firebaseUser;
-        const storedRole = localStorage.getItem('user-role') as Role;
-        if (storedRole) {
-          setUser({
-            uid,
-            email: email || '',
-            name: displayName || '',
-            role: storedRole,
-          });
-        }
-      } else {
-        localStorage.removeItem('auth-token');
-        localStorage.removeItem('user-role');
-        clearUser();
-      }
-
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+  const [loading] = useState(false);
 
   // Login function that sets the user in the store
   const login = (selectedRole: Role, uid: string, email: string, name?: string) => {

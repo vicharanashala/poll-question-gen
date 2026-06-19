@@ -4,7 +4,7 @@ import { getMetadataArgsStorage } from 'routing-controllers';
 import { appConfig } from '../config/app.js'; // adjust path as needed
 import { dbConfig } from '../config/db.js'; // adjust path as needed
 
-export function printStartupSummary() {
+export function printStartupSummary(port: number = appConfig.port) {
   const env = process.env.NODE_ENV || 'development';
   const isDev = env === 'development';
   const isStaging = env === 'staging';
@@ -23,7 +23,7 @@ export function printStartupSummary() {
 
   // 🧩 Application Configuration
   log(label('Environment: ') + env);
-  log(label('Port: ') + appConfig.port);
+  log(label('Port: ') + port);
   log(label('App URL: ') + appConfig.url);
   log(label('Module: ') + appConfig.module);
   log(label('Allowed Origins: ') + appConfig.origins.join(', '));
@@ -103,7 +103,7 @@ export function printStartupSummary() {
     t.printTable();
 
     if (isDev) {
-      log(chalk.yellow(`Visit API Reference at http://localhost:${appConfig.port}/reference`));
+      log(chalk.yellow(`Visit API Reference at http://localhost:${port}/reference`));
     }
 
   } else {

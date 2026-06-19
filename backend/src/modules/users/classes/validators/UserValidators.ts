@@ -158,17 +158,15 @@ export class CreateUserProfileBody {
 }
 
 export class UpdateUserProfileBody {
-  @IsOptional()
+  @IsNotEmpty({ message: 'First Name is required' })
   @IsString()
-  @IsNotEmpty()
   @Transform(({ value }) => value?.trim())
-  firstName?: string;
+  firstName!: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'Last Name is required' })
   @IsString()
-  @IsNotEmpty()
   @Transform(({ value }) => value?.trim())
-  lastName?: string;
+  lastName!: string;
 
   @IsOptional()
   @IsEmail()
